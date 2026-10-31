@@ -349,11 +349,10 @@ with no gate and nothing from upstream's code, server or content.
   Downloaded Covers, the Home chips, the full-screen cover and its scrim, the page veils and round Play, the Visualizer
   fallback and shuffle, the hold speeds, Messages and Vinyl on the lock screen, Find Info against the real iTunes
   Search, a preset following AirPods and the speaker, a runaway Liveprog script).
-- From beta.6, on a phone: Picture-aware cover and photo on real albums and artists, the cut-out Play through
-  Play/Pause and Increase Contrast, the listeners line on an artist with and without About, the pinned Player preview
-  and its Without a clip pill.
-- From 1.0.0, on a phone: two and three artists' faces on a real album, the ⋯ glyph Spotify's rows ship, the
-  Crossfade segment and artwork during a real crossfade, and the queue line for Crossfade and Automix.
+- From beta.6 and 1.0.0, on a phone: everything above was checked on an iPhone 13 Pro (iOS 27.2, Spotify 9.1.90),
+  which found and fixed three defects (only one face of several artists, a seam where AMOLED blackened a near-black
+  page under the Picture-aware cover, and a layout loop across Spotify's three progress sliders). Still unchecked:
+  the cut-out Play and the album ⋯ with Increase Contrast, which the phone driver cannot switch.
 - From the second round, on a phone: Keep for This Song across a relaunch, the line under the cover with Spotify's own
   lyric preview on, the album notes' two placements and their sheet, an artist's photo and animated artwork, and the
   rolling digits and star. The Queue and Connect sheets' glass is not checkable until UIKit hands the sheet a

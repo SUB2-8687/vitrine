@@ -715,7 +715,9 @@ Shared:
                   remade on a track, queue, settings or metadata change, with SGAutoMixTransitionDidChangeNotification
                   (harness/automix/). The page opens on a preview of the transition drawn from the switch, style and
                   Blend length (AutoMixPreview.m), and holds the redesigned player's three switches, all off:
-                  spotifyglass.automix.show-progress (the outgoing window at the end of the progress bar),
+                  spotifyglass.automix.show-progress (the blend's window on the progress bar; with Crossfade on, Spotify
+                  shortens a song's clock by the crossfade so its bar ends where the blend begins, and the window shows
+                  as the next song's first seconds; seen on a 9.1.90 phone),
                   .show-queue (a line above Playing Next naming the blend into the next song) and .artwork (the two
                   covers handed over during the window), all three in Redesigned/Player/PlayerMix.x, drawn only for
                   known times (harness/player/automix-check.sh). Spotify keeps no transition fields written into its
