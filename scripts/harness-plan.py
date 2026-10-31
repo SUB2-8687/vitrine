@@ -40,9 +40,9 @@ HARNESSES = [
      "run": "bash harness/album-notes/build.sh"},
     {"name": "Album counts", "dir": "album-counts",
      "run": "bash harness/album-counts/check.sh"},
-    {"name": "Album cover", "dir": "album", "theos": True,
+    {"name": "Album cover", "dir": "album", "theos": True, "weight": 5,
      "run": "sh harness/album/cover-check.sh"},
-    {"name": "Album faces and row more", "dir": "album", "theos": True,
+    {"name": "Album faces and row more", "dir": "album", "theos": True, "weight": 16,
      "run": "sh harness/album/build.sh && sh harness/album/faces-more-check.sh"},
     {"name": "Appearance accent", "dir": "appearance-accent", "theos": True,
      "run": "bash harness/appearance-accent/check.sh"},
@@ -160,9 +160,9 @@ HARNESSES = [
      "run": "sh harness/player-refinements/check.sh"},
     {"name": "Player upcoming tracks", "dir": "player",
      "run": "sh harness/player/upcoming-tracks-check.sh"},
-    {"name": "Player settings", "dir": "player", "theos": True,
+    {"name": "Player settings", "dir": "player", "theos": True, "weight": 25,
      "run": "sh harness/player/settings-check.sh && python3 harness/player/settings-mutation-check.py"},
-    {"name": "Player AutoMix UI", "dir": "player", "theos": True,
+    {"name": "Player AutoMix UI", "dir": "player", "theos": True, "weight": 10,
      "run": "sh harness/player/automix-check.sh && python3 harness/player/automix-mutation-check.py"},
     {"name": "Preferences and counters", "dir": "prefs",
      "run": "sh harness/prefs/check.sh"},
@@ -507,7 +507,7 @@ def build_index():
         entry = dict(harness)
         entry["files"] = own
         entry["deps"] = deps
-        entry["weight"] = 3 if harness.get("theos") else 1 + min(3, len(deps) // 6)
+        entry["weight"] = harness.get("weight") or (3 if harness.get("theos") else 1 + min(3, len(deps) // 6))
         entry["always"] = not any(rel.startswith(TWEAK + "/") for rel in deps)
         index.append(entry)
     return index
@@ -557,18 +557,10 @@ def is_global_change(path):
 
 
 def shard_matrix(selected):
-    """At most five greedy shards; all Theos harnesses share one shard."""
+    """At most five greedy shards by weight; a shard with any Theos harness sets Theos up."""
     if not selected:
         return []
-    theos = [h for h in selected if h.get("theos")]
-    others = [h for h in selected if not h.get("theos")]
-    units = []
-    if theos:
-        units.append({"theos": True, "harnesses": theos,
-                      "weight": sum(h["weight"] for h in theos)})
-    for harness in others:
-        units.append({"theos": False, "harnesses": [harness],
-                      "weight": harness["weight"]})
+    units = [{"theos": bool(h.get("theos")), "harnesses": [h], "weight": h["weight"]} for h in selected]
     count = min(5, len(units))
     bins = [[] for _ in range(count)]
     loads = [0] * count
