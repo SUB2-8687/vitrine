@@ -95,6 +95,9 @@ extern UIContentSizeCategory sg_harnessTextSize;
 static void setTextSize(UIWindow *window, UIContentSizeCategory category) {
     sg_harnessTextSize = category;
     window.traitOverrides.preferredContentSizeCategory = category;
+    // Hand the new traits down now rather than whenever the window next lays out: a slow machine may not in 0.1 s.
+    [window updateTraitsIfNeeded];
+    [window layoutIfNeeded];
     [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
 }
 
