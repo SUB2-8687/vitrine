@@ -10,6 +10,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import json
+import signal
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -68,31 +71,67 @@ def main():
     parser.add_argument("--only", choices=[mutation[1] for mutation in MUTATIONS], action="append",
                         help="rerun a failed mutation without repeating valid passes")
     only = parser.parse_args().only
+    # This runner owns the copied sources, object cache and simulator; settings-check
+    # still owns the scenario and verdict, identically to its standalone invocation.
+    def interrupted(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupted)
     failed = False
-    for source, name, original, broken, guard in MUTATIONS:
-        if only and name not in only:
-            continue
-        with tempfile.TemporaryDirectory(prefix="player-settings-mutation.") as work:
-            sources = Path(work) / "Sources"
-            shutil.copytree(SOURCES, sources)
-            target = sources / source
-            text = target.read_text()
-            if text.count(original) != 1:
-                print("mutation %r: the text to break is not in %s once" % (name, source))
-                failed = True
-                continue
-            target.write_text(text.replace(original, broken))
-            env = dict(os.environ, SRC=str(sources))
-            env.pop("SHOTS", None)  # Never overwrite deliverable screenshots with a deliberately broken build.
-            run = subprocess.run(["sh", str(HERE / "settings-check.sh")], env=env,
-                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            caught = run.returncode != 0 and any(guard in line and line.endswith("-- WRONG") for line in run.stdout.splitlines())
-            print("mutation %r: %s" % (name, "caught by \"%s\"" % guard if caught else "NOT CAUGHT"), flush=True)
-            if not caught:
-                print(run.stdout, flush=True)
-                failed = True
+    with tempfile.TemporaryDirectory(prefix="player-settings-mutation.") as work:
+        sources = Path(work) / "Sources"
+        shutil.copytree(SOURCES, sources)
+        runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "available", "-j"]))
+        runtime = [r["identifier"] for r in runtimes["runtimes"] if r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-")][-1]
+        udid = subprocess.check_output(["xcrun", "simctl", "create", "PlayerSettingsMutations-%d" % os.getpid(),
+                                       "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro", runtime], text=True).strip()
+        try:
+            subprocess.run(["xcrun", "simctl", "boot", udid], check=True)
+            subprocess.run(["xcrun", "simctl", "bootstatus", udid], check=True, stdout=subprocess.DEVNULL)
+            for source, name, original, broken, guard in MUTATIONS:
+                if only and name not in only:
+                    continue
+                failed = run_mutation(work, sources, udid, source, name, original, broken, guard) or failed
+        finally:
+            try:
+                subprocess.run(["xcrun", "simctl", "shutdown", udid], check=True)
+            finally:
+                subprocess.run(["xcrun", "simctl", "delete", udid], check=True)
     print("settings mutations: %s" % ("FAIL" if failed else "PASS"))
     return 1 if failed else 0
+
+
+def run_mutation(work, sources, udid, source, name, original, broken, guard):
+    started = time.monotonic()
+    target = sources / source
+    text = target.read_text()
+    if text.count(original) != 1:
+        print("mutation %r: the text to break is not in %s once" % (name, source))
+        return True
+    target.write_text(text.replace(original, broken))
+    env = dict(os.environ, SRC=str(sources), PLAYER_SETTINGS_WORK=work,
+               PLAYER_SETTINGS_UDID=udid, PLAYER_INCREMENTAL="1")
+    env.pop("SHOTS", None)  # Never overwrite deliverable screenshots with a deliberately broken build.
+    try:
+        run = subprocess.Popen(["sh", str(HERE / "settings-check.sh")], env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                               start_new_session=True)
+        try:
+            output, _ = run.communicate()
+        except BaseException:
+            os.killpg(run.pid, signal.SIGTERM)
+            run.wait()
+            raise
+    finally:
+        target.write_text(text)
+    # Reinstall into an empty container next time, just like the standalone run.
+    subprocess.run(["xcrun", "simctl", "uninstall", udid, "com.vojta.playerharness"], check=True)
+    caught = run.returncode != 0 and any(guard in line and line.endswith("-- WRONG") for line in output.splitlines())
+    print("mutation %r: %s" % (name, "caught by \"%s\"" % guard if caught else "NOT CAUGHT"), flush=True)
+    print("mutation wall time: %.1f s" % (time.monotonic() - started), flush=True)
+    if not caught:
+        print(output, flush=True)
+    return not caught
 
 
 if __name__ == "__main__":

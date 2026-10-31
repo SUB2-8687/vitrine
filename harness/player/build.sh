@@ -3,16 +3,80 @@ set -e
 # SRC may point at another checkout of tweak/Sources (an older commit, to see a bug before its fix).
 SRC=${SRC:-$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)}
 OUT=${OUT:-$(dirname "$0")/build}
-rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/PlayerHarness.app"
+if [ "${PLAYER_INCREMENTAL:-0}" != 1 ]; then rm -rf "$OUT"; fi
+mkdir -p "$OUT/gen" "$OUT/PlayerHarness.app"
 
 for f in Redesigned/Player/PlayerLyrics.x Redesigned/Player/PlayerArtwork.x Redesigned/Player/PlayerFooter.x \
          Redesigned/Player/PlayerScroll.x Redesigned/Player/PlayerField.x Redesigned/Player/PlayerMotion.x Redesigned/Player/PlayerLandscape.x Redesigned/Player/PlayerControls.x Redesigned/Player/PlayerHeader.x Redesigned/Player/PlayerCoverAccent.x Redesigned/Player/DJPlayer.x Redesigned/Player/PlayerMix.x Redesigned/Kit/SGRBridges.x; do
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m.new"
+    if ! cmp -s "$OUT/gen/$name.m.new" "$OUT/gen/$name.m"; then
+        mv "$OUT/gen/$name.m.new" "$OUT/gen/$name.m"
+    else
+        rm "$OUT/gen/$name.m.new"
+    fi
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
+# Only the mutation runner opts in, with one private output directory for its lifetime.
+# Clang's dependency files invalidate objects for included headers as well as source edits.
+compile() {
+    if [ "${PLAYER_INCREMENTAL:-0}" != 1 ]; then
+        xcrun -sdk iphonesimulator clang "$@"
+        return
+    fi
+    python3 - "$OUT" "$@" <<'PY'
+import json, shlex, subprocess, sys
+from pathlib import Path
+
+out = Path(sys.argv[1])
+args = sys.argv[2:]
+sources, flags, libraries = [], [], []
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg == "-framework":
+        libraries.extend(args[i:i + 2])
+        i += 2
+    elif arg == "-o":
+        binary = args[i + 1]
+        i += 2
+    elif arg in ("-target", "-isysroot", "-include"):
+        flags.extend(args[i:i + 2])
+        i += 2
+    elif arg.endswith(".m"):
+        sources.append(arg)
+        i += 1
+    else:
+        flags.append(arg)
+        i += 1
+objects = out / "objects"
+objects.mkdir(exist_ok=True)
+compiler = ["xcrun", "-sdk", "iphonesimulator", "clang"]
+linked = []
+for index, source in enumerate(sources):
+    obj = objects / ("%d.o" % index)
+    dep = obj.with_suffix(".d")
+    record = obj.with_suffix(".json")
+    command = compiler + flags + ["-MD", "-MF", str(dep), "-c", source, "-o", str(obj)]
+    previous = json.loads(record.read_text()) if record.exists() else None
+    valid = previous and obj.exists() and previous["command"] == command
+    if valid:
+        for name, stamp in previous["dependencies"]:
+            path = Path(name)
+            if not path.exists() or [path.stat().st_mtime_ns, path.stat().st_size] != stamp:
+                valid = False
+                break
+    if not valid:
+        subprocess.run(command, check=True)
+        names = shlex.split(dep.read_text().replace("\\\n", "").split(": ", 1)[1])
+        dependencies = [[name, [Path(name).stat().st_mtime_ns, Path(name).stat().st_size]] for name in names]
+        record.write_text(json.dumps({"command": command, "dependencies": dependencies}))
+    linked.append(str(obj))
+subprocess.run(compiler + flags + linked + libraries + ["-o", binary], check=True)
+PY
+}
+compile -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     -I"$SRC" -I"$SRC/Redesigned/Player" -I"$SRC/Redesigned/Kit" -I"$OUT/gen" -I"$(dirname "$0")" -isysroot "$SDK" \
     -include "$SRC/Core/SGLocalize.h" \
     -Wno-deprecated-declarations \

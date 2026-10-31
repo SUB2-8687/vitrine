@@ -7,21 +7,26 @@
 # before the run, and SHOTS=<dir> keeps a screenshot of each state the scenario names (settings: screenshot <name> now).
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/player-settings.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+WORK=${PLAYER_SETTINGS_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/player-settings.XXXXXX")}
+if [ -z "${PLAYER_SETTINGS_WORK:-}" ]; then trap 'rm -rf "$WORK"' EXIT; fi
 OUT="$WORK/build" sh "$HERE/build.sh" > "$WORK/build.log" 2>&1 || { cat "$WORK/build.log"; exit 1; }
 # A clip taller than wide, as a Canvas is.
+if [ ! -f "$WORK/clip.mp4" ]; then
 xcrun --sdk macosx clang -fobjc-arc "$HERE/settings-clip.m" \
     -framework Foundation -framework AVFoundation -framework CoreMedia -framework CoreVideo \
     -o "$WORK/settings-clip"
 "$WORK/settings-clip" "$WORK/clip.mp4"
+fi
 
+UDID=${PLAYER_SETTINGS_UDID:-}
+if [ -z "$UDID" ]; then
 TYPE=$(xcrun simctl list devicetypes | sed -n 's/.*(\(com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro\))$/\1/p' | head -1)
 RUNTIME=$(xcrun simctl list runtimes available | sed -n 's/.* - \(com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*\)$/\1/p' | tail -1)
 UDID=$(xcrun simctl create "PlayerSettings-$$" "$TYPE" "$RUNTIME")
 trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1; xcrun simctl delete "$UDID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
 xcrun simctl boot "$UDID"
 xcrun simctl bootstatus "$UDID" > /dev/null
+fi
 xcrun simctl install "$UDID" "$WORK/build/PlayerHarness.app"
 if [ -n "${APPEARANCE:-}" ]; then xcrun simctl ui "$UDID" appearance "$APPEARANCE"; fi
 if [ -n "${CONTENT_SIZE:-}" ]; then xcrun simctl ui "$UDID" content_size "$CONTENT_SIZE"; fi
