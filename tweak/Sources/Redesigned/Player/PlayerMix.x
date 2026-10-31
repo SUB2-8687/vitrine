@@ -7,8 +7,11 @@
 // The bands: views of the mod's at the back of Spotify's slider, behind its track and knob, each a flat segment of
 // the track's own thickness in a faint white, so they lighten the unplayed bar and never show over the played part.
 // Only an end that is the bar's own end is rounded, as the bar's cap is. A time of the song sits where the knob's
-// center is at that time, the bar's own ends standing for the start and the end. They are placed again only when the
-// facts, the options, the song's length, the slider's bounds or its track (thicker while scrubbed) changed.
+// center is at that time, the bar's own ends standing for the start and the end. Spotify keeps three such sliders in
+// the tree at once (the full player's, the now playing bar's and the sticky header's, the last two hidden while the
+// player shows), so each slider has its own pair, put into it once and never moved, and a hidden slider does nothing.
+// A pair is placed again only when the facts, the options, the song's length, its slider's bounds or its track
+// (thicker while scrubbed) changed, and placing it sets frames only, which lays out nothing again.
 //
 // The stage (SGRMixStage): when the playing song reaches its outgoing window, a view of the mod's takes the cover's
 // place (SGRPlayerStageCover): a still of the cover as it is (the clip's frame, if one plays in it) gives way to the
@@ -67,7 +70,7 @@ static SGTransitionFacts *sg_facts;     // as last read
 static SGTransitionFacts *sg_arrived;   // a blend with known times whose next song is playing, until it passes its window
 static SPTPlayerState *sg_fromReport;   // the last report of sg_facts' song, for where it stood when the next one came
 static NSUInteger sg_generation;        // advances with every change the bands draw from
-static __weak UISlider *sg_slider;
+static NSHashTable<UISlider *> *sg_sliders;  // every progress slider laid out, weakly
 
 @class SGRMixStage;
 static SGRMixStage *sg_mixStage;
@@ -80,9 +83,13 @@ static double fromPositionAt(SPTPlayerState *state) {
     return last.positionAsOfTimestamp + elapsed;
 }
 
+static void layOutSliders(void) {
+    for (UISlider *slider in sg_sliders.allObjects) [slider setNeedsLayout];
+}
+
 static void bandsChanged(void) {
     sg_generation++;
-    [sg_slider setNeedsLayout];
+    layOutSliders();
 }
 
 static void reconcile(void) {
@@ -117,19 +124,55 @@ static const CGFloat kBandWhiteAlpha = 0.2;
 @implementation SGRMixBand
 @end
 
-static SGRMixBand *sg_outBand, *sg_inBand;
-static struct {
-    CGRect bounds, track;
-    double duration;
-    NSUInteger generation;
-} sg_drawn;
-
 static SGRMixBand *makeBand(void) {
     SGRMixBand *band = [SGRMixBand new];
     band.userInteractionEnabled = NO;
     band.isAccessibilityElement = NO;
     band.backgroundColor = [UIColor colorWithWhite:1 alpha:kBandWhiteAlpha];
     return band;
+}
+
+// One slider's pair, in it from when it is made, and what it was last placed by.
+@interface SGRMixBands : NSObject
+@property (nonatomic, readonly) SGRMixBand *outgoing, *incoming;
+@property (nonatomic) BOOL placed;
+@property (nonatomic) CGRect bounds, track;
+@property (nonatomic) double duration;
+@property (nonatomic) NSUInteger generation;
+@end
+
+@implementation SGRMixBands
+- (instancetype)initIn:(UISlider *)slider {
+    if (!(self = [super init])) return nil;
+    _outgoing = makeBand();
+    _incoming = makeBand();
+    _outgoing.hidden = YES;
+    _incoming.hidden = YES;
+    [slider insertSubview:_outgoing atIndex:0];
+    [slider insertSubview:_incoming atIndex:0];
+    return self;
+}
+
+- (void)hide {
+    _outgoing.hidden = YES;
+    _incoming.hidden = YES;
+    _placed = NO;
+}
+@end
+
+static char kBandsKey;
+
+static SGRMixBands *bandsOf(UISlider *slider) {
+    return objc_getAssociatedObject(slider, &kBandsKey);
+}
+
+// Hidden itself or under a hidden view, as Spotify keeps the sliders not shown (alpha is not asked: a faded player
+// comes back by its alpha without laying its slider out again).
+static BOOL hiddenUp(UIView *view) {
+    for (UIView *v = view; v; v = v.superview) {
+        if (v.hidden) return YES;
+    }
+    return NO;
 }
 
 static CGFloat thumbCentre(UISlider *slider, CGRect bounds, CGRect track, float value) {
@@ -145,13 +188,12 @@ static CGFloat barX(UISlider *slider, CGRect bounds, CGRect track, double second
     return start + share * (end - start);
 }
 
-// The band over `from` to `to` seconds of the song, at the back of the slider; hidden for a window that is not one.
+// The band over `from` to `to` seconds of the song, at the back of its slider; hidden for a window that is not one.
 static void placeBand(SGRMixBand *band, UISlider *slider, CGRect bounds, CGRect track, double from, double to, double duration) {
     if (!(duration > 0 && to > from)) {
         band.hidden = YES;
         return;
     }
-    if (band.superview != slider) [slider insertSubview:band atIndex:0];
     CGFloat start = barX(slider, bounds, track, MAX(0, from), duration), end = barX(slider, bounds, track, MIN(duration, to), duration);
     band.frame = CGRectMake(start, CGRectGetMinY(track), end - start, track.size.height);
     CACornerMask caps = 0;
@@ -163,33 +205,32 @@ static void placeBand(SGRMixBand *band, UISlider *slider, CGRect bounds, CGRect 
 }
 
 void SGRPlayerMixSliderLaidOut(UISlider *slider) {
-    if (sg_slider != slider) {
-        sg_slider = slider;
-        sg_generation++;
-    }
-    if (!sg_progressOn) {
-        sg_outBand.hidden = YES;
-        sg_inBand.hidden = YES;
+    [sg_sliders addObject:slider];
+    SGRMixBands *bands = bandsOf(slider);
+    if (!sg_progressOn || !slider.window || hiddenUp(slider)) {
+        [bands hide];
         return;
     }
     SPTPlayerState *state = SGPlayerState();
+    SGTransitionFacts *facts = sg_facts, *arrived = sg_arrived;
+    BOOL outgoing = facts.timesKnown && SGRMixTrackIs(state.track, facts.fromURI, facts.fromUID);
+    // A slider gets its pair once there is a window to show.
+    if (!bands && !outgoing && !arrived) return;
     CGRect bounds = slider.bounds, track = [slider trackRectForBounds:bounds];
     double duration = state.duration;
-    if (sg_drawn.generation == sg_generation && sg_drawn.duration == duration && CGRectEqualToRect(sg_drawn.bounds, bounds)
-        && CGRectEqualToRect(sg_drawn.track, track)) return;
-    sg_drawn.generation = sg_generation;
-    sg_drawn.duration = duration;
-    sg_drawn.bounds = bounds;
-    sg_drawn.track = track;
-    if (!sg_outBand) {
-        sg_outBand = makeBand();
-        sg_inBand = makeBand();
+    if (bands.placed && bands.generation == sg_generation && bands.duration == duration && CGRectEqualToRect(bands.bounds, bounds)
+        && CGRectEqualToRect(bands.track, track)) return;
+    if (!bands) {
+        bands = [[SGRMixBands alloc] initIn:slider];
+        objc_setAssociatedObject(slider, &kBandsKey, bands, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    SGTransitionFacts *facts = sg_facts;
-    BOOL outgoing = facts.timesKnown && SGRMixTrackIs(state.track, facts.fromURI, facts.fromUID);
-    placeBand(sg_outBand, slider, bounds, track, outgoing ? facts.outStart : 0, outgoing ? facts.outEnd : 0, duration);
-    SGTransitionFacts *arrived = sg_arrived;
-    placeBand(sg_inBand, slider, bounds, track, arrived.inStart, arrived.inEnd, duration);
+    bands.placed = YES;
+    bands.generation = sg_generation;
+    bands.duration = duration;
+    bands.bounds = bounds;
+    bands.track = track;
+    placeBand(bands.outgoing, slider, bounds, track, outgoing ? facts.outStart : 0, outgoing ? facts.outEnd : 0, duration);
+    placeBand(bands.incoming, slider, bounds, track, arrived.inStart, arrived.inEnd, duration);
 }
 
 #pragma mark - the stage's view
@@ -531,7 +572,7 @@ static void stageFollows(void) {
 }
 - (void)playerStateDidChange:(SPTPlayerState *)state {
     // A new song's length, which the bands are placed by.
-    [sg_slider setNeedsLayout];
+    layOutSliders();
     reconcile();
 }
 @end
@@ -541,6 +582,7 @@ static SGRMixWatcher *sg_mixWatcher;
 %ctor {
     if (!SGRedesignedUI()) return;
     readOptions();
+    sg_sliders = [NSHashTable weakObjectsHashTable];
     sg_mixStage = [SGRMixStage new];
     sg_mixWatcher = [SGRMixWatcher new];
     SGAddPlayerStateObserver(sg_mixWatcher);

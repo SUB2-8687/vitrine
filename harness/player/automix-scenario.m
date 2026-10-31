@@ -4,7 +4,10 @@
 //
 //     progress  the bands on the mock of Spotify's slider: known, unknown and inverted windows, none, a seek inside
 //               the song, the next song's incoming window after a blend, gone once passed, none after a skip; each
-//               band flat at the track's thickness in a faint white, rounded only at the bar's own end
+//               band flat at the track's thickness in a faint white, rounded only at the bar's own end; and the
+//               phone's three sliders (one shown, two hidden) laid out again and again around a change of facts with
+//               no layout loop, no band moved after it went in, no band on a hidden slider, and two shown at once
+//               each with its own
 //     queue     Playing Next's line over its first row for each kind and its accessibility, its quiet look, a change
 //               of facts that reloads no row, another pair, no facts, the option off, and a row's tap still skipping
 //     preview   the page's card off (with its gray divider), beat-matched (corners rounded) and crossfade at 1, 5 and
@@ -290,22 +293,74 @@ static void setReduceMotion(BOOL on) {
     if (set) set(on);
 }
 
+#pragma mark - layouts and band moves, counted
+
+// The layout passes a check asks for, one per slider each, and what more the facts' change, a pair's one insertion
+// and main.m's once-a-second layout of the units may add to them.
+static const NSUInteger kLayoutPasses = 5, kLayoutSlack = 3;
+// A slider laid out this often since its count began is in a loop: the count goes on, but the slider's hook is no
+// longer called, so the loop ends and the check can say so instead of the run hanging.
+static const NSUInteger kLayoutBreaker = 200;
+static NSMapTable<UIView *, NSNumber *> *sg_layouts;  // each progress slider's layoutSubviews since the count began
+static NSMapTable<UIView *, NSNumber *> *sg_moves;    // each band's moves to a superview over its life
+
+static NSUInteger countOf(NSMapTable<UIView *, NSNumber *> *table, UIView *view) {
+    return [table objectForKey:view].unsignedIntegerValue;
+}
+
+static void countLayoutsAndMoves(Class sliderClass) {
+    sg_layouts = [NSMapTable weakToStrongObjectsMapTable];
+    sg_moves = [NSMapTable weakToStrongObjectsMapTable];
+    Method layout = class_getInstanceMethod(sliderClass, @selector(layoutSubviews));
+    void (*hooked)(id, SEL) = (void (*)(id, SEL))method_getImplementation(layout);
+    void (*plain)(id, SEL) = (void (*)(id, SEL))class_getMethodImplementation(UISlider.class, @selector(layoutSubviews));
+    method_setImplementation(layout, imp_implementationWithBlock(^(UIView *me) {
+        NSUInteger count = countOf(sg_layouts, me) + 1;
+        [sg_layouts setObject:@(count) forKey:me];
+        (count > kLayoutBreaker ? plain : hooked)(me, @selector(layoutSubviews));
+    }));
+    void (*moved)(id, SEL) = (void (*)(id, SEL))class_getMethodImplementation(UIView.class, @selector(didMoveToSuperview));
+    class_addMethod(NSClassFromString(@"SGRMixBand"), @selector(didMoveToSuperview), imp_implementationWithBlock(^(UIView *me) {
+        [sg_moves setObject:@(countOf(sg_moves, me) + 1) forKey:me];
+        moved(me, @selector(didMoveToSuperview));
+    }), "v@:");
+}
+
 #pragma mark - the scenario
 
 void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIView *tilt) {
     sg_steps = [NSMutableArray array];
     reportInactiveWhenAsked();
+    Class sliderClass = NSClassFromString(@"_TtCO17NowPlaying_ECMKit11ProgressBar6Slider");
+    countLayoutsAndMoves(sliderClass);
     NSString *const P = @"progress", *const Q = @"queue", *const D = @"preview", *const A = @"artwork";
 
     // The duration unit's slider, as the seek scenario makes it.
     UIView *unit = durationUnit.view;
     CGFloat W = unit.bounds.size.width;
-    UISlider *slider = [[NSClassFromString(@"_TtCO17NowPlaying_ECMKit11ProgressBar6Slider") alloc] initWithFrame:CGRectMake(24, 0, W - 48, 20)];
+    UISlider *slider = [[sliderClass alloc] initWithFrame:CGRectMake(24, 0, W - 48, 20)];
     slider.accessibilityIdentifier = @"SPTNowPlayingSliderV2";
     // The tree's drawn bar gives way to the slider, which Spotify moves as the song plays (here by hand).
     for (UIView *drawn in unit.subviews) drawn.hidden = YES;
     [unit addSubview:slider];
     [durationUnit viewDidLayoutSubviews];
+    // The phone's other two (.mixdog/review-shots/phone-v100/trees/player-sliders-annotated.txt), of the same class and
+    // identifier on the same player: the now playing bar's under its hidden bar, and the sticky header's under its
+    // hidden stack at the top of the player.
+    CGFloat screenWidth = window.bounds.size.width;
+    UIView *barHost = [[UIView alloc] initWithFrame:CGRectMake(0, window.bounds.size.height - 147, screenWidth, 64)];
+    barHost.hidden = YES;
+    UISlider *barSlider = [[sliderClass alloc] initWithFrame:CGRectMake(6, 48, screenWidth - 12, 14)];
+    barSlider.accessibilityIdentifier = @"SPTNowPlayingSliderV2";
+    [barHost addSubview:barSlider];
+    [window addSubview:barHost];
+    UIView *stickyHost = [[UIView alloc] initWithFrame:CGRectMake(0, 47, screenWidth, 70)];
+    stickyHost.hidden = YES;
+    UISlider *stickySlider = [[sliderClass alloc] initWithFrame:CGRectMake(-2, 56, screenWidth + 4, 14)];
+    stickySlider.accessibilityIdentifier = @"SPTNowPlayingSliderV2";
+    [stickyHost addSubview:stickySlider];
+    [window.rootViewController.view addSubview:stickyHost];
+    NSArray<UISlider *> *sliders = @[slider, barSlider, stickySlider];
 
     SPTPlayerTrack *a = song(@"spotify:track:mixA", @"Loose Canon", picture(@"a1a1")), *b = song(@"spotify:track:mixB", @"Low Tide", picture(@"b2b2"));
     SPTPlayerTrack *c = song(@"spotify:track:mixC", @"Third Song", picture(@"c3c3")), *x = song(@"spotify:track:mixX", @"Someone Else", nil);
@@ -420,6 +475,72 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         SGRHarnessSetTransition(nil);
         layOut();
         check(P, @"a skip shows no incoming window", bands().count == 0, [NSString stringWithFormat:@"skipped at 60 s: %@", frames()]);
+    });
+    // The phone's hang: the three sliders, one shown, laid out again and again around a change of facts with known
+    // times, then left to the run loop for half a second. Each slider is laid out only for the passes asked and what
+    // the change adds, each band goes into its slider once and stays there, and only a shown slider has bands.
+    NSArray<UIView *> *(^bandsIn)(UISlider *, BOOL) = ^NSArray<UIView *> *(UISlider *owner, BOOL shownOnly) {
+        NSMutableArray<UIView *> *found = [NSMutableArray array];
+        for (UIView *band in viewsOf(owner, @"SGRMixBand")) if (!shownOnly || !band.hidden) [found addObject:band];
+        return found;
+    };
+    void (^passes)(void) = ^{
+        for (NSUInteger i = 0; i < kLayoutPasses; i++) {
+            for (UISlider *each in sliders) {
+                [each setNeedsLayout];
+                [each layoutIfNeeded];
+            }
+        }
+    };
+    BOOL (^settled)(void) = ^BOOL {
+        for (UISlider *each in sliders) if (countOf(sg_layouts, each) > kLayoutPasses + kLayoutSlack) return NO;
+        for (UIView *band in sg_moves.keyEnumerator) if (countOf(sg_moves, band) > 1) return NO;
+        return YES;
+    };
+    NSString *(^layoutsSaid)(void) = ^NSString *{
+        NSMutableArray<NSString *> *moves = [NSMutableArray array];
+        for (UIView *band in sg_moves.keyEnumerator) [moves addObject:@(countOf(sg_moves, band)).stringValue];
+        return [NSString stringWithFormat:@"layouts: player %lu, bar %lu, sticky %lu (at most %lu each); band moves %@ (at most 1 each)",
+                (unsigned long)countOf(sg_layouts, slider), (unsigned long)countOf(sg_layouts, barSlider), (unsigned long)countOf(sg_layouts, stickySlider),
+                (unsigned long)(kLayoutPasses + kLayoutSlack), [moves componentsJoinedByString:@" "]];
+    };
+    // A band of `owner`'s over the outgoing window of `measured`, placed by that slider's own bounds.
+    BOOL (^ownWindow)(UISlider *) = ^BOOL(UISlider *owner) {
+        NSArray<UIView *> *shown = bandsIn(owner, YES);
+        CGRect bounds = owner.bounds, bar = [owner trackRectForBounds:bounds];
+        CGFloat start = CGRectGetMidX([owner thumbRectForBounds:bounds trackRect:bar value:(float)(177.609 / 182.609)]);
+        return shown.count == 1 && shown.firstObject.superview == owner && fabs(CGRectGetMinX(shown.firstObject.frame) - start) < 0.5
+            && fabs(CGRectGetMaxX(shown.firstObject.frame) - CGRectGetMaxX(bar)) < 0.5;
+    };
+    step(0.2, ^{
+        [sg_layouts removeAllObjects];
+        report(a, 60, 182.609, @[b, c], NO, kPlaylist);
+        SGRHarnessSetTransition(measured);
+        passes();
+    });
+    step(0.5, ^{
+        check(P, @"three sliders, one shown: layout settles", settled(), layoutsSaid());
+        check(P, @"hidden sliders do nothing", ownWindow(slider) && bandsIn(barSlider, NO).count == 0 && bandsIn(stickySlider, NO).count == 0,
+              [NSString stringWithFormat:@"player %@; bands made in the bar's %lu, the sticky header's %lu", frames(),
+               (unsigned long)bandsIn(barSlider, NO).count, (unsigned long)bandsIn(stickySlider, NO).count]);
+    });
+    // The sticky header shown while the player's slider stays in place: two sliders shown at once, each with its own.
+    step(0.2, ^{
+        [sg_layouts removeAllObjects];
+        stickyHost.hidden = NO;
+        SGRHarnessSetTransition(facts(@"spotify:track:mixA", @"spotify:track:mixB", SGTransitionKindCrossfade, YES, 177.609, 182.609, 0, 5));
+        passes();
+    });
+    step(0.5, ^{
+        check(P, @"two sliders shown: each its own bands, layout settles", settled() && ownWindow(slider) && ownWindow(stickySlider),
+              [NSString stringWithFormat:@"%@; the player's %@, the sticky header's %@", layoutsSaid(), frames(),
+               bandsIn(stickySlider, YES).count ? NSStringFromCGRect(bandsIn(stickySlider, YES).firstObject.frame) : @"none"]);
+    });
+    screenshot(@"progress-two-sliders");
+    step(0.2, ^{
+        stickyHost.hidden = YES;
+        [stickySlider setNeedsLayout];
+        SGRHarnessSetTransition(nil);
     });
 
     #pragma mark queue

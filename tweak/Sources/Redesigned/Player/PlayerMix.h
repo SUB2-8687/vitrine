@@ -19,8 +19,8 @@
 BOOL SGRMixTrackIs(SPTPlayerTrack *track, NSString *uri, NSString *uid);
 // Transitions in the queue, as the AutoMix page last stored it.
 BOOL SGRMixShowsQueue(void);
-// The progress bar's slider laid out (PlayerControls.x): its bands follow the facts and its bounds, and are made
-// again only when either changed.
+// A progress bar's slider laid out (PlayerControls.x): its own bands, put into it once, follow the facts and its
+// bounds and are placed again only when either changed; a hidden slider does nothing.
 void SGRPlayerMixSliderLaidOut(UISlider *slider);
 
 #pragma mark - the cover's stage (PlayerArtwork.x)
