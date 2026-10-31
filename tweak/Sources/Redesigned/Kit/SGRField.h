@@ -43,7 +43,9 @@ extern NSNotificationName const SGRFieldPaletteDidChangeNotification;
 @property (nonatomic) BOOL covered;
 // The backdrop's height in points from the top of the bounds; 0 is the window's height.
 @property (nonatomic) CGFloat backdropHeight;
-// SGRNeutralField until a color arrives.
+// The color the field paints: the one asked for (SGRNeutralField until a color arrives) as the redesign shows it
+// (SGRFieldShownColor), so what is drawn to meet the page ends in the page's own color.
+// SGRFieldColorDidChangeNotification's "color" is the one asked for.
 @property (nonatomic, readonly) UIColor *fieldColor;
 
 // The color from the artwork's main color rather than its bottom edge (SGRPaletteRequest's mainColor): a
@@ -80,6 +82,10 @@ extern NSNotificationName const SGRFieldPaletteDidChangeNotification;
 // How long a page waits for its artwork before it is shown anyway. The Music app shows something at once
 // (HIG, Loading: "Show something as soon as possible"), so the wait is short; a page then loads as it used to.
 extern const NSTimeInterval SGRFieldHoldLimit;
+
+// The color a field asked to paint `color` shows (its -fieldColor then): the redesign paints Spotify's base greys
+// black (SGRAmoled.x), and this is that rule's answer, read off a layer. nil for nil. Main thread.
+UIColor *SGRFieldShownColor(UIColor *color);
 
 // Album, artist and playlist fields: page-sized, behind its contents, bleeding 600pt above and below,
 // using the artwork's main color. Keys remain page-specific; pageName is the existing diagnostic name.

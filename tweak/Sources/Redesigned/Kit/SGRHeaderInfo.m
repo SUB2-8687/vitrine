@@ -85,9 +85,23 @@ static const CGFloat kMinFace = 16;
 static const NSUInteger kMaxFaces = 3;
 static const CGFloat kMaxFaceSide = 22, kFaceStep = 0.85, kFaceRing = 1.5;
 
-static BOOL faceSized(UIView *v) {
+static BOOL squareFace(UIView *v) {
     CGSize size = v.bounds.size;
-    return [v isKindOfClass:UIImageView.class] && size.width >= kMinFace && fabs(size.width - size.height) <= 1;
+    return size.width >= kMinFace && fabs(size.width - size.height) <= 1;
+}
+
+static BOOL faceSized(UIView *v) {
+    return [v isKindOfClass:UIImageView.class] && squareFace(v);
+}
+
+// The avatar an image view on Spotify's creator line draws a face in: the outermost of the square views running up from
+// it, short of `root`. Spotify's avatar is a square that clips the picture (which may be wider than it, a portrait
+// filled across it) and holds the artist's initial under it; the image view counts as its own avatar only when it is
+// square itself. nil when neither it nor the view it sits in is a face's square.
+static UIView *avatarOf(UIImageView *image, UIView *root) {
+    UIView *avatar = squareFace(image) ? image : nil;
+    for (UIView *up = image.superview; up && up != root && squareFace(up); up = up.superview) avatar = up;
+    return avatar;
 }
 
 // Where `v` starts in `root`, on the side a line in its direction starts from.
@@ -120,9 +134,27 @@ static BOOL shownIn(UIView *v, UIView *root) {
 NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     if (!root) return @[];
     BOOL rtl = root.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+    // Every avatar, its picture shown or not, so its initial is never the name; and each one with a shown image view,
+    // the first of them, its face.
+    NSHashTable<UIView *> *avatars = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+    NSMapTable<UIView *, UIImageView *> *shownFaces = [NSMapTable strongToStrongObjectsMapTable];
+    NSMutableArray<UIView *> *found = [NSMutableArray array];
+    SGForEachView(root, ^(UIView *v) {
+        if (![v isKindOfClass:UIImageView.class]) return;
+        UIView *avatar = avatarOf((UIImageView *)v, root);
+        if (!avatar) return;
+        [avatars addObject:avatar];
+        if (!shownIn(v, root) || [shownFaces objectForKey:avatar]) return;
+        [shownFaces setObject:(UIImageView *)v forKey:avatar];
+        [found addObject:avatar];
+    });
+    // The name: the first label shown with text that is not an avatar's initial.
     __block UILabel *name = nil;
     SGForEachView(root, ^(UIView *v) {
         if (name || ![v isKindOfClass:UILabel.class] || !shownIn(v, root)) return;
+        for (UIView *up = v.superview; up && up != root; up = up.superview) {
+            if ([avatars containsObject:up]) return;
+        }
         if ([((UILabel *)v).text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length) name = (UILabel *)v;
     });
     // With no name shown there is nothing to tell a face from a badge after it by: none.
@@ -130,13 +162,13 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     CGFloat nameEdge = leadingEdge(name, root, rtl);
     NSMutableArray<UIImageView *> *faces = [NSMutableArray array];
     NSMapTable<UIView *, NSNumber *> *edges = [NSMapTable strongToStrongObjectsMapTable];
-    SGForEachView(root, ^(UIView *v) {
-        if (!faceSized(v) || !shownIn(v, root)) return;
-        CGFloat x = leadingEdge(v, root, rtl);
-        if (rtl ? x <= nameEdge : x >= nameEdge) return;
-        [faces addObject:(UIImageView *)v];
-        [edges setObject:@(x) forKey:v];
-    });
+    for (UIView *avatar in found) {
+        CGFloat x = leadingEdge(avatar, root, rtl);
+        if (rtl ? x <= nameEdge : x >= nameEdge) continue;
+        UIImageView *face = [shownFaces objectForKey:avatar];
+        [faces addObject:face];
+        [edges setObject:@(x) forKey:face];
+    }
     return [faces sortedArrayWithOptions:NSSortStable usingComparator:^NSComparisonResult(UIView *one, UIView *other) {
         NSComparisonResult order = [[edges objectForKey:one] compare:[edges objectForKey:other]];
         return rtl ? -order : order;

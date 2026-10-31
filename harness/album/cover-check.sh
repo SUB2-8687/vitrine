@@ -21,22 +21,31 @@ $CC -DSGR_COVER_READ_TEST -I"$SRC" "$HERE/cover-read-check.m" "$SRC/Redesigned/K
 hero() {
     dir=$1
     mkdir -p "$dir/gen"
-    for f in Shared/Fonts/Fonts.x Redesigned/Album/AlbumField.x Redesigned/Album/AlbumHeader.x Redesigned/Album/AlbumRows.x Redesigned/Album/AlbumSections.x; do
+    # The redesign's AMOLED rule (SGRAmoled.x) paints the page as the phone does: a low grey field shows black.
+    for f in Shared/Fonts/Fonts.x Redesigned/Album/AlbumField.x Redesigned/Album/AlbumHeader.x Redesigned/Album/AlbumRows.x Redesigned/Album/AlbumSections.x \
+             Redesigned/Kit/SGRAmoled.x; do
         "$LOGOS" -c generator=internal "$SRC/$f" > "$dir/gen/$(basename "$f" .x).m"
     done
+    # The field (Kit/SGRField.m), mutated in a copy for field-asked.
+    field="$SRC/Redesigned/Kit/SGRField.m"
+    if [ "${2:-}" = field-asked ]; then
+        cp "$field" "$dir/SGRField.m"
+        field="$dir/SGRField.m"
+        python3 "$HERE/cover-mutation.py" "$field" field-asked
+    fi
     # An earlier revision may have no cover read.
     cover=""
     if [ -f "$SRC/Redesigned/Kit/SGRCoverRead.m" ]; then
         cover="$SRC/Redesigned/Kit/SGRCoverRead.m"
         # Provider timing, player readiness and a recycled cache address are simulated at external boundaries.
         python3 "$HERE/cover-mutation.py" "$dir/gen/AlbumHeader.m" seams
-        if [ -n "${2:-}" ]; then python3 "$HERE/cover-mutation.py" "$dir/gen/AlbumHeader.m" "$2"; fi
+        if [ -n "${2:-}" ] && [ "$2" != field-asked ]; then python3 "$HERE/cover-mutation.py" "$dir/gen/AlbumHeader.m" "$2"; fi
     fi
-    $CC -I"$SRC" -I"$SRC/Redesigned/Album" -I"$dir/gen" \
+    $CC -I"$SRC" -I"$SRC/Redesigned/Album" -I"$SRC/Redesigned/Kit" -I"$dir/gen" \
         "$HERE/cover-hero-check.m" "$HERE/stubs.m" "$dir"/gen/*.m $cover \
         "$SRC"/Core/SGLog.m "$SRC"/Core/SGPrefs.m "$SRC"/Core/SGViewTree.m "$SRC"/Core/SGGlass.m "$SRC"/Core/SGFileHash.m \
         "$SRC"/Core/SGBackdrop.m "$SRC"/Core/SGFlagForce.m "$SRC"/Core/SGUIMode.m "$HERE/../page-style-with-presenter-stubs.m" \
-        "$SRC"/Redesigned/Kit/SGRTokens.m "$SRC"/Redesigned/Kit/SGRPalette.m "$SRC"/Redesigned/Kit/SGRField.m "$SRC"/Redesigned/Kit/SGRFlow.m \
+        "$SRC"/Redesigned/Kit/SGRTokens.m "$SRC"/Redesigned/Kit/SGRPalette.m "$field" "$SRC"/Redesigned/Kit/SGRFlow.m \
         "$SRC"/Redesigned/Kit/SGRFluid.m "$SRC"/Redesigned/Kit/SGRFluidGPU.m "$SRC"/Shared/AnimatedArtwork/SGMotionCatalog.m \
         "$SRC"/Shared/AnimatedArtwork/SGMotionStore.m "$SRC"/Shared/AnimatedArtwork/SGMotionTicket.m \
         "$SRC"/Redesigned/Kit/SGRGlass.m "$SRC"/Redesigned/Kit/SGRGlyph.m "$SRC"/Redesigned/Kit/SGRRestyle.m \
@@ -84,6 +93,19 @@ for mutation in still-owner still-generation cache-source; do
     fi
     echo "[harness] PASS mutation: $mutation rejected by $expected assertion"
 done
+# The field reporting the colour it was asked for rather than the one it paints: the hero ends in a low grey on a page
+# the AMOLED rule paints black, the seam the phone showed on Adele's 21.
+hero "$OUT/field-asked" field-asked
+if "$OUT/field-asked/cover-hero-check" dark-portrait -spotifyglass.redesign.album.adaptiveCover YES > "$OUT/field-asked.log" 2>&1; then
+    echo "[harness] FAIL field-asked survived"
+    exit 1
+fi
+if ! grep -Eq "FAIL .*dark portrait: (the bottom row|a seam of)" "$OUT/field-asked.log"; then
+    cat "$OUT/field-asked.log"
+    echo "[harness] FAIL field-asked did not reach the page-colour assertion"
+    exit 1
+fi
+echo "[harness] PASS mutation: field-asked rejected by the page-colour assertion: $(grep -E 'FAIL ' "$OUT/field-asked.log" | head -1)"
 if [ -n "${BASELINE:-}" ]; then
     git -C "$HERE/../.." archive --prefix=baseline/ "$BASELINE" tweak/Sources | tar -x -C "$OUT"
     SRC=$OUT/baseline/tweak/Sources

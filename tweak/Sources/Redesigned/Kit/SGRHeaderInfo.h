@@ -101,8 +101,11 @@ BOOL SGRPageFullCover(NSString *key);
 // square image view nearest the leading edge, so a badge after the name is not taken for it. nil when there is
 // none yet.
 UIImageView *SGRCreatorPicture(UIView *root);
-// The image views of every face on Spotify's creator line `root`, picture or not yet: square image views at least a face
-// wide whose leading edge is ahead of the line's name (so a badge after it is not one), none of them or of their
-// ancestors up to `root` hidden or transparent, in the order they read, leading first. Empty when there is none, and
-// when the line shows no name label to measure them against.
+// The image views of every face on Spotify's creator line `root`, picture or not yet, one per avatar: an avatar is the
+// outermost square at least a face wide running up from an image view (the image view itself only when it is square;
+// Spotify's may be wider than the avatar that clips it), and it counts when its leading edge is ahead of the line's name
+// (so a badge after it is not one) and neither the image view nor its ancestors up to `root` are hidden or transparent.
+// The name is the first label shown with text outside every avatar, its picture shown or hidden (an avatar's initial is
+// not it). In the order they
+// read, leading first. Empty when there is none, and when the line shows no name label to measure them against.
 NSArray<UIImageView *> *SGRCreatorFaces(UIView *root);

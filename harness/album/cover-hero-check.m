@@ -3,8 +3,12 @@
 //
 //   on    (-spotifyglass.redesign.album.adaptiveCover YES) each cover drawn picture-aware: the page's field in the
 //         cover's read colour, the cover itself shown down to where the spec lets it stop being sharp and drawn over
-//         from there, the drawing's first row the cover's own, no jump from row to row below, the page's colour along
-//         the bottom, and the title's area no lighter than L 0.58 over 90% of it, scrim and all
+//         from there, the drawing's first row the cover's own, no jump from row to row below, the colour the page shows
+//         under the hero along the bottom and no seam where the two meet (the field painted under the redesign's AMOLED
+//         rule, SGRAmoled.x, as on the phone: a dark portrait's low grey goes black), and the title's area no lighter
+//         than L 0.58 over 90% of it, scrim and all
+//   dark-portrait  (the same) the last of those alone: Adele's 21 as the phone showed it (cover-check.sh's field-asked
+//         mutant runs it)
 //   swap  (the same) a cover replaced by another while it is read: the first one's colour never reaches the page and
 //         its picture is never drawn
 //   off   <png> the setting off: no drawn picture, and the hero as drawn written to <png> for cover-check.sh to compare
@@ -151,6 +155,13 @@ static double luminanceStep(NSData *data, size_t wide, size_t row) {
 
 static UIColor *fieldColorOf(Page p) {
     return fieldOf(p).fieldColor;
+}
+
+// `colour` as a layer paints it here, the redesign's paint rules (SGRAmoled.x) applied as it is set.
+static UIColor *paintedColour(UIColor *colour) {
+    CALayer *layer = [CALayer layer];
+    layer.backgroundColor = colour.CGColor;
+    return [UIColor colorWithCGColor:layer.backgroundColor];
 }
 
 // A top-to-bottom gradient layer over the pixels, its colours between its stops straight, blended in sRGB.
@@ -369,10 +380,11 @@ static void checkRenderCacheReuse(void) {
 static void checkCover(NSString *name, UIImage *cover, CGFloat sharpFrom, CGFloat sharpTo, CGFloat edgeFraction) {
     Page p = makePage(cover);
     SGRCoverReading *reading = readingOf(cover);
+    // The field asked for the read colour; what it paints for it is measured off the page below.
     UIColor *page = reading.pageColor;
-    if (!waitUntil(30, ^BOOL { return renderOf(p.hero).contents && [fieldColorOf(p) isEqual:page]; }))
-        HARNESS_FAIL(@"%@: no picture drawn (%@) or the field not in the read colour (%@, read %@)", name,
-                     renderOf(p.hero).contents ? @"drawn" : @"none", fieldColorOf(p), page);
+    if (!waitUntil(30, ^BOOL { return renderOf(p.hero).contents && [fieldOf(p).overrideColor isEqual:page]; }))
+        HARNESS_FAIL(@"%@: no picture drawn (%@) or the field not given the read colour (%@, read %@)", name,
+                     renderOf(p.hero).contents ? @"drawn" : @"none", fieldOf(p).overrideColor, page);
     // The last of the pixel reading's and the final reading's pictures.
     spin(1);
     CALayer *render = renderOf(p.hero);
@@ -418,13 +430,21 @@ static void checkCover(NSString *name, UIImage *cover, CGFloat sharpFrom, CGFloa
         compositeStep = MAX(compositeStep, luminanceStep(composite, wide, row));
     if (compositeStep > kEdgeStep) HARNESS_FAIL(@"%@: composited edge luminance step %.4f (limit 0.02)", name, compositeStep);
     if (steepest > 10) HARNESS_FAIL(@"%@: a step of %.1f levels between rows under the sharp end", name, steepest);
-    CGFloat r, g, b, a;
-    [page getRed:&r green:&g blue:&b alpha:&a];
+    // The page under the hero's foot, its field painted as the redesign paints it: the drawing's bottom row is the colour
+    // the field shows just under the hero, and the hero with its gradients over it meets that with no seam (on the phone
+    // Adele's 21 ended in #0D0D0D on a #000000 page). The field alone is rendered: on the Mac a rendered gradient's
+    // colours go through another colour space, so the hero's are composited below as Core Animation blends them.
+    static const CGFloat kUnderHero = 4, kSeamLevels = 2;
+    size_t under = (size_t)lround(kUnderHero * scale);
+    NSData *onPage = pixels(wide, high + under, scale, ^(CGContextRef c) { [fieldOf(p).layer renderInContext:c]; });
+    const uint8_t *field = (const uint8_t *)onPage.bytes + (high + under - 1) * wide * 4;
     const uint8_t *bottom = (const uint8_t *)shown.bytes + (high - 1) * wide * 4;
     for (size_t x = 0; x < wide; x += 7) {
-        if (abs(bottom[x * 4] - (int)lround(r * 255)) > 2 || abs(bottom[x * 4 + 1] - (int)lround(g * 255)) > 2
-            || abs(bottom[x * 4 + 2] - (int)lround(b * 255)) > 2)
-            HARNESS_FAIL(@"%@: the bottom row at %zu is %d,%d,%d, not the page's colour", name, x, bottom[x * 4], bottom[x * 4 + 1], bottom[x * 4 + 2]);
+        for (int c = 0; c < 3; c++) {
+            if (abs(bottom[x * 4 + c] - field[x * 4 + c]) > kSeamLevels)
+                HARNESS_FAIL(@"%@: the bottom row at %zu is %d,%d,%d, not the page's colour %d,%d,%d under it", name, x, bottom[x * 4],
+                             bottom[x * 4 + 1], bottom[x * 4 + 2], field[x * 4], field[x * 4 + 1], field[x * 4 + 2]);
+        }
     }
     // The title's area as the hero draws it: the picture with every gradient over it composited in sRGB as Core
     // Animation blends a layer's alpha (a snapshot on the Mac draws a gradient's colours through another colour space).
@@ -433,13 +453,37 @@ static void checkCover(NSString *name, UIImage *cover, CGFloat sharpFrom, CGFloa
         if (![layer isKindOfClass:CAGradientLayer.class] || layer.hidden || layer.zPosition < renderOf(p.hero).zPosition) continue;
         compositeGradient((CAGradientLayer *)layer, shown, wide, high, scale);
     }
+    double seam = 0;
+    for (size_t x = 0; x < wide; x++) {
+        for (int c = 0; c < 3; c++) seam += abs(bottom[x * 4 + c] - field[x * 4 + c]);
+    }
+    seam /= wide * 3;
+    if (seam > kSeamLevels)
+        HARNESS_FAIL(@"%@: a seam of %.1f levels where the hero meets the page under it (%d,%d,%d over %d,%d,%d mid-row)", name, seam,
+                     bottom[wide / 2 * 4], bottom[wide / 2 * 4 + 1], bottom[wide / 2 * 4 + 2], field[wide / 2 * 4], field[wide / 2 * 4 + 1],
+                     field[wide / 2 * 4 + 2]);
     for (size_t row = titleRow; row < high; row++) {
         const uint8_t *pixel = (const uint8_t *)shown.bytes + row * wide * 4;
         for (size_t x = 0; x < wide; x++, pixel += 4, count++) light += SGRLabFromRGB8(pixel).L > 0.58;
     }
     if (light > count / 10) HARNESS_FAIL(@"%@: %.0f%% of the title's area over L 0.58", name, 100.0 * light / count);
-    NSLog(@"[harness] %@: sharp to %.1fpt (%.0f%%), row step %.1f/255; edge luminance step %.4f, composited %.4f (limit 0.02); %.1f%% of title over L 0.58",
-          name, top, 100 * top / side, steepest, edgeSteepest, compositeStep, 100.0 * light / count);
+    NSLog(@"[harness] %@: sharp to %.1fpt (%.0f%%), row step %.1f/255; edge luminance step %.4f, composited %.4f (limit 0.02); "
+          @"%.1f%% of title over L 0.58; page %d,%d,%d under the hero, seam %.1f/255",
+          name, top, 100 * top / side, steepest, edgeSteepest, compositeStep, 100.0 * light / count, field[0], field[1], field[2], seam);
+}
+
+// Adele's 21 on the phone: a black-and-white portrait whose page colour, a low grey, the AMOLED rule paints black. The
+// fixture is that case only if it reads such a grey and a layer shows it black.
+static void checkDarkPortrait(void) {
+    UIImage *portrait = darkPortraitCover();
+    UIColor *read = readingOf(portrait).pageColor;
+    CGFloat r, g, b, a;
+    [read getRed:&r green:&g blue:&b alpha:&a];
+    if (r <= 0.01 || r > 0.10 || fabs(r - g) > 0.01 || fabs(g - b) > 0.01)
+        HARNESS_FAIL(@"dark portrait: read %.3f %.3f %.3f, not a low grey like Adele's 21 (#0D0C0C)", r, g, b);
+    if (CGColorGetComponents(paintedColour(read).CGColor)[0] != 0)
+        HARNESS_FAIL(@"dark portrait: a layer keeps the low grey; the AMOLED rule (SGRAmoled.x) is not in the build");
+    checkCover(@"dark portrait", portrait, 0.60, 0.90, 1);
 }
 #endif
 
@@ -478,7 +522,14 @@ int main(int argc, char *argv[]) {
             checkCover(@"solid light", solidLightCover(), 0.80, 0.86, 1);
             checkCover(@"solid red", solidRedCover(), 0.80, 0.86, 1);
             checkCover(@"solid dark", solidDarkCover(), 0.80, 0.86, 1);
-            NSLog(@"[harness] PASS picture-aware hero: colourful, dark accent, a scanned sleeve, a drawn face, solid light, red and dark");
+            checkDarkPortrait();
+            NSLog(@"[harness] PASS picture-aware hero: colourful, dark accent, a scanned sleeve, a drawn face, solid light, red and dark, "
+                  @"a dark portrait");
+            return 0;
+        }
+        if ([mode isEqualToString:@"dark-portrait"]) {
+            checkDarkPortrait();
+            NSLog(@"[harness] PASS picture-aware hero: a dark portrait");
             return 0;
         }
         if ([mode isEqualToString:@"swap"]) {
@@ -490,7 +541,7 @@ int main(int argc, char *argv[]) {
             // Replaced before its read is back: the album changed.
             p.source.image = second;
             UIColor *secondColor = readingOf(second).pageColor;
-            HARNESS_CHECK(waitUntil(30, ^BOOL { return renderOf(p.hero).contents && [fieldColorOf(p) isEqual:secondColor]; }));
+            HARNESS_CHECK(waitUntil(30, ^BOOL { return renderOf(p.hero).contents && [fieldOf(p).overrideColor isEqual:secondColor]; }));
             // Every read of the first cover back by now, pixel and final.
             UIColor *firstColor = readingOf(first).pageColor;
             spin(1);

@@ -290,6 +290,7 @@ static UIImage *harnessCover(void) {
     else if ([name isEqualToString:@"darkAccent"]) make = darkAccentCover;
     else if ([name isEqualToString:@"solidLight"]) make = solidLightCover;
     else if ([name isEqualToString:@"solidDark"]) make = solidDarkCover;
+    else if ([name isEqualToString:@"darkPortrait"]) make = darkPortraitCover;
     if (!make) HARNESS_FAIL(@"no cover fixture %@", name);
     return make();
 }

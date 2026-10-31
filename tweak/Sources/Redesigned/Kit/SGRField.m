@@ -60,6 +60,17 @@ static NSDictionary *noActions(void) {
 
 const NSTimeInterval SGRFieldHoldLimit = 0.5;
 
+// `color` given to `layer` as its paint, and the paint as the layer took it: the redesign's paint rules (SGRAmoled.x)
+// apply as it is set, so this is what the layer shows rather than what it was asked for.
+static UIColor *paint(CALayer *layer, UIColor *color) {
+    layer.backgroundColor = color.CGColor;
+    return [UIColor colorWithCGColor:layer.backgroundColor];
+}
+
+UIColor *SGRFieldShownColor(UIColor *color) {
+    return color ? paint([CALayer layer], color) : nil;
+}
+
 // The veil over a held page: black, the redesign's field before a color arrives (SGRAmoled.x), painted on a
 // sublayer for the reason the field is, so the repaint hook does not take it for Spotify's base surface.
 @interface SGRFieldVeil : UIView
@@ -97,7 +108,8 @@ const NSTimeInterval SGRFieldHoldLimit = 0.5;
     SGRFlowLayer *_flow;
     SGRFluidLayer *_fluidLayer;
     BOOL _watching;
-    UIColor *_color;
+    UIColor *_color;          // the color asked for
+    UIColor *_shownColor;     // and the one _solid paints for it (-fieldColor)
     UIColor *_paletteColor;   // the last palette's field color, shown again when the override goes
     BOOL _paletteCurrent;     // _paletteColor is the one of _image
     UIImage *_image;
@@ -115,7 +127,7 @@ const NSTimeInterval SGRFieldHoldLimit = 0.5;
 
     _solid = [CALayer layer];
     _solid.actions = noActions();
-    _solid.backgroundColor = _color.CGColor;
+    _shownColor = paint(_solid, _color);
     [self.layer addSublayer:_solid];
 
     _black = [CAGradientLayer layer];
@@ -132,7 +144,7 @@ const NSTimeInterval SGRFieldHoldLimit = 0.5;
 }
 
 - (UIColor *)fieldColor {
-    return _color;
+    return _shownColor;
 }
 
 - (CGFloat)backdropHeightNow {
@@ -271,13 +283,12 @@ const NSTimeInterval SGRFieldHoldLimit = 0.5;
     _color = color;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _solid.backgroundColor = color.CGColor;
+    _shownColor = paint(_solid, color);
     [CATransaction commit];
     if (animated && from) {
         CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"backgroundColor"];
         fade.fromValue = from;
-        // Read back rather than the color asked for: SGRAmoled.x may have swapped it for black.
-        fade.toValue = (__bridge id)_solid.backgroundColor;
+        fade.toValue = (__bridge id)_shownColor.CGColor;
         fade.duration = SGRCrossfade;
         fade.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
         [_solid addAnimation:fade forKey:@"backgroundColor"];

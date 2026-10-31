@@ -6,8 +6,10 @@
 // left under a right-to-left language), each a line's height and a point across and never over 22pt, each next one
 // round(0.85 x that) on, 8pt before the name, the two centred together, a clear ring around the one before cut out of
 // the next, the line's tap and what VoiceOver reads unchanged, and with the setting off the name alone where it would
-// be with no picture. "[harness] SHOT album-faces-two-on" / "-two-off" hold the two-artist header 1.5 s for a
-// screenshot. Logs "[harness] PASS album faces <ltr|rtl>, side ..." and exits 0, or a FAIL line and exits 1.
+// be with no picture. The rows the phone dumped (facesDeviceRow: Trio, Love for Sale and 21, initials inside square
+// avatars ahead of one label of names, Trio's last picture wider than its avatar) show every artist's face.
+// "[harness] SHOT album-faces-two-on" / "-two-off" / "album-faces-trio" hold the two-artist and the phone's Trio
+// header 1.5 s for a screenshot. Logs "[harness] PASS album faces <ltr|rtl>, side ..." and exits 0, or a FAIL line and exits 1.
 #import <objc/runtime.h>
 #import "pixel-check.h"
 
@@ -27,6 +29,7 @@ static void facesCountOvals(void) {
 
 static NSString *const kFacesKey = @"spotifyglass.redesign.album.artistPicture";
 static const CGFloat kFacesSourceSide = 24, kFacesSourceStep = 16;
+static NSString *const kFacesTrio = @"Dolly Parton • Linda Ronstadt • Emmylou Harris";
 
 static UIImage *facesImage(UIColor *color) {
     return [[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(48, 48)] imageWithActions:^(UIGraphicsImageRendererContext *c) {
@@ -89,6 +92,81 @@ static NSArray<UIImageView *> *facesRow(UIView *row, NSUInteger count, NSString 
         mark.image = decoy;
         [row addSubview:mark];
     }
+    row.accessibilityLabel = names;
+    return faces;
+}
+
+// Spotify's artist row as the phone dumped it (iOS 27.2, Spotify 9.1.90: .mixdog/review-shots/phone-v100/trees/
+// *-artist-parent-annotated.txt), one face per letter of `initials`: a button holding the facepile, each face a 24pt
+// square avatar 20.4pt on from the one before holding its initial (a black letter) and, over it, a 24pt square that clips
+// a round image view -- the third 32x24 at x -4, a portrait filled across it, as Trio's Emmylou Harris -- then a hidden
+// label and a hidden button label, Spotify's own hidden image view with its placeholder, and the names in one label 8pt
+// after the faces. Right to left, the same mirrored. The faces have no picture yet.
+static NSArray<UIImageView *> *facesDeviceRow(UIView *row, NSArray<NSString *> *initials, NSString *names) {
+    for (UIView *old in row.subviews.copy) [old removeFromSuperview];
+    static const CGFloat kAvatar = 24, kAvatarStep = 20.4, kNameGap = 8, kNameWidth = 200;
+    BOOL rtl = facesRTL(row);
+    CGFloat pile = kAvatar + (initials.count - 1) * kAvatarStep, width = pile + kNameGap + kNameWidth;
+    row.frame = CGRectMake(row.frame.origin.x, row.frame.origin.y, width, kAvatar);
+    CGFloat (^place)(CGFloat x, CGFloat w, CGFloat in) = ^CGFloat(CGFloat x, CGFloat w, CGFloat in) { return rtl ? in - x - w : x; };
+    UIView *stack = [[UIView alloc] initWithFrame:row.bounds];
+    stack.accessibilityIdentifier = @"Encore.StackView";
+    [row addSubview:stack];
+    UIView *button = [[UIView alloc] initWithFrame:CGRectMake(place(0, pile, width), 0, pile, kAvatar)];
+    [stack addSubview:button];
+    // The button's layout views down to the facepile's stack, each the facepile's size.
+    UIView *facepile = button;
+    for (int i = 0; i < 3; i++) {
+        UIView *inner = [[UIView alloc] initWithFrame:CGRectMake(0, 0, pile, kAvatar)];
+        [facepile addSubview:inner];
+        facepile = inner;
+    }
+    NSMutableArray<UIImageView *> *faces = [NSMutableArray array];
+    [initials enumerateObjectsUsingBlock:^(NSString *initial, NSUInteger i, BOOL *stop) {
+        UIView *avatar = [[UIView alloc] initWithFrame:CGRectMake(place(i * kAvatarStep, kAvatar, pile), 0, kAvatar, kAvatar)];
+        UIView *letterBox = [[UIView alloc] initWithFrame:CGRectMake(6, 1, 12, 22)];
+        letterBox.accessibilityIdentifier = @"Encore.Label";
+        UILabel *letter = [[UILabel alloc] initWithFrame:letterBox.bounds];
+        letter.text = initial;
+        letter.font = [UIFont boldSystemFontOfSize:16];
+        letter.textColor = UIColor.blackColor;
+        [letterBox addSubview:letter];
+        [avatar addSubview:letterBox];
+        UIView *clip = [[UIView alloc] initWithFrame:avatar.bounds];
+        clip.accessibilityIdentifier = @"Encore.ImageView";
+        clip.layer.cornerRadius = kAvatar / 2;
+        clip.clipsToBounds = YES;
+        CGRect picture = i == 2 ? CGRectMake(-4, 0, 32, 24) : clip.bounds;
+        UIImageView *face = [[UIImageView alloc] initWithFrame:picture];
+        face.contentMode = UIViewContentModeScaleAspectFill;
+        [clip addSubview:face];
+        [avatar addSubview:clip];
+        [facepile addSubview:avatar];
+        [faces addObject:face];
+    }];
+    UILabel *hiddenLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    UIView *hiddenBox = [[UIView alloc] initWithFrame:CGRectZero];
+    hiddenBox.hidden = YES;
+    [hiddenBox addSubview:hiddenLabel];
+    [button.subviews.firstObject addSubview:hiddenBox];
+    UILabel *buttonLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+    buttonLabel.hidden = YES;
+    [button addSubview:buttonLabel];
+    UIView *media = [[UIView alloc] initWithFrame:CGRectMake(place(0, kAvatar, width), 0, kAvatar, kAvatar)];
+    media.accessibilityIdentifier = @"Encore.ImageView";
+    media.hidden = YES;
+    UIImageView *mediaImage = [[UIImageView alloc] initWithFrame:media.bounds];
+    mediaImage.alpha = 0;
+    [media addSubview:mediaImage];
+    [media addSubview:[[UIView alloc] initWithFrame:media.bounds]];
+    [stack addSubview:media];
+    UIView *nameBox = [[UIView alloc] initWithFrame:CGRectMake(place(pile + kNameGap, kNameWidth, width), 3, kNameWidth, 18)];
+    nameBox.accessibilityIdentifier = @"Encore.Label";
+    UILabel *name = [[UILabel alloc] initWithFrame:nameBox.bounds];
+    name.text = names;
+    name.font = [UIFont boldSystemFontOfSize:13];
+    [nameBox addSubview:name];
+    [stack addSubview:nameBox];
     row.accessibilityLabel = names;
     return faces;
 }
@@ -267,6 +345,37 @@ static void facesRun(UIView *root, UIControl *row) {
             facesPass(row, root);
         }, @0.1, ^{
             facesExpect(@"three artists", info, palette, first(3), @"Ada, Ben, Cy");
+            // The rows the phone showed one face for: initials in the avatars ahead of the names, and the last picture
+            // wider than the avatar that clips it.
+            sources = facesDeviceRow(row, @[@"D", @"L", @"E"], kFacesTrio);
+            fill(3);
+            facesPass(row, root);
+        }, @0.6, ^{
+            facesExpect(@"the phone's Trio row", info, palette, first(3), kFacesTrio);
+            facesExpectRing(@"the phone's Trio row", info, palette, colours);
+            NSLog(@"[harness] SHOT album-faces-trio");
+        }, @1.5, ^{
+            // Dolly's picture hidden while her initial still shows: the initial is still not the name, and the two
+            // pictures left are the faces. Then the same with the square that clips it hidden instead.
+            sources[0].hidden = YES;
+            facesPass(row, root);
+        }, @0.6, ^{
+            facesExpect(@"the phone's Trio row, Dolly's picture hidden", info, palette, @[pictures[1], pictures[2]], kFacesTrio);
+            sources[0].hidden = NO;
+            sources[0].superview.hidden = YES;
+            facesPass(row, root);
+        }, @0.6, ^{
+            facesExpect(@"the phone's Trio row, Dolly's clip hidden", info, palette, @[pictures[1], pictures[2]], kFacesTrio);
+            sources = facesDeviceRow(row, @[@"T", @"L"], @"Tony Bennett • Lady Gaga");
+            fill(2);
+            facesPass(row, root);
+        }, @0.6, ^{
+            facesExpect(@"the phone's Love for Sale row", info, palette, first(2), @"Tony Bennett • Lady Gaga");
+            sources = facesDeviceRow(row, @[@"A"], @"Adele");
+            fill(1);
+            facesPass(row, root);
+        }, @0.6, ^{
+            facesExpect(@"the phone's 21 row, one artist", info, palette, first(1), @"Adele");
             sources = facesRow(row, 4, @"Ada, Ben, Cy, Dee", NO, NO, decoy, YES);
             fill(4);
             facesPass(row, root);

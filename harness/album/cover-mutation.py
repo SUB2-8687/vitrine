@@ -35,6 +35,9 @@ elif mode == "still-generation":
     replace("again->_motionGeneration != generation || ", "")
 elif mode == "cache-source":
     replace("if (cached && cached.source == image)", "if (cached)")
+elif mode == "field-asked":
+    # Kit/SGRField.m: the field reports the colour it was asked for, not the one it paints.
+    replace("- (UIColor *)fieldColor {\n    return _shownColor;", "- (UIColor *)fieldColor {\n    return _color;")
 else:
     raise SystemExit(f"unknown mutation: {mode}")
 path.write_text(source)

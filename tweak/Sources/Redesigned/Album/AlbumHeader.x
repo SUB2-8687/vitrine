@@ -732,8 +732,9 @@ static void *kReadyContext = &kReadyContext;
         return;
     }
     if (_motion.opacity == 1) return;
+    // The page's color as the field paints it (SGRArtworkField's fieldColor), which a low grey is not as read.
     UIColor *color = _fieldColor;
-    if (!_colorWaitOver && ![color isEqual:reading.pageColor]) {
+    if (!_colorWaitOver && ![color isEqual:SGRFieldShownColor(reading.pageColor)]) {
         if (_colorWaitBegun) return;
         _colorWaitBegun = YES;
         __weak SGRAlbumHero *weakSelf = self;

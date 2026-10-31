@@ -9,7 +9,8 @@ on the Mac without the phone.
     xcrun simctl launch booted com.vojta.albumharness
     xcrun simctl io booted screenshot shot.png
 
-`build.sh` runs `logos.pl -c generator=internal` over the four `.x` files and links them with the
+`build.sh` runs `logos.pl -c generator=internal` over the album's `.x` files and the redesign's AMOLED rule
+(`Kit/SGRAmoled.x`, so the page is painted as on the phone: a low grey field shows black) and links them with the
 real `Core/` and `Redesigned/Kit/` sources; `stubs.m` stands in for the two hook files the harness
 does not compile (`SGRAccent.x`, `SGRRepaint.x`).
 
@@ -75,7 +76,11 @@ two scenarios of this harness in a simulator of its own and asserts them. `faces
 row again for one to four artists, a hidden face, one under a hidden view and a square badge after the names, pictures
 that land late or are emptied, pictures landing in views hidden since the header's pass, a row whose name is only its
 accessibility label with a square badge after the faces (no faces), five layouts that change nothing (no cut-ring
-path made again), and the header reused for another album, and checks the Albums page's Artist picture
+path made again), the header reused for another album, and the rows the phone dumped
+(`.mixdog/review-shots/phone-v100/trees/*-artist-parent-annotated.txt`: Trio, Love for Sale and 21, each face a 24pt
+square avatar holding its initial letter and a clipped image view, Trio's last one 32x24, the names in one label after
+them; every artist's face must show, and with Dolly's picture or the square clipping it hidden while her initial
+shows, the other two), and checks the Albums page's Artist picture
 (`spotifyglass.redesign.album.artistPicture`) against the spec: at most three faces in the row's order, each
 min(ceil(line height) + 1, 22) across, round(0.85 x that) apart, 8pt before the name, centred with it, a clear 1.5pt
 ring around each face cut out of the next (read off the drawn pixels), a tap on them the line's (Spotify's row fired
@@ -85,9 +90,11 @@ right to left (`-AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`
 symbol, one that lands late, one replaced by another picture, none, one under a mask of its own and one reused as no
 track row, and reads the drawn glyph in OKLab: lightness 0.80 (0.88 with Increase Contrast, set on the simulator), the
 page's hue, chroma at most min(page's, 0.08) and at least half that; white and unmasked where it is to be left alone; ⋯'s action and what VoiceOver
-reads unchanged. Two mutants built from a copy of the sources (`faces-more-mutation.py`) must fail at their assertion:
-four faces allowed, a picture in a view hidden since the pass drawn, and a baked ⋯ given only a tint. `SHOTS=<dir>` keeps `album-faces-two-on.png`,
-`album-faces-two-off.png` and `album-more.png` (and the variants, suffixed).
+reads unchanged. Mutants built from a copy of the sources (`faces-more-mutation.py`) must fail at their assertion:
+four faces allowed, a picture in a view hidden since the pass drawn, an avatar's initial taken for the name and a face
+told by its image view's own shape (both at the phone's Trio row), an avatar known only by a shown picture (at Trio with
+Dolly's picture hidden, left to right and right to left), and a baked ⋯ given only a tint. `SHOTS=<dir>` keeps
+`album-faces-two-on.png`, `album-faces-two-off.png`, `album-faces-trio.png` and `album-more.png` (and the variants, suffixed).
 
 The pinned download and ⋯ are watched from the first frame the page draws: after every Core Animation commit while the
 field's veil is up and a second past it, ⋯ must have glass behind it, its own or download's capsule with download
@@ -110,6 +117,7 @@ it, the artist's Play checks too (`../artist/README.md`), with the screenshots i
 `cover-check.sh` checks the picture-aware cover (`-spotifyglass.redesign.album.adaptiveCover`, Full screen only;
 `Redesigned/Kit/SGRCoverRead.h`, the hero in `Redesigned/Album/AlbumHeader.x`) as Mac Catalyst programs, no simulator
 (`python3 scripts/harness-plan.py run --names "Album cover"`). The covers are drawn in code (`cover-fixtures.h`).
+The hero builds compile the redesign's AMOLED rule (`Kit/SGRAmoled.x`) as `build.sh` does.
 `cover-read-check.m` reads each: solid dark, light and red sleeves with centred art, the same sleeve broken along 8% of
 its border (still solid) and with art over 72% of it (not), a tiny logo on black, a dark cover with a large orange
 accent, the old rectangle portrait (confirmed to produce zero real Vision faces) with an injected face box through
@@ -118,7 +126,11 @@ colourful bands, Vision failing, a transparent
 and a too narrow cover, the same picture twice (the cache's reading), and page colours brought into sRGB by chroma
 alone. `cover-hero-check.m` draws five of them in the album's hero on a page with its field: the field in the read
 colour, the cover itself down to where the spec lets it stop being sharp, the drawing over it from there continuous with
-it and ending in the page's colour, and the title's area held to L 0.58 over 90% of it. The scanned sleeve checks the
+it and ending in the colour the field paints just under the hero (read off the rendered field, the hero's gradients
+composited over the drawing; at most 2 levels apart), and the title's area held to L 0.58 over 90% of it. One of them is
+Adele's 21 as the phone showed it (`darkPortraitCover`, `dark-portrait`): a black-and-white portrait reading #0D0C0C,
+which the AMOLED rule paints black; the `field-asked` mutant (the field reporting the colour it was asked for rather than
+the one it paints) must fail there with the phone's 13,13,13 over 0,0,0. The scanned sleeve checks the
 pale border and reflected square edge, including the actual layer composition: adjacent-row mean absolute linear
 sRGB luminance difference must not exceed 0.02 within 24pt of the edge. The layer composition also checks
 24pt above the scanned sleeve's stripe at 94% through the square's extension; the drawing must be opaque.
@@ -135,7 +147,7 @@ Also checked: a cover replaced mid read whose
 colour never reaches the page; and, with the setting off, the hero written to a PNG. `BASELINE=<rev>` draws that
 revision's off hero too and requires the same bytes.
 
-`-coverFixture colourful|portrait|darkAccent|solidLight|solidDark` on this harness's launch line shows one of those
+`-coverFixture colourful|portrait|darkAccent|solidLight|solidDark|darkPortrait` on this harness's launch line shows one of those
 covers instead of the scanned sleeve (`portrait` uses the real-Vision drawn face), and `cover-stats` logs the process's memory footprint and its peak at 6 s with a
 `[harness] SHOT album-cover-<cover>-<on|off>` line; the hero's own log says how long the read and the drawing took.
 The drawing log separates queue wait from rendering and reports canvas, blur, colour mix and title measurement
