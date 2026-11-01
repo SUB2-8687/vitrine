@@ -287,10 +287,8 @@ static void offerCover(void) {
             sg_pendingPicture = nil;
             MPMediaItemAnimatedArtwork *artwork = [[MPMediaItemAnimatedArtwork alloc] initWithArtworkID:file.lastPathComponent
                 previewImageRequestHandler:^(CGSize wanted, void (^completion)(UIImage *)) {
-                    dispatch_async(sg_queue, ^{
-                        UIImage *preview = offered.cancelled ? nil : filled(backdrop, wanted);
-                        completion(offered.cancelled ? nil : preview);
-                    });
+                    // Already rendered at the clip's exact 3:4 raster; never reshape it to an arbitrary request.
+                    completion(offered.cancelled ? nil : backdrop);
                 }
                 videoAssetFileURLRequestHandler:^(CGSize wanted, void (^completion)(NSURL *)) {
                     SGMotionMakeFile(file, ^BOOL {

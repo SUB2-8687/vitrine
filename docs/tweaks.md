@@ -443,14 +443,18 @@ Shared:
                   In the first three layouts a block still too tall at the smallest size, whose
                   bottom would pass 65% of the screen, lets go of the line sung last, then the next line, then the
                   translation, and last keeps the whole lines of the line that fit from 17% down, the last ending in an
-                  ellipsis. Fallbacks use the screen's native width and the shared
+                  ellipsis. Fallbacks use the largest exact 3:4 raster within the screen's native width, both sides
+                  divisible by 16; motion uses the largest even-sided exact 3:4 cut within the video.
+                  Preview and video share that raster, including Every song's lyric-free fallback, and the shared
                   CPU renderer. Cover backgrounds load the current URI's metadata artwork through
                   SGShownTrackArtwork, not title-matched system artwork that may be a placeholder or the
                   previous song's cover. Missing or failed covers use the dark fallback; late results are
                   guarded by track, source URL and generation. Previews are drawn on a queue apart from the clips, and while the
                   lock screen is asking, the next line's preview and clip are drawn ahead and a ready preview is handed
-                  over at once. Each lyric offer also supplies its composed frame as ordinary Now Playing artwork,
-                  so the clip transition's fallback is lyrics, not the plain cover; turning lyrics off restores the
+                  over at once. Each lyric ID owns one ordinary Now Playing artwork object, reused by ready-preview,
+                  artist-row and Spotify/extras resends. Its synchronous handler uses a ready frame from this render
+                  generation while a miss draws off main, never the plain cover. A new ID replaces the object;
+                  turning lyrics off restores the
                   native artwork. Picking it or another artwork applies at once.
                   Moving artwork with lyrics (the choice's fifth value, 4) draws each line over the track's moving
                   artwork, which LockScreenMotion.x finds and hands over (SGLyricsArtworkSetMotion): the clip is the
@@ -464,8 +468,10 @@ Shared:
                   last, read once with an image generator before the clip is written, held for the clip, enough that
                   the brightest tenth behind the words comes to 0.22 of white; the preview judges the same stretch,
                   so it matches), and the words with a tight dark shadow are
-                  drawn on; the encoder cuts the 3:4 middle as SGMotionClip.m does, so nothing is scaled on the CPU.
-                  The IDs end in the style, the layout and, over moving artwork, m and the first 16 characters of the
+                  drawn on; the same exact 3:4 crop as the preview is copied row by row into the encoder's aligned,
+                  IOSurface-backed buffer pool, preserving source color tags without scaling the already-drawn words.
+                  The IDs end in a render-version token (changed whenever the drawing changes, so system-cached clips
+                  from older renderers cannot return), the style, the layout and, over moving artwork, m and the first 16 characters of the
                   file's name (SGLyricsClipLook), so the clip arriving, a Canvas after an animated cover, or a change of
                   style or layout re-offers the line showing. Until it comes, and for a track with no moving artwork, the lines are drawn
                   as Lyrics draws them, in the chosen style; so are they over a video that will not draw (turned, its

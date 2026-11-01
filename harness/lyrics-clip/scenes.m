@@ -153,7 +153,11 @@ static CGSize size;
 
 static CGImageRef frameOf(SGLyricsClipLayout layout, CGImageRef cover, NSString *previous, NSString *line, NSString *translation,
                           NSString *next) CF_RETURNS_RETAINED {
-    return SGLyricsClipFrameWithLayout(NULL, cover, none(previous), none(line), none(translation), none(next), size, layout);
+    CGImageRef frame = SGLyricsClipFrameWithLayout(NULL, cover, none(previous), none(line), none(translation), none(next), size, layout);
+    check(frame && CGImageGetWidth(frame) == size.width && CGImageGetHeight(frame) == size.height
+          && CGImageGetWidth(frame) * 4 == CGImageGetHeight(frame) * 3,
+          @"scene preview matches the exact 3:4 clip raster");
+    return frame;
 }
 
 // The clip written and read back: its length, size, codec and its one frame, held, clear under the band.
@@ -174,7 +178,8 @@ static void readBack(NSURL *url, SGLyricsClipStyle style, uint32_t ground) {
         }
     }
     FourCharCode codec = track ? CMFormatDescriptionGetMediaSubType((__bridge CMFormatDescriptionRef)track.formatDescriptions.firstObject) : 0;
-    check(track && fabs(seconds - wanted) < 0.05 && CGSizeEqualToSize(track.naturalSize, size) && codec == kCMVideoCodecType_H264 && samples == 1,
+    check(track && fabs(seconds - wanted) < 0.05 && CGSizeEqualToSize(track.naturalSize, size)
+          && track.naturalSize.width * 4 == track.naturalSize.height * 3 && codec == kCMVideoCodecType_H264 && samples == 1,
           [NSString stringWithFormat:@"the clip reads back: %.2f s (want %.0f), %.0fx%.0f, %d frames (want 1, held)", seconds, wanted,
            track.naturalSize.width, track.naturalSize.height, samples]);
     AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];

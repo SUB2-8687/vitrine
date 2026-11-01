@@ -91,6 +91,9 @@ static void verify(NSURL *url, CGImageRef backdrop, CGSize size, SGLyricsClipSty
     double wanted = style == SGLyricsClipAnimated ? 4 : 2;
     check(track != nil, @"has a video track");
     if (!track) return;
+    check(track.naturalSize.width * 4 == track.naturalSize.height * 3
+          && fmod(track.naturalSize.width, 2) == 0 && fmod(track.naturalSize.height, 2) == 0,
+          @"cover clip is exactly 3:4 with even sides");
     check(fabs(seconds - wanted) < 0.05, [NSString stringWithFormat:@"lasts %.3f s (want %.0f)", seconds, wanted]);
     check(CGSizeEqualToSize(track.naturalSize, size), [NSString stringWithFormat:@"is %.0fx%.0f (want %.0fx%.0f)",
         track.naturalSize.width, track.naturalSize.height, size.width, size.height]);
@@ -168,7 +171,13 @@ int main(int argc, char **argv) {
         [NSFileManager.defaultManager createDirectoryAtURL:out withIntermediateDirectories:YES attributes:nil error:nil];
         CGImageRef cover = argc > 1 ? newImageAt([NSString stringWithUTF8String:argv[1]]) : newCover();
         // Fallbacks use the screen raster, not the independent moving-artwork download width.
-        CGSize size = SGLyricsClipSize(1206);
+        for (NSNumber *pixels in @[@904, @1170, @1179, @1206]) {
+            CGSize raster = SGLyricsClipSize(pixels.doubleValue);
+            check(raster.width * 4 == raster.height * 3 && fmod(raster.width, 16) == 0
+                  && fmod(raster.height, 16) == 0 && raster.width <= pixels.doubleValue,
+                  [NSString stringWithFormat:@"fallback raster for %@ pixels is exactly 3:4 and encoder-aligned", pixels]);
+        }
+        CGSize size = SGLyricsClipSize(1170);
         CFAbsoluteTime made = CFAbsoluteTimeGetCurrent();
         CGImageRef backdrop = SGLyricsClipBackdrop(cover, size);
         printf("the default backdrop, %.0fx%.0f: %.0f ms\n", size.width, size.height, (CFAbsoluteTimeGetCurrent() - made) * 1000);
@@ -188,6 +197,12 @@ int main(int argc, char **argv) {
                     double ms = (CFAbsoluteTimeGetCurrent() - start) * 1000;
                     printf("%s\n", name.UTF8String);
                     check(written, [NSString stringWithFormat:@"written in %.0f ms", ms]);
+                    CGImageRef preview = SGLyricsClipFrameWithLayout([c[0] isEqual:@"empty"] ? plain : backdrop, NULL, nil,
+                                                                      c[1], c[2], c[3], size, layout);
+                    check(preview && CGImageGetWidth(preview) == size.width && CGImageGetHeight(preview) == size.height
+                          && CGImageGetWidth(preview) * 4 == CGImageGetHeight(preview) * 3,
+                          @"cover preview matches the exact 3:4 clip raster");
+                    CGImageRelease(preview);
                     if (!written) continue;
                     NSNumber *bytes = nil;
                     [url getResourceValue:&bytes forKey:NSURLFileSizeKey error:nil];

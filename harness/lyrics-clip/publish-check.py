@@ -44,6 +44,12 @@ with tempfile.TemporaryDirectory(prefix="lyrics-publish-") as temp:
         "        activityChecks();\n        extern void lyricPublishChecks(void);\n        lyricPublishChecks();"))
     src = ROOT / "tweak/Sources"
     mutations = {
+        "--mutate-identity": ("composed[MPMediaItemPropertyArtwork] = still;",
+            "MPMediaItemArtwork *fresh = [[MPMediaItemArtwork alloc] initWithBoundsSize:still.bounds.size "
+            "requestHandler:^UIImage *(CGSize wanted) { return [still imageWithSize:wanted]; }];\n"
+            "        objc_setAssociatedObject(fresh, &sg_nativeKey, native ?: NSNull.null, OBJC_ASSOCIATION_RETAIN_NONATOMIC);\n"
+            "        composed[MPMediaItemPropertyArtwork] = fresh;",
+            "FAIL same lyric ID retains its static artwork across Spotify and extras resends"),
         "--mutate": ("MPMediaItemArtwork *still = objc_getAssociatedObject(animated, &sg_stillKey);",
                      "MPMediaItemArtwork *still = nil;",
                      "FAIL first lyric publication has a composed ordinary artwork fallback"),

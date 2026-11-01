@@ -273,6 +273,28 @@ static double lumaAt(const uint8_t *q) {
     return 0.2126 * q[0] + 0.7152 * q[1] + 0.0722 * q[2];
 }
 
+// Isolate dimmed letters from a bright background, rather than counting the background as white text.
+static CGRect wordBounds(CGImageRef words, CGImageRef behind) {
+    size_t w, h, w2, h2;
+    // The encoder consumes the renderer's RGB sample values but tags the decoded raster Rec.709.
+    // Interpret those values in the renderer's space before comparing; a second transfer conversion
+    // turns bright background edges into false letters.
+    CGImageRef samples = CGImageCreateCopyWithColorSpace(words, CGImageGetColorSpace(behind));
+    uint8_t *p = pixelsOf(samples, &w, &h), *q = pixelsOf(behind, &w2, &h2);
+    CGImageRelease(samples);
+    CGRect bounds = CGRectNull;
+    for (size_t y = 0; w == w2 && h == h2 && y < h; y++) {
+        for (size_t x = 0; x < w; x++) {
+            size_t offset = (y * w + x) * 4;
+            if (lumaAt(p + offset) - lumaAt(q + offset) > 40)
+                bounds = CGRectUnion(bounds, CGRectMake(x, y, 1, 1));
+        }
+    }
+    free(p);
+    free(q);
+    return bounds;
+}
+
 // The picture behind a translation and the next line, across the visible frame. `words` is a
 // frame with them and `behind` the same frame with them as spaces; rows where `words` is lighter are the lines',
 // and the last two runs of them (the translation and the next line, or the line and its translation run
@@ -350,6 +372,9 @@ int motionMain(NSURL *out, int argc, char **argv) {
     NSURL *a = [NSURL fileURLWithPath:@"/c/Motion/3f9a0c11d2e4b5a6978877665544332211009988.mp4"];
     NSURL *b = [NSURL fileURLWithPath:@"/c/Motion/3f9a77aa00bb11cc22dd33ee44ff556677889900.mp4"];
     SGLyricsClipLayout left = SGLyricsClipLeft;
+    check(![SGLyricsClipLook(nil, SGLyricsClipStill, left) isEqual:@"0l0"] &&
+          ![SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:@"m3f9a0c11d2e4b5a6s0l0"],
+          @"cover and motion offers cannot reuse pre-versioned system artwork");
     check(![SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:SGLyricsClipLook(a, SGLyricsClipAnimated, left)],
           [NSString stringWithFormat:@"the style is in it over moving artwork (%@, %@)", SGLyricsClipLook(a, SGLyricsClipStill, left),
            SGLyricsClipLook(a, SGLyricsClipAnimated, left)]);
@@ -390,7 +415,7 @@ int motionMain(NSURL *out, int argc, char **argv) {
     SGLyricsClipWrite([out URLByAppendingPathComponent:@"animated.mp4"], plain, @"Hold on", nil, @"we're almost there", SGLyricsClipSize(904), SGLyricsClipAnimated);
     double animatedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000;
     CGImageRelease(plain);
-    printf("the Animated lyrics clip, 60 frames at 896x1200: %.0f ms, %.1f ms a frame\n", animatedMs, animatedMs / 60);
+    printf("the Animated lyrics clip, 60 frames: %.0f ms, %.1f ms a frame\n", animatedMs, animatedMs / 60);
 
     NSArray *cases = @[
         // name, previous, line, next, from, seconds[, the line's translation]
@@ -415,9 +440,7 @@ int motionMain(NSURL *out, int argc, char **argv) {
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:video options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @YES}];
         AVAssetTrack *track = [asset tracksWithMediaType:AVMediaTypeVideo].firstObject;
         double length = CMTimeGetSeconds(asset.duration), fps = MIN(round(track.nominalFrameRate), 30);   // kept to 30 fps
-        CGSize cut = SGMotionClipCut(track.naturalSize, 0.75);
-        printf("\n%s: %.0fx%.0f, %.2f s at %.0f fps, cut to %.0fx%.0f\n", name.UTF8String, track.naturalSize.width, track.naturalSize.height,
-               length, fps, cut.width, cut.height);
+        printf("\n%s: %.0fx%.0f, %.2f s at %.0f fps\n", name.UTF8String, track.naturalSize.width, track.naturalSize.height, length, fps);
         // drawOver refuses a decoded frame of another size than the track states, and the clip is then not written,
         // so LyricsArtwork.x draws the line over the cover. A video with non-square pixels does that: its natural size
         // is the shown one (960x1280 for 720x1280 at 4:3), its frames the stored one.
@@ -468,7 +491,11 @@ int motionMain(NSURL *out, int argc, char **argv) {
             if (!written) continue;
             Read read = readBack(url);
             check(fabs(read.seconds - wanted) < 0.05, [NSString stringWithFormat:@"lasts %.3f s (want %.3f)", read.seconds, wanted]);
-            check(CGSizeEqualToSize(read.size, cut), [NSString stringWithFormat:@"is %.0fx%.0f", read.size.width, read.size.height]);
+            check(read.size.width * 4 == read.size.height * 3
+                  && fmod(read.size.width, 2) == 0 && fmod(read.size.height, 2) == 0
+                  && read.size.width <= track.naturalSize.width && read.size.height <= track.naturalSize.height,
+                  [NSString stringWithFormat:@"motion clip is exactly 3:4 with even sides inside the source (%.0fx%.0f)",
+                   read.size.width, read.size.height]);
             check(read.h264, @"is H.264");
             check(abs(read.frames - (int)round(wanted * fps)) <= 1, [NSString stringWithFormat:@"holds %d frames (want %.0f)", read.frames, wanted * fps]);
             CGImageRef first = frameAt(url, 0), middle = frameAt(url, wanted / 2);
@@ -480,14 +507,35 @@ int motionMain(NSURL *out, int argc, char **argv) {
             BOOL words = [c[1] length] || [c[2] length] || [c[3] length];
             CGFloat safeTop = (.17 - .10) / (1179.0 / 2556 * 4 / 3), safeBottom = (.65 - .10) / (1179.0 / 2556 * 4 / 3);
             double band = whiteIn(first, safeTop, safeBottom, [c[2] length] || ![c[3] length] ? 225 : 120);
-            if (words) check(band > 0.003, [NSString stringWithFormat:@"words in the upper middle (%.2f%% white)", band * 100]);
-            else check(band < 0.0005, [NSString stringWithFormat:@"no words when there are none (%.3f%% white)", band * 100]);
+            if (words && ![c[0] isEqual:@"rest"])
+                check(band > 0.003, [NSString stringWithFormat:@"words in the screen-safe band (%.2f%% white)", band * 100]);
+            else if (!words) check(band < 0.0005, [NSString stringWithFormat:@"no words when there are none (%.3f%% white)", band * 100]);
             check(whiteIn(first, 0, safeTop, 225) < 0.0005 && whiteIn(first, safeBottom, 1, 225) < 0.0005, @"nothing white under the clock or the controls");
             double moved = differ(first, middle);
             check(moved > 2, [NSString stringWithFormat:@"the picture moves (%.1f of 255 between the start and the middle)", moved]);
             CGImageRef preview = SGLyricsClipMotionFrame(video, c[1], c[2], translation, c[3], from, seconds, layout);
+            check(preview && CGImageGetWidth(preview) == read.size.width && CGImageGetHeight(preview) == read.size.height
+                  && CGImageGetWidth(preview) * 4 == CGImageGetHeight(preview) * 3,
+                  @"motion preview matches the exact 3:4 clip raster");
             double off = preview ? differ(preview, first) : 255;
             check(off < 10, [NSString stringWithFormat:@"the preview is the first frame (%.1f of 255 apart, the encode's loss)", off]);
+            if ([c[0] isEqual:@"rest"]) {
+                // A lone next line is 0.6-size, half-white text, not a minimum share of the whole safe area's pixels.
+                // Check its screen placement instead; the old density threshold also counted bright flag pixels.
+                CGImageRef behind = SGLyricsClipMotionFrame(video, nil, nil, nil, blanked(c[3]), from, seconds, layout);
+                CGRect bounds = behind ? wordBounds(first, behind) : CGRectNull;
+                CGFloat screenHeight = CGImageGetWidth(first) * 2556.0 / 1179;
+                CGFloat top = .10 + CGRectGetMinY(bounds) / screenHeight;
+                CGFloat bottom = .10 + CGRectGetMaxY(bounds) / screenHeight;
+                check(!CGRectIsNull(bounds) && top >= .17 && bottom <= .65 && fabs((top + bottom) / 2 - .40) < .025,
+                      @"the lone next line is centred 40% down the screen inside 17–65%");
+                CGFloat width = CGImageGetWidth(first);
+                check(!CGRectIsNull(bounds) && (layout == SGLyricsClipCentered
+                      ? fabs(CGRectGetMidX(bounds) / width - .50) < .02
+                      : fabs(CGRectGetMinX(bounds) / width - .08) < .015),
+                      @"the lone next line uses the full frame's alignment, not a centre crop");
+                CGImageRelease(behind);
+            }
             if (preview && ([c[0] isEqual:@"line"] || translation))
                 savePNG(preview, [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@%@-preview.png", name, c[0], layoutNames[layout]]]);
             if (preview && translation && layout == SGLyricsClipLeft && ![c[0] hasPrefix:@"overflow"]) {

@@ -60,8 +60,11 @@ translation (its preview saved as `<video>-translated-preview.png`), a long line
 stretch round the video's end, one longer than the video (written whole), a break, no words, and the two
 blocks too tall for the space with the lines either side; over the two stand-ins in all three layouts, over
 videos given in Left. Each is
-read back and checked: length, the 3:4 cut's size, H.264, frames at up to 30 fps, words in the upper middle
-and nothing white outside the screen's 17–65% safe region, the picture moving, and the preview the same as the first
+read back and checked: length, the 3:4 cut's size, H.264, frames at up to 30 fps, words in the screen's
+17–65% safe region and nothing white outside it, the lone dimmed next line centred 40% down the screen
+with full-frame alignment (measured in the decoded clip against its blank preview in matching RGB sample space,
+not a minimum white-pixel density),
+the picture moving, and the preview the same as the first
 frame. With the translation, it draws the same preview again with the lines as spaces, the picture behind them
 alone, and over the flag checks the picture behind the translation and the next line in the phone's strip:
 little pattern left (the mean step between neighbouring pixels under 0.65 of 255; the narrower blur and fixed
@@ -81,6 +84,10 @@ memory used.
     build/lyrics-clip motion cut video.mp4    # the video cut alone, to compare
 
 These land in `build/motion/`. AVFoundation's encoder needs the sandbox off.
+Every decoded lyric clip and preview is checked for the key's exact 3:4 ratio and matching raster.
+`python3 harness/lyrics-clip/artwork-mutations.py` from the repository root restores independently
+rounded cover/motion dimensions and drops only the encoded resting text (leaving previews intact);
+each must fail its raster or decoded-line check.
 
 `regression.sh` renders the reported English sentence and Korean translation without forced line separators at the 1179×2556
 uncropped phone projection: full frame width, top at 10% of screen height; neutral space outside it is not
@@ -107,7 +114,10 @@ still require a device check.
 The publication check also switches directly from Lyrics to Every song with motion sources disabled
 and no further Spotify artwork update: both preview and clip must use the native cover, not lyrics.
 `--mutate-native` removes getter unwrapping and must fail that case. A held cold renderer proves a
-main-thread ordinary-artwork request returns without rendering or waiting, then receives a freshly
-published composed frame; `--mutate-main` restores synchronous rendering and must fail the thread check.
+main-thread ordinary-artwork request returns without rendering or waiting, then receives the ready
+composed frame without replacing its static artwork object; `--mutate-main` restores synchronous rendering
+and must fail the thread check. Same-ID Spotify/extras resends keep that object's identity, new lyric IDs
+replace it, and removing native artwork cannot expose composed pixels through the getter.
+`--mutate-identity` restores per-publication wrappers and must fail the identity check.
 While a line is pending, the ordinary fallback may hold the previous lyric frame (or be absent on first
 demand), never the native cover. Paused lyric retention is unchanged.

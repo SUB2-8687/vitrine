@@ -98,6 +98,7 @@ static NSString *sg_coverKey;  // content identity, including no-cover, in both 
 static NSUInteger sg_coverGeneration, sg_renderGeneration, sg_settingsRevision;
 static BOOL sg_settingsPending;
 static NSString *sg_shownID;   // the artwork handed over last, nil for none; read on sg_queue too
+static MPMediaItemArtwork *sg_stillArtwork; // main thread: one ordinary artwork for sg_shownID, including ready-frame resends
 static UIImage *sg_stillPreview; // last ready lyric frame in this generation, under sg_lock
 static NSObject *sg_lock;
 static dispatch_queue_t sg_queue;   // writes the clips, one at a time
@@ -129,6 +130,7 @@ static BOOL stillShown(NSString *artworkID) {
 
 static void setShown(NSString *artworkID) {
     @synchronized (sg_lock) {
+        if (![artworkID isEqual:sg_shownID]) sg_stillArtwork = nil;
         sg_shownID = artworkID;
         sg_prefetch = nil;
     }
@@ -184,25 +186,27 @@ static NSURL *clipFile(NSString *artworkID) {
 static UIImage *previewFor(NSString *artworkID, SGLockLine *line, CGSize size) {
     if (!currentLine(line)) return nil;
     UIImage *preview = [sg_previews objectForKey:artworkID];
-    if (preview) return preview;
-    BOOL tryMotion = line.motion && !motionFailed(line.motion);
-    CGImageRef frame = tryMotion ? SGLyricsClipMotionFrame(line.motion, line.previous, line.line, line.translation, line.next, line.from,
-                                                           line.seconds, line.layout) : NULL;
-    if (tryMotion && !frame) markMotionFailed(line.motion, artworkID);
-    if (!frame) {
-        CGImageRef backdrop = SGLyricsClipIsScene(line.layout) || line.layout == SGLyricsClipOverArtwork
-            ? NULL : SGLyricsBackgroundCreate(line.cover.CGImage, size, line.background);
-        frame = SGLyricsClipFrameWithLayout(backdrop, line.cover.CGImage, line.previous, line.line, line.translation, line.next, size,
-                                            line.layout);
-        CGImageRelease(backdrop);
-    }
-    if (frame && currentLine(line)) {
-        [sg_previews setObject:(preview = [UIImage imageWithCGImage:frame]) forKey:artworkID];
-        @synchronized (sg_lock) {
-            if (line.generation == sg_renderGeneration && [artworkID isEqual:sg_shownID]) sg_stillPreview = preview;
+    if (!preview) {
+        BOOL tryMotion = line.motion && !motionFailed(line.motion);
+        CGImageRef frame = tryMotion ? SGLyricsClipMotionFrame(line.motion, line.previous, line.line, line.translation, line.next, line.from,
+                                                               line.seconds, line.layout) : NULL;
+        if (tryMotion && !frame) markMotionFailed(line.motion, artworkID);
+        if (!frame) {
+            CGImageRef backdrop = SGLyricsClipIsScene(line.layout) || line.layout == SGLyricsClipOverArtwork
+                ? NULL : SGLyricsBackgroundCreate(line.cover.CGImage, size, line.background);
+            frame = SGLyricsClipFrameWithLayout(backdrop, line.cover.CGImage, line.previous, line.line, line.translation, line.next, size,
+                                                line.layout);
+            CGImageRelease(backdrop);
         }
+        if (frame) preview = [UIImage imageWithCGImage:frame];
+        CGImageRelease(frame);
+        if (preview && currentLine(line)) [sg_previews setObject:preview forKey:artworkID];
     }
-    CGImageRelease(frame);
+    @synchronized (sg_lock) {
+        if (line.generation != sg_renderGeneration) return nil;
+        // Even a late outgoing frame is a usable synchronous fallback when this generation has none yet.
+        if (preview && (!sg_stillPreview || [artworkID isEqual:sg_shownID])) sg_stillPreview = preview;
+    }
     return preview;
 }
 
@@ -275,7 +279,8 @@ static MPMediaItemAnimatedArtwork *artworkFor(NSString *artworkID, SGLockLine *l
                 completion(ok && stillShown(artworkID) ? clipFile(artworkID) : nil);
             }, NO);
         }];
-    MPMediaItemArtwork *still = [[MPMediaItemArtwork alloc] initWithBoundsSize:size requestHandler:^UIImage *(CGSize wanted) {
+    MPMediaItemArtwork *still = sg_stillArtwork;
+    if (!still) still = [[MPMediaItemArtwork alloc] initWithBoundsSize:size requestHandler:^UIImage *(CGSize wanted) {
         UIImage *ready = [sg_previews objectForKey:artworkID], *previous;
         BOOL start = NO;
         @synchronized (sg_lock) {
@@ -295,12 +300,13 @@ static MPMediaItemAnimatedArtwork *artworkFor(NSString *artworkID, SGLockLine *l
             if (!image) return;
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!currentLine(line) || !stillShown(artworkID)) return;
-                // Fresh artwork objects discard any MediaPlayer cache of the pending response.
+                // Re-offer the ready preview without changing this ID's ordinary-artwork identity.
                 SGNowPlayingSetExtras(@"lyrics", @{MPNowPlayingInfoProperty3x4AnimatedArtwork: artworkFor(artworkID, line)}, title);
             });
         });
         return previous;
     }];
+    sg_stillArtwork = still;
     objc_setAssociatedObject(artwork, &sg_stillKey, still, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     return artwork;
 }
@@ -330,11 +336,9 @@ static MPMediaItemAnimatedArtwork *artworkFor(NSString *artworkID, SGLockLine *l
     }
     NSMutableDictionary *composed = [info mutableCopy];
     if (still) {
-        // A fresh wrapper belongs to this publication, not a mutable global "current image".
-        MPMediaItemArtwork *fallback = [[MPMediaItemArtwork alloc] initWithBoundsSize:still.bounds.size
-            requestHandler:^UIImage *(CGSize wanted) { return [still imageWithSize:wanted]; }];
-        objc_setAssociatedObject(fallback, &sg_nativeKey, native ?: NSNull.null, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        composed[MPMediaItemPropertyArtwork] = fallback;
+        // Artist-row ticks and Spotify/extras resends must not look like another still-artwork change.
+        objc_setAssociatedObject(still, &sg_nativeKey, native ?: NSNull.null, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        composed[MPMediaItemPropertyArtwork] = still;
     } else if (native) {
         composed[MPMediaItemPropertyArtwork] = native;
     } else {

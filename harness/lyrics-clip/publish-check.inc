@@ -11,7 +11,7 @@ CGImageRef harnessPublicationFrame(NSString *line, CGImageRef backdrop) {
     @synchronized (cacheRoot) {
         if (publicationFixture) {
             publicationRenderedOnMain |= NSThread.isMainThread;
-            if (holdPublicationRender && [line isEqual:@"First"]) {
+            if (holdPublicationRender) {
                 holdPublicationRender = NO;
                 publicationEntered = YES;
                 hold = !NSThread.isMainThread; // a mutant fails normally, never traps or blocks the GUI thread
@@ -38,7 +38,8 @@ static void publishSequenceChecks(void) {
         publicationEntered = publicationRenderedOnMain = publicationGateTimedOut = NO;
     }
     nativeInfo(blue);
-    NSArray *lines = @[lineOf(@"First", 0, 10000), lineOf(@"Second", 12000, 20000)];
+    // Gate even a prefetched frame so the cold request truly has no frame in this generation yet.
+    NSArray *lines = @[lineOf(@"First", 0, 10000), lineOf(@"Not shown", 12000, 20000), lineOf(@"Second", 24000, 30000)];
     track(@"publish-sequence", SGLockArtworkLyrics, nil, lines);
     MPMediaItemArtwork *coldStill = harnessSystem()[MPMediaItemPropertyArtwork];
     check(NSThread.isMainThread, @"ordinary-artwork cold request is made on main");
@@ -56,16 +57,28 @@ static void publishSequenceChecks(void) {
     @synchronized (cacheRoot) { check(!publicationGateTimedOut, @"ordinary render was released without a timeout"); }
     id first = artwork();
     MPMediaItemArtwork *firstStill = harnessSystem()[MPMediaItemPropertyArtwork];
+    check(firstStill == coldStill, @"ready-frame resend retains the same lyric ID's static artwork");
     check(first && sameImage([firstStill imageWithSize:CGSizeMake(24, 32)], red),
           @"first lyric publication has a composed ordinary artwork fallback");
     check(!sameImage([firstStill imageWithSize:CGSizeMake(24, 32)], blue),
           @"first lyric fallback is not the plain native cover");
     publishedLyricFrames = [NSMutableArray array];
-    position = 12000;
+    @synchronized (cacheRoot) {
+        holdPublicationRender = YES;
+        publicationEntered = NO;
+    }
+    // Seek past the prefetched line: this ID has no ready preview, but the generation has First.
+    position = 24000;
     report();
+    check(sameImage([harnessSystem()[MPMediaItemPropertyArtwork] imageWithSize:CGSizeMake(24, 32)], red),
+          @"a pending line synchronously returns the ready generation frame instead of nil");
+    check(await(^BOOL { @synchronized (cacheRoot) { return publicationEntered; } }),
+          @"pending next-line rendering reaches the controlled worker gate");
+    dispatch_semaphore_signal(publicationRelease);
     check(await(^BOOL {
         return sameImage([harnessSystem()[MPMediaItemPropertyArtwork] imageWithSize:CGSizeMake(24, 32)], secondFrame);
     }), @"next ordinary frame becomes ready without a native-cover response");
+    @synchronized (cacheRoot) { check(!publicationGateTimedOut, @"pending next-line render was released without a timeout"); }
     id second = artwork();
     MPMediaItemArtwork *secondStill = harnessSystem()[MPMediaItemPropertyArtwork];
     // The OS may request its synchronous fallback inside an asynchronous animated-preview callback.
@@ -79,7 +92,17 @@ static void publishSequenceChecks(void) {
           @"ordinary fallback can be requested inside the animated-preview completion");
     check(second && second != first && sameImage([secondStill imageWithSize:CGSizeMake(24, 32)], secondFrame),
           @"line change publishes the next lyric still with its animated offer");
+    check(secondStill != firstStill, @"a new lyric ID gets a new static artwork object");
     nativeInfo(blue); // Spotify can resend its cover between animated preview and video requests.
+    SGNowPlayingSetExtras(@"publication-test", @{MPNowPlayingInfoPropertyInternationalStandardRecordingCode: @"test"}, @"Song");
+    check(harnessSystem()[MPMediaItemPropertyArtwork] == secondStill,
+          @"same lyric ID retains its static artwork across Spotify and extras resends");
+    SGNowPlayingSetExtras(@"publication-test", nil, nil);
+    nativeInfo(nil);
+    check(harnessSystem()[MPMediaItemPropertyArtwork] == secondStill
+          && MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo[MPMediaItemPropertyArtwork] == nil,
+          @"removing native artwork preserves lyric identity without feeding composed pixels back");
+    nativeInfo(blue);
     check(!sameImage([harnessSystem()[MPMediaItemPropertyArtwork] imageWithSize:CGSizeMake(24, 32)], blue),
           @"native resend between lyric frames never publishes the plain cover");
     check(publishedLyricFrames.count >= 2, @"sequence captures the transition and Spotify resend");
@@ -105,4 +128,5 @@ static void publishSequenceChecks(void) {
     check(sameImage([harnessSystem()[MPMediaItemPropertyArtwork] imageWithSize:CGSizeMake(24, 32)], blue),
           @"turning lyrics off restores the native cover");
     publicationFixture = NO;
+    [NSFileManager.defaultManager removeItemAtURL:cacheRoot error:nil];
 }

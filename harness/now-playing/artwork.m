@@ -668,6 +668,12 @@ void artworkChecks(void) {
     check(![name(fluid) isEqual:name(safeFallback)], @"late cover does not reuse the no-cover fallback's disk identity");
     // Native is immediate, but the completed URI result owns the final pixels.
     UIImage *fluidPreview = preview(fluid);
+    Preview fluidRequest = objc_getAssociatedObject(fluid, &previewKey);
+    __block UIImage *unalignedPreview;
+    fluidRequest(CGSizeMake(25, 33), ^(UIImage *value) { unalignedPreview = value; });
+    check(unalignedPreview && sameImage(unalignedPreview, fluidPreview)
+          && CGImageGetWidth(unalignedPreview.CGImage) * 4 == CGImageGetHeight(unalignedPreview.CGImage) * 3,
+          @"Every song returns its ready exact-ratio raster even for an unaligned request");
     check(CGSizeEqualToSize(lastCoverRequest, CGSizeMake(32, 32))
           && CGImageGetWidth(fluidPreview.CGImage) == 24 && CGImageGetHeight(fluidPreview.CGImage) == 32,
           @"native acquisition and authoritative rendering use the intended full raster");

@@ -11,6 +11,9 @@
 #import "SGLyricsClip.h"
 #import "Shared/LyricsBackground/LyricsBackground.h"
 
+// Change this token whenever the drawn picture changes: the system caches artwork across app builds.
+static NSString *const kRenderVersion = @"r2";
+
 // IMG_1800 shows the whole 3:4 frame across the screen, not a centre crop. Its text centre places
 // the frame's top about 10% down a 1179x2556 screen. Map screen-safe heights into that frame once;
 // all six layouts use its full width. The clock is at 11%, the media controls start at 68%.
@@ -59,8 +62,9 @@ static const CGFloat kShadowAlpha = 0.9, kShadowBlur = 0.15, kMotionNextAlpha = 
 static const double kMotionFPS = 30;
 
 CGSize SGLyricsClipSize(CGFloat pixels) {
-    CGFloat width = MAX(floor(pixels / 16) * 16, 16);
-    return CGSizeMake(width, round(width * 4 / 3 / 16) * 16);
+    // Three 16-pixel blocks across and four down preserve both the ratio and encoder alignment.
+    CGFloat blocks = MAX(floor(pixels / (3 * 16)), 1);
+    return CGSizeMake(blocks * 3 * 16, blocks * 4 * 16);
 }
 
 static CGContextRef newContext(CGSize size, void *data, size_t bytesPerRow) {
@@ -683,7 +687,7 @@ BOOL SGLyricsClipWriteWithLayout(NSURL *file, CGImageRef backdrop, CGImageRef co
 }
 
 // Over moving artwork. The video is read as BGRA, the dimming and the words are drawn into each frame where
-// it lies, at the video's own size, and the encoder cuts the 3:4 middle out as SGMotionClip.m's cut does,
+// it lies, at the video's own size, and the exact 3:4 middle is copied into the encoder's buffer pool,
 // so the picture is never scaled on the CPU: a frame costs a fill, a gradient and one image draw.
 
 typedef struct {
@@ -707,10 +711,9 @@ static AVAssetTrack *motionTrack(AVURLAsset *asset, Motion *motion) {
     CGSize stored = CGSizeMake(round(track.naturalSize.width), round(track.naturalSize.height));
     double length = CMTimeGetSeconds(track.timeRange.duration);
     if (stored.width < 16 || stored.height < 16 || !(length > 0)) return nil;
-    CGSize cut = stored.width / stored.height > 0.75 ? CGSizeMake(stored.height * 0.75, stored.height)
-                                                     : CGSizeMake(stored.width, stored.width / 0.75);
-    // H.264 takes even sides, rounded down so the cut stays inside the picture.
-    *motion = (Motion){stored, CGSizeMake(floor(cut.width / 2) * 2, floor(cut.height / 2) * 2), length};
+    // A 3:4 pair of even sides has a 6x8 unit; rounding its sides independently changes the ratio.
+    CGFloat units = floor(MIN(stored.width / 6, stored.height / 8));
+    *motion = (Motion){stored, CGSizeMake(units * 6, units * 8), length};
     return track;
 }
 
@@ -976,24 +979,65 @@ BOOL SGLyricsClipWriteOverMotion(NSURL *file, NSURL *motionFile, NSString *previ
         AVVideoCodecKey: AVVideoCodecTypeH264,
         AVVideoWidthKey: @(motion.cut.width),
         AVVideoHeightKey: @(motion.cut.height),
-        AVVideoScalingModeKey: AVVideoScalingModeResizeAspectFill,
         // As SGMotionClip.m's cut: about 2 Mbit/s at a Canvas's 720 x 960.
         AVVideoCompressionPropertiesKey: @{AVVideoAverageBitRateKey: @(motion.cut.width * motion.cut.height * 3)},
     }];
     if (!writer || ![writer canAddInput:input]) return NO;
     [writer addInput:input];
+    AVAssetWriterInputPixelBufferAdaptor *adaptor = [AVAssetWriterInputPixelBufferAdaptor
+        assetWriterInputPixelBufferAdaptorWithAssetWriterInput:input sourcePixelBufferAttributes:@{
+            (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
+            (id)kCVPixelBufferWidthKey: @(motion.cut.width),
+            (id)kCVPixelBufferHeightKey: @(motion.cut.height),
+            (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+        }];
     if (![writer startWriting]) return NO;
     [writer startSessionAtSourceTime:kCMTimeZero];
     __block Over over = makeOver(motion, previous, line, translation, next, layout);
     fitBand(asset, motion, &over, from, seconds);
     __block BOOL ok = YES, any = NO;
     BOOL read = eachFrame(asset, track, motion, from, seconds, ^BOOL(CMSampleBufferRef sample) {
-        if (!drawOver(CMSampleBufferGetImageBuffer(sample), motion, &over)) {
+        CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
+        if (!drawOver(buffer, motion, &over)) {
             ok = NO;
             return NO;
         }
+        // Aspect-fill would scale the complete stored frame when both crop dimensions shrink,
+        // shifting the already-drawn letters relative to the preview. Submit precisely its crop instead.
+        CGRect cut = cutIn(motion);
         while (!input.readyForMoreMediaData && writer.status == AVAssetWriterStatusWriting) [NSThread sleepForTimeInterval:0.002];
-        ok = writer.status == AVAssetWriterStatusWriting && [input appendSampleBuffer:sample];
+        CVPixelBufferRef cropped = NULL;
+        if (writer.status != AVAssetWriterStatusWriting || !adaptor.pixelBufferPool
+            || CVPixelBufferPoolCreatePixelBuffer(NULL, adaptor.pixelBufferPool, &cropped) != kCVReturnSuccess) {
+            ok = NO;
+            return NO;
+        }
+        // Pool storage is aligned and IOSurface-backed, unlike a borrowed, offset view of the decoder's bytes.
+        CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+        CVPixelBufferLockBaseAddress(cropped, 0);
+        size_t sourceStride = CVPixelBufferGetBytesPerRow(buffer), targetStride = CVPixelBufferGetBytesPerRow(cropped);
+        const uint8_t *source = CVPixelBufferGetBaseAddress(buffer);
+        source += (size_t)cut.origin.y * sourceStride + (size_t)cut.origin.x * 4;
+        uint8_t *target = CVPixelBufferGetBaseAddress(cropped);
+        for (size_t y = 0; y < (size_t)cut.size.height; y++)
+            memcpy(target + y * targetStride, source + y * sourceStride, (size_t)cut.size.width * 4);
+        CVPixelBufferUnlockBaseAddress(cropped, 0);
+        CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
+        CFStringRef const colorKeys[] = {kCVImageBufferColorPrimariesKey, kCVImageBufferTransferFunctionKey,
+                                        kCVImageBufferYCbCrMatrixKey};
+        for (NSUInteger i = 0; i < sizeof(colorKeys) / sizeof(colorKeys[0]); i++) {
+            CVAttachmentMode mode;
+            CFTypeRef value = CVBufferCopyAttachment(buffer, colorKeys[i], &mode);
+            if (value) {
+                CVBufferSetAttachment(cropped, colorKeys[i], value, mode);
+                CFRelease(value);
+            } else {
+                CVBufferRemoveAttachment(cropped, colorKeys[i]);
+            }
+        }
+        ok = writer.status == AVAssetWriterStatusWriting
+            && [adaptor appendPixelBuffer:cropped withPresentationTime:CMSampleBufferGetPresentationTimeStamp(sample)];
+        CVPixelBufferRelease(cropped);
         any = YES;
         return ok;
     });
@@ -1013,7 +1057,7 @@ BOOL SGLyricsClipWriteOverMotion(NSURL *file, NSURL *motionFile, NSString *previ
 }
 
 NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout) {
-    if (!motion) return [NSString stringWithFormat:@"%ldl%ld", (long)style, (long)layout];
+    if (!motion) return [NSString stringWithFormat:@"%@-%ldl%ld", kRenderVersion, (long)style, (long)layout];
     NSString *name = motion.lastPathComponent.stringByDeletingPathExtension;
-    return [NSString stringWithFormat:@"m%@s%ldl%ld", name.length > 16 ? [name substringToIndex:16] : name, (long)style, (long)layout];
+    return [NSString stringWithFormat:@"%@-m%@s%ldl%ld", kRenderVersion, name.length > 16 ? [name substringToIndex:16] : name, (long)style, (long)layout];
 }

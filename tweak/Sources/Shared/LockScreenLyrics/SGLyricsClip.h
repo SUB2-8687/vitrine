@@ -30,7 +30,7 @@ static inline BOOL SGLyricsClipIsScene(SGLyricsClipLayout layout) {
     return layout == SGLyricsClipMessages || layout == SGLyricsClipVinyl;
 }
 
-// The 3:4 size of a clip `pixels` wide, both sides a multiple of 16 for the encoder.
+// An exact 3:4 size no wider than `pixels` (minimum 48), both sides a multiple of 16 for the encoder.
 CGSize SGLyricsClipSize(CGFloat pixels);
 // The lock screen's default background (the cover blurred, 45% darkened), through the shared CPU renderer;
 // a dark field for NULL.
@@ -66,7 +66,7 @@ static inline BOOL SGLyricsClipWrite(NSURL *file, CGImageRef backdrop, NSString 
 // the picture whole.
 BOOL SGLyricsClipWriteOverMotion(NSURL *file, NSURL *motion, NSString *previous, NSString *line, NSString *translation,
                                  NSString *next, double from, double seconds, SGLyricsClipLayout layout);
-// The end of a line's artwork ID, so a clip kept under it is the one wanted: the style, which a clip falling
+// The end of a line's artwork ID, so a clip kept under it is the one wanted: the render version, the style, which a clip falling
 // back to the cover is drawn in, and the layout, and with moving artwork m and the first 16 characters of its
 // file's name (the store names files by a SHA-1 of their address), so another video for the track redraws the
 // line showing.
