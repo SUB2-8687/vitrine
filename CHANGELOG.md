@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0-beta.26](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.25...v1.0.0-beta.26) (2026-10-31)
+
+
+### Features
+
+* AutoMix 전환을 플레이어에 표시 ([598d35b](https://github.com/oneulddu/vitrine/commit/598d35b76e65fc2e8976d56358fc2b4902361125))
+* 앨범 아티스트 얼굴과 트랙 ⋯ 색 추가 ([287715c](https://github.com/oneulddu/vitrine/commit/287715c86c15d1465d85eddd75edba4a218d7715))
+* 앨범·아티스트 페이지에 beta.6 표현 추가 ([c6f0d5f](https://github.com/oneulddu/vitrine/commit/c6f0d5f53d8563ae769c9b5f22578e23ea2da1b7))
+* 플레이어 설정에 고정 미리보기와 선택지 추가 ([8adf7f5](https://github.com/oneulddu/vitrine/commit/8adf7f577d0ab885bd37baec6de86580ff085fec))
+
+
+### Fixes
+
+* 크로스페이드 진행 막대 표시의 메인 스레드 멈춤 수정 ([15ddc37](https://github.com/oneulddu/vitrine/commit/15ddc37d4e87a105c51c974a1b45f802e19bb22e))
+* 폰에서 나온 앨범 얼굴과 커버 경계선 수정 ([2661fa3](https://github.com/oneulddu/vitrine/commit/2661fa3ab2be62cc1bfb7595bd8bda1aa51099c2))
+
 ## [1.0.0-beta.25](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.24...v1.0.0-beta.25) (2026-10-29)
 
 
