@@ -97,13 +97,13 @@ SGLyricsAsk SGGenieAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *))
     NSDictionary *headers = @{@"User-Agent": @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", @"Referer": @"https://www.genie.co.kr/"};
     NSURL *url = SGLyricsURL(@"https://www.genie.co.kr/search/searchMain", @{@"query": [NSString stringWithFormat:@"%@ %@", query.title, SGLyricsLeadArtist(query.artist)]});
     NSString *title = query.title, *artist = query.artist;
-    SGLyricsSourceRequest(url, headers, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(query.requestContext, url, headers, nil, ^(NSData *data, NSInteger status) {
         SGLyricsTransform(^id {
             NSString *html = status == 200 && data.length ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
             return songFor(html, title, artist);
         }, ^(NSString *song) {
         if (!song) { done(nil); return; }
-        SGLyricsSourceRequest(SGLyricsURL(@"https://dn.genie.co.kr/app/purchase/get_msl.asp", @{@"path": @"a", @"songid": song}), headers, nil, ^(NSData *answer, NSInteger code) {
+        SGLyricsSourceRequestIn(query.requestContext, SGLyricsURL(@"https://dn.genie.co.kr/app/purchase/get_msl.asp", @{@"path": @"a", @"songid": song}), headers, nil, ^(NSData *answer, NSInteger code) {
             SGLyricsTransform(^id {
                 return code == 200 && answer.length ? SGGenieResult([[NSString alloc] initWithData:answer encoding:NSUTF8StringEncoding]) : nil;
             }, ^(SGLyricsResult *result) {

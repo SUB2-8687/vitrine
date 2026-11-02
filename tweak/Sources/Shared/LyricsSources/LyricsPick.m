@@ -75,11 +75,9 @@ static void askMissing(SGLyricsOfferAsk *ask) {
     for (NSString *key in keys) {
         SGLyricsProvider *provider = SGLyricsProviderFor(key);
         SGLyricsQuery *query = queries[key];
-        NSUInteger failures = SGLyricsFailures();
-        provider.ask(query, ^(SGLyricsResult *result) {
+        SGLyricsInvoke(provider, query, ^(SGLyricsResult *result, BOOL failed) {
             if (result.karaokeLines.count && !result.provider) result.provider = provider.name;
             // As in the walk: nothing, while a request failed, may be a busy server rather than no lyrics.
-            BOOL failed = !result.karaokeLines.count && SGLyricsFailures() != failures;
             SGLog(@"lyrics: %@ offers %lu lines for %@%@", key, (unsigned long)result.karaokeLines.count, trackID,
                   failed ? @", a request failed on the way; not kept" : @"");
             if (!failed) ask.answers[key] = result.karaokeLines.count ? result : NSNull.null;
@@ -114,8 +112,15 @@ NSDictionary<NSString *, SGLyricsResult *> *SGLyricsOffersSoFar(NSString *trackI
 // The track's lines and credit everywhere they show, at once.
 static void show(NSString *trackID, NSString *credit, NSArray<SGKaraokeLine *> *lines) {
     // The credit before the lines, which the lyrics page asks for once it has them.
-    SGLyricsSetCredit(trackID, credit);
-    SGKaraokeKeepLines(trackID, lines);
+    id answer = SGLyricsKeptAnswer(trackID);
+    if ([answer isKindOfClass:SGLyricsResult.class] && [credit isEqual:[answer provider]]) {
+        SGKaraokeKeepSourceLines(trackID, lines, answer);
+    } else if ([credit isEqualToString:@"Spotify"]) {
+        SGKaraokeKeepSpotifyLines(trackID, lines);
+    } else {
+        SGLyricsSetCredit(trackID, credit);
+        SGKaraokeKeepLines(trackID, lines);
+    }
     // Queued behind the keep above, so a page that drops its lines on this finds the new ones kept.
     dispatch_async(dispatch_get_main_queue(), ^{
         [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsSourceChosenNotification object:trackID];
@@ -149,7 +154,7 @@ void SGLyricsChooseSource(NSString *trackID, NSString *key) {
 void SGLyricsNoteOrderChoice(NSString *trackID, SGLyricsResult *lyrics) {
     SGLyricsAutomatic *automatic = sg_automatic[trackID];
     if (!automatic || automatic.kept) return;
-    automatic.kept = lyrics;
+    automatic.kept = SGLyricsSnapshot(lyrics);
     automatic.credit = lyrics.provider;
     automatic.lines = lyrics.karaokeLines;
 }
@@ -170,7 +175,6 @@ void SGLyricsChooseAutomatic(NSString *trackID) {
     SGLyricsInvalidateDelivery(trackID);
     // A pick is saved offline too. Cancel pending writes/reads and delete its disk entry before
     // restoring or asking again, so an evicted Automatic snapshot cannot resurrect the pick.
-    SGKaraokeForgetLyrics(trackID);
     SGLyricsRestoreKept(trackID, automatic.kept);
     if (!automatic.lines) {
         // What the track showed is gone with its record, or was nothing while its walk ran: the lyrics are

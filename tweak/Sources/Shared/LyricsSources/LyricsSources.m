@@ -37,16 +37,48 @@ static NSString *const kLegacyNetEase = @"spotifyglass.neteaseWordTiming";
 @implementation SGLyricsProvider
 @end
 
+void SGLyricsInvoke(SGLyricsProvider *provider, SGLyricsQuery *query, void (^done)(SGLyricsResult *, BOOL)) {
+    SGLyricsQuery *invocation = [SGLyricsQuery new];
+    invocation.trackID = query.trackID;
+    invocation.title = query.title; invocation.artist = query.artist; invocation.album = query.album;
+    invocation.seconds = query.seconds;
+    SGLyricsRequestContext *context = invocation.requestContext = [SGLyricsRequestContext new];
+    provider.ask(invocation, ^(SGLyricsResult *result) {
+        void (^deliver)(void) = ^{ done(result, context.failed); };
+        if (NSThread.isMainThread) deliver();
+        else dispatch_async(dispatch_get_main_queue(), deliver);
+    });
+}
+
+SGLyricsResult *SGLyricsSnapshot(SGLyricsResult *result) {
+    if (!result) return nil;
+    SGLyricsResult *copy = [SGLyricsResult new];
+    copy.provider = result.provider; copy.pageProvider = result.pageProvider;
+    copy.creditLinks = result.creditLinks; copy.creditRequired = result.creditRequired;
+    copy.synced = result.synced; copy.wordTimed = result.wordTimed;
+    copy.starts = result.starts; copy.texts = result.texts; copy.karaokeLines = result.karaokeLines;
+    copy.title = result.title; copy.artist = result.artist; copy.album = result.album; copy.seconds = result.seconds;
+    copy.instrumental = result.instrumental; copy.picked = result.picked; copy.provisional = result.provisional;
+    return copy;
+}
+
+static SGLyricsResult *pickedSnapshot(SGLyricsResult *result) {
+    result = SGLyricsSnapshot(result);
+    if (!result.texts.count && result.karaokeLines.count) {
+        NSArray *starts, *texts;
+        SGLyricsPageLines(result.karaokeLines, &starts, &texts);
+        result.starts = starts; result.texts = texts;
+        result.synced = SGKaraokeLinesTiming(result.karaokeLines) != SGKaraokeTimingNone;
+    }
+    result.picked = YES;
+    result.provisional = NO;
+    return result;
+}
+
 #pragma mark - the requests the sources share
 
-// Every request any source has lost to the network or to a server too busy to answer, counted so a
-// walk can tell "no source has lyrics" from "a source could not say". Only the first is kept.
+// Aggregate diagnostics only. Selection and recovery use invocation-private contexts.
 static _Atomic NSUInteger sg_failures;
-
-BOOL SGLyricsReplyFailed(NSURLResponse *response, NSError *error) {
-    NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
-    return error || status == 429 || status >= 500;
-}
 
 void SGLyricsNoteReply(NSURLResponse *response, NSError *error) {
     if (SGLyricsReplyFailed(response, error)) atomic_fetch_add(&sg_failures, 1);
@@ -73,7 +105,7 @@ static NSMutableURLRequest *requestFor(NSURL *url, NSDictionary<NSString *, NSSt
 
 // Raw transport completion stays off main. The public helpers decode/transform here and only
 // deliver the finished value to main, where provider caches and the source walk still live.
-static void sendForReply(NSURLRequest *request, void (^done)(NSData *body, NSHTTPURLResponse *response)) {
+static void sendForReply(SGLyricsRequestContext *context, NSURLRequest *request, void (^done)(NSData *body, NSHTTPURLResponse *response)) {
     if (!request) {
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ done(nil, nil); });
         return;
@@ -82,13 +114,14 @@ static void sendForReply(NSURLRequest *request, void (^done)(NSData *body, NSHTT
     [[NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSHTTPURLResponse *reply = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
         SGLyricsNoteReply(response, error);
+        [context noteResponse:response error:error];
         if (error || reply.statusCode >= 400) SGLog(@"lyrics: %@ answered %ld, error %@ (%ld)", url.host, (long)reply.statusCode, error.domain, (long)error.code);
         done(data, reply);
     }] resume];
 }
 
-static void send(NSURLRequest *request, void (^done)(NSData *body)) {
-    sendForReply(request, ^(NSData *body, NSHTTPURLResponse *reply) {
+static void send(SGLyricsRequestContext *context, NSURLRequest *request, void (^done)(NSData *body)) {
+    sendForReply(context, request, ^(NSData *body, NSHTTPURLResponse *reply) {
         done(reply.statusCode >= 400 ? nil : body);
     });
 }
@@ -98,12 +131,19 @@ static id jsonIn(NSData *body) {
 }
 
 void SGLyricsGetJSON(NSURL *url, NSDictionary<NSString *, NSString *> *headers, void (^done)(id root)) {
-    SGLyricsGetJSONTransform(url, headers, nil, done);
+    SGLyricsGetJSONIn(nil, url, headers, done);
+}
+void SGLyricsGetJSONIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id)) {
+    SGLyricsGetJSONTransformIn(context, url, headers, nil, done);
 }
 
 void SGLyricsGetJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> *headers,
                               id (^transform)(id), void (^done)(id)) {
-    send(requestFor(url, headers), ^(NSData *body) {
+    SGLyricsGetJSONTransformIn(nil, url, headers, transform, done);
+}
+void SGLyricsGetJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers,
+                                id (^transform)(id), void (^done)(id)) {
+    send(context, requestFor(url, headers), ^(NSData *body) {
         SGLyricsTransform(^id {
             id root = jsonIn(body);
             return transform ? transform(root) : root;
@@ -112,18 +152,27 @@ void SGLyricsGetJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> *
 }
 
 void SGLyricsGetJSONReply(NSURL *url, NSDictionary<NSString *, NSString *> *headers, void (^done)(id root, NSHTTPURLResponse *response)) {
-    sendForReply(requestFor(url, headers), ^(NSData *body, NSHTTPURLResponse *reply) {
+    SGLyricsGetJSONReplyIn(nil, url, headers, done);
+}
+void SGLyricsGetJSONReplyIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id, NSHTTPURLResponse *)) {
+    sendForReply(context, requestFor(url, headers), ^(NSData *body, NSHTTPURLResponse *reply) {
         id root = jsonIn(body);
         dispatch_async(dispatch_get_main_queue(), ^{ done(root, reply); });
     });
 }
 
 void SGLyricsGetText(NSURL *url, void (^done)(NSString *text)) {
-    SGLyricsGetTextTransform(url, nil, done);
+    SGLyricsGetTextIn(nil, url, done);
+}
+void SGLyricsGetTextIn(SGLyricsRequestContext *context, NSURL *url, void (^done)(NSString *)) {
+    SGLyricsGetTextTransformIn(context, url, nil, done);
 }
 
 void SGLyricsGetTextTransform(NSURL *url, id (^transform)(NSString *), void (^done)(id)) {
-    send(requestFor(url, nil), ^(NSData *body) {
+    SGLyricsGetTextTransformIn(nil, url, transform, done);
+}
+void SGLyricsGetTextTransformIn(SGLyricsRequestContext *context, NSURL *url, id (^transform)(NSString *), void (^done)(id)) {
+    send(context, requestFor(url, nil), ^(NSData *body) {
         SGLyricsTransform(^id {
             NSString *text = body.length ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] : nil;
             return transform ? transform(text) : text;
@@ -137,13 +186,17 @@ void SGLyricsPostJSON(NSURL *url, NSDictionary<NSString *, NSString *> *headers,
 
 void SGLyricsPostJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> *headers, id body,
                                id (^transform)(id), void (^done)(id)) {
+    SGLyricsPostJSONTransformIn(nil, url, headers, body, transform, done);
+}
+void SGLyricsPostJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id body,
+                                id (^transform)(id), void (^done)(id)) {
     NSData *written = [NSJSONSerialization isValidJSONObject:body]
         ? [NSJSONSerialization dataWithJSONObject:body options:0 error:nil] : nil;
     NSMutableURLRequest *request = written ? requestFor(url, headers) : nil;
     request.HTTPMethod = @"POST";
     request.HTTPBody = written;
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    send(request, ^(NSData *answer) {
+    send(context, request, ^(NSData *answer) {
         SGLyricsTransform(^id {
             id root = jsonIn(answer);
             return transform ? transform(root) : root;
@@ -157,12 +210,14 @@ void SGLyricsPostJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> 
 @property (nonatomic, strong) NSMutableData *data;
 @property (nonatomic, copy) void (^done)(NSData *, NSInteger);
 @property (nonatomic) NSInteger status;
+@property (nonatomic, strong) SGLyricsRequestContext *context;
 @end
 @implementation SGLyricsSourceTransfer
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task
  didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completion {
     self.status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 0;
     SGLyricsNoteReply(response, nil);
+    [self.context noteResponse:response error:nil];
     completion(response.expectedContentLength > 2 * 1024 * 1024 ? NSURLSessionResponseCancel : NSURLSessionResponseAllow);
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
@@ -174,6 +229,7 @@ void SGLyricsPostJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> 
  completionHandler:(void (^)(NSURLRequest *))completion { completion(nil); }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
     if (error) SGLyricsNoteReply(nil, error);
+    [self.context noteResponse:nil error:error];
     if (error || self.status >= 400) SGLog(@"lyrics: source request ended with HTTP %ld, error %@ (%ld)", (long)self.status, error.domain, (long)error.code);
     NSData *data = error ? nil : [self.data copy];
     void (^done)(NSData *, NSInteger) = self.done;
@@ -186,6 +242,10 @@ void SGLyricsPostJSONTransform(NSURL *url, NSDictionary<NSString *, NSString *> 
 
 void SGLyricsSourceRequest(NSURL *url, NSDictionary<NSString *, NSString *> *headers, NSData *body,
                            void (^done)(NSData *, NSInteger)) {
+    SGLyricsSourceRequestIn(nil, url, headers, body, done);
+}
+void SGLyricsSourceRequestIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, NSData *body,
+                            void (^done)(NSData *, NSInteger)) {
     NSMutableURLRequest *request = requestFor(url, headers);
     if (!request || ![url.scheme isEqualToString:@"https"]) {
         dispatch_async(dispatch_get_main_queue(), ^{ done(nil, 0); });
@@ -201,6 +261,7 @@ void SGLyricsSourceRequest(NSURL *url, NSDictionary<NSString *, NSString *> *hea
     SGLyricsSourceTransfer *transfer = [SGLyricsSourceTransfer new];
     transfer.data = [NSMutableData data];
     transfer.done = done;
+    transfer.context = context;
     NSURLSession *session = [NSURLSession sessionWithConfiguration:config delegate:transfer delegateQueue:nil];
     [[session dataTaskWithRequest:request] resume];
 }
@@ -365,6 +426,10 @@ static void learnFrom(SGLyricsQuery *query, SGLyricsResult *result) {
 // Main queue only, except sg_missing and sg_credits.
 static NSMutableDictionary<NSString *, id> *sg_kept;
 static NSMutableDictionary<NSString *, NSMutableArray *> *sg_waiting;
+@class SGLyricsWalk;
+static NSMutableDictionary<NSString *, SGLyricsWalk *> *sg_walks;
+static NSString *sg_playing;
+static void trimKept(NSString *track);
 static NSMutableSet<NSString *> *sg_missing;
 static NSMutableDictionary<NSString *, NSNumber *> *sg_pins;
 // Guarded by sg_pins; generations survive unpinning and source picks to reject old hook deliveries.
@@ -402,6 +467,7 @@ static void setUp(void) {
     dispatch_once(&once, ^{
         sg_kept = [NSMutableDictionary dictionary];
         sg_waiting = [NSMutableDictionary dictionary];
+        sg_walks = [NSMutableDictionary dictionary];
         sg_missing = [NSMutableSet set];
         sg_credits = [NSMutableDictionary dictionary];
         sg_spotifyHas = [NSMutableDictionary dictionary];
@@ -433,6 +499,7 @@ NSUInteger SGLyricsPinGeneration(NSString *trackID) {
 void SGLyricsInvalidateDelivery(NSString *trackID) {
     if (!trackID.length) return;
     setUp();
+    SGLyricsRetire(trackID);
     @synchronized (sg_pins) {
         sg_pinGenerations[trackID] = @(sg_pinGenerations[trackID].unsignedIntegerValue + 1);
     }
@@ -448,9 +515,9 @@ static BOOL pinResult(NSString *trackID, NSDictionary *record, SGLyricsResult *r
     if (![identifier isKindOfClass:NSNumber.class] || !SGLyricsDecimalID(identifier).length || [identifier longLongValue] <= 0) return NO;
     if (!result.instrumental && !result.karaokeLines.count) return NO;
     setUp();
+    SGLyricsRetire(trackID);
     SGLyricsDropChoice(trackID, SGLyricsChosenSource(trackID));
     @synchronized (sg_pins) {
-        sg_pinGenerations[trackID] = @(sg_pinGenerations[trackID].unsignedIntegerValue + 1);
         sg_pins[trackID] = identifier;
         for (NSString *other in sg_pins.allKeys) {
             if (sg_pins.count <= 500) break;
@@ -460,12 +527,11 @@ static BOOL pinResult(NSString *trackID, NSDictionary *record, SGLyricsResult *r
     }
     NSArray *waiting = sg_waiting[trackID];
     [sg_waiting removeObjectForKey:trackID];
-    if (sg_kept.count >= kKeptTracks && !sg_kept[trackID]) [sg_kept removeAllObjects];
+    SGKaraokeForgetLyrics(trackID);
+    trimKept(trackID);
     sg_kept[trackID] = result;
     @synchronized (sg_missing) { [sg_missing removeObject:trackID]; }
-    SGKaraokeForgetLyrics(trackID);
-    SGLyricsSetCredit(trackID, @"LRCLIB");
-    SGKaraokeKeepLines(trackID, result.karaokeLines ?: @[]);
+    SGKaraokeKeepSourceLines(trackID, result.karaokeLines ?: @[], result);
     [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsPinDidChangeNotification object:trackID];
     for (void (^done)(SGLyricsResult *) in waiting) done(result);
     return YES;
@@ -491,8 +557,8 @@ void SGLyricsPickRecord(NSString *trackID, NSDictionary *record, BOOL (^current)
 static void reloadTrack(NSString *trackID, BOOL unpin) {
     if (!trackID.length) return;
     setUp();
+    SGLyricsRetire(trackID);
     @synchronized (sg_pins) {
-        sg_pinGenerations[trackID] = @(sg_pinGenerations[trackID].unsignedIntegerValue + 1);
         if (unpin) {
             [sg_pins removeObjectForKey:trackID];
             [NSUserDefaults.standardUserDefaults setObject:[sg_pins copy] forKey:SGKeyLyricsPins];
@@ -598,12 +664,18 @@ void SGLyricsOpenCreditLinks(NSArray<SGLyricsLink *> *links, UIView *from) {
 @property (nonatomic) SGKaraokeTiming pageTiming;
 @property (nonatomic, strong) SGLyricsQuery *query;
 @property (nonatomic, strong) SGLyricsResult *merged;
-// The waiters this walk started for. A pin or an unpin replaces them, retiring late replies.
+// Released once; sg_walks and the delivery generation remain the identity after they are drained.
 @property (nonatomic, strong) NSMutableArray *waiting;
 // Sources that needed a name the query did not have when their turn came.
 @property (nonatomic, strong) NSMutableArray<NSString *> *passedOver;
-// sg_failures when the walk started. Another walk's failure counts too, which at worst asks again.
-@property (nonatomic) NSUInteger failuresAtStart;
+@property (nonatomic) NSUInteger generation, retries;
+@property (nonatomic, strong) SGLyricsLease *lease;
+@property (nonatomic, strong) NSMutableSet<NSString *> *failures;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, SGLyricsResult *> *answers;
+@property (nonatomic, strong) NSMutableArray<NSString *> *sequence;
+@property (nonatomic, strong) SGLyricsResult *pending;
+@property (nonatomic, strong) NSNumber *pin;
+@property (nonatomic) BOOL pinnedAnswered, replaying, terminal, settled, retryScheduled;
 // The source picked for the track when the walk started, asked first.
 @property (nonatomic, copy) NSString *picked;
 // The picked source answered with lines, which are the walk's answer however they are timed.
@@ -613,79 +685,234 @@ void SGLyricsOpenCreditLinks(NSArray<SGLyricsLink *> *links, UIView *from) {
 @implementation SGLyricsWalk
 @end
 
+static BOOL ownsWalk(SGLyricsWalk *walk) {
+    return sg_walks[walk.query.trackID] == walk && walk.generation == SGLyricsPinGeneration(walk.query.trackID);
+}
+
+void SGLyricsRetire(NSString *track) {
+    if (!track.length) return;
+    SGLyricsWalk *walk = sg_walks[track];
+    [walk.lease invalidate];
+    [sg_walks removeObjectForKey:track];
+    SGKaraokeCancelStoreWrite(track);
+}
+
+void SGLyricsForgetAnswer(NSString *track) {
+    if (!track.length) return;
+    SGLyricsInvalidateDelivery(track);
+    [sg_kept removeObjectForKey:track];
+    [sg_waiting removeObjectForKey:track];
+    @synchronized (sg_missing) { [sg_missing removeObject:track]; }
+}
+
+static void trimKept(NSString *track) {
+    if (sg_kept.count < kKeptTracks || sg_kept[track]) return;
+    for (NSString *other in sg_kept.allKeys) if (![other isEqualToString:track]) SGLyricsRetire(other);
+    [sg_kept removeAllObjects];
+}
+
+id SGLyricsPersistenceAuthority(NSString *track) {
+    id kept = sg_kept[track];
+    if ([kept isKindOfClass:SGLyricsResult.class]) return kept;
+    return sg_walks[track] ? NSNull.null : nil;
+}
+
+BOOL SGLyricsMayPersist(NSString *track, id authority) {
+    SGLyricsWalk *walk = sg_walks[track];
+    id current = SGLyricsPersistenceAuthority(track);
+    if (!current) return !authority;
+    return [authority isKindOfClass:SGLyricsResult.class] && [current isKindOfClass:SGLyricsResult.class]
+        && SGLyricsSameSheet(authority, current) && ![current provisional]
+        && (!walk || (walk.settled && !walk.pending));
+}
+
+BOOL SGLyricsRecovering(NSString *track) {
+    SGLyricsWalk *walk = sg_walks[track];
+    return walk && !walk.settled && (walk.merged.karaokeLines.count || walk.merged.texts.count);
+}
+
+BOOL SGLyricsSameSheet(SGLyricsResult *a, SGLyricsResult *b) {
+    return a && b && a.karaokeLines == b.karaokeLines && (a.texts == b.texts || [a.texts isEqual:b.texts])
+        && (a.starts == b.starts || [a.starts isEqual:b.starts])
+        && a.synced == b.synced && a.picked == b.picked && a.instrumental == b.instrumental
+        && (a.provider == b.provider || [a.provider isEqual:b.provider])
+        && (a.pageProvider == b.pageProvider || [a.pageProvider isEqual:b.pageProvider])
+        && a.creditRequired == b.creditRequired
+        && (a.creditLinks == b.creditLinks || [a.creditLinks isEqual:b.creditLinks]);
+}
+
+BOOL SGLyricsUseSpotify(NSArray<SGKaraokeLine *> *source, NSArray<SGKaraokeLine *> *spotify, BOOL protected) {
+    return !protected && spotify.count && (!source.count
+        || SGKaraokeLinesTiming(spotify) < SGKaraokeLinesTiming(source));
+}
+
+SGLyricsResult *SGLyricsAcceptSpotify(NSString *track, NSArray<SGKaraokeLine *> *lines, id previousAuthority) {
+    setUp();
+    SGLyricsWalk *walk = sg_walks[track];
+    SGLyricsResult *answer = SGLyricsResultWithLines(lines, @"Spotify");
+    if (walk.pending && SGLyricsUseSpotify(walk.pending.karaokeLines, lines,
+        walk.pinnedAnswered || walk.pending.picked || walk.pending.instrumental)) walk.pending = nil;
+    answer.provisional = walk ? !walk.settled || walk.pending != nil
+        : previousAuthority && !SGLyricsMayPersist(track, previousAuthority);
+    trimKept(track);
+    sg_kept[track] = answer;
+    @synchronized (sg_missing) { [sg_missing removeObject:track]; }
+    return answer;
+}
+
+// Only sources that were actually eligible and asked can be blockers. Keep the separate page
+// requirement: a word-only answer can still need a timed page from a later provider.
+static BOOL failureMatters(SGLyricsWalk *walk, NSString *key) {
+    if (walk.pickedAnswered || walk.pinnedAnswered) return NO;
+    SGLyricsResult *answer = walk.merged;
+    SGKaraokeTiming timing = SGKaraokeLinesTiming(answer.karaokeLines);
+    if ([key isEqualToString:@"@pin"]) return YES;
+    if ([key isEqualToString:walk.picked] && [walk.picked isEqualToString:SGLyricsChosenSource(walk.query.trackID)]) return YES;
+    if (walk.concurrent && answer.karaokeLines.count && timing == SGKaraokeTimingWords) return NO;
+    SGLyricsProvider *provider = SGLyricsProviderFor(key);
+    NSUInteger rank = [walk.originalOrder indexOfObject:key];
+    BOOL earlier = rank <= walk.lineRank;
+    if (provider.untimed) {
+        if (SGLyricsSourceTypes(key) != SGLyricsTypesAny) return NO;
+        BOOL page = !answer.texts.count;
+        if (!page && walk.typeFirst) page = walk.pageTiming == SGKaraokeTimingNone && rank < walk.pageRank;
+        if (!page && !walk.typeFirst && !answer.synced && walk.pageRank != NSNotFound)
+            page = [walk.sequence indexOfObject:key] < [walk.sequence indexOfObject:walk.originalOrder[walk.pageRank]];
+        BOOL lines = !answer.karaokeLines.count || (timing == SGKaraokeTimingNone &&
+            (walk.typeFirst ? earlier :
+             [walk.sequence indexOfObject:key] < [walk.sequence indexOfObject:walk.originalOrder[walk.lineRank]]));
+        return page || lines;
+    }
+    // A timed imported file ends a sequential walk even when it has only line timing.
+    if (!walk.concurrent && walk.terminal && walk.lineRank != NSNotFound
+        && [walk.originalOrder[walk.lineRank] isEqualToString:SGImportedLRCKey]
+        && timing != SGKaraokeTimingWords) return YES;
+    if (!answer.karaokeLines.count || timing == SGKaraokeTimingNone) return YES;
+    if (walk.typeFirst) {
+        if (timing != SGKaraokeTimingWords || earlier) return YES;
+        return !answer.texts.count || !answer.synced || rank <= walk.pageRank;
+    }
+    // In-order stops at the first complete timed answer, including a deferred-by-name source.
+    if (!answer.synced || !answer.texts.count) return YES;
+    NSString *winner = walk.lineRank == NSNotFound ? nil : walk.originalOrder[walk.lineRank];
+    NSString *page = walk.pageRank == NSNotFound ? nil : walk.originalOrder[walk.pageRank];
+    NSUInteger stop = MAX(winner ? [walk.sequence indexOfObject:winner] : 0,
+                          page ? [walk.sequence indexOfObject:page] : 0);
+    return [walk.sequence indexOfObject:key] <= stop;
+}
+
+static NSArray<NSString *> *blockers(SGLyricsWalk *walk) {
+    NSMutableArray *keys = [NSMutableArray array];
+    for (NSString *key in walk.failures) if (failureMatters(walk, key)) [keys addObject:key];
+    return keys;
+}
+
+static SGLyricsResult *playbackAnswer(SGLyricsWalk *walk, SGLyricsResult *source) {
+    NSArray *spotify = SGKaraokeSpotifyLines(walk.query.trackID);
+    BOOL protected = walk.pinnedAnswered || source.picked || source.instrumental;
+    return SGLyricsUseSpotify(source.karaokeLines, spotify, protected)
+        ? SGLyricsResultWithLines(spotify, @"Spotify") : SGLyricsSnapshot(source);
+}
+
+static void publishAnswer(SGLyricsWalk *walk, BOOL settled) {
+    if (!ownsWalk(walk)) return;
+    NSString *track = walk.query.trackID;
+    SGLyricsResult *answer = playbackAnswer(walk, walk.merged);
+    if (!answer.karaokeLines.count && !answer.texts.count && !answer.instrumental) return;
+    answer.provisional = !settled;
+    SGLyricsResult *displayed = [sg_kept[track] isKindOfClass:SGLyricsResult.class] ? sg_kept[track] : nil;
+    NSArray *keeperLines = SGKaraokeLinesForTrack(track);
+    NSArray *shown = keeperLines ?: displayed.karaokeLines;
+    BOOL playing = [track isEqualToString:sg_playing ?: SGKaraokePlayingTrack()];
+    BOOL upgrade = answer.karaokeLines.count && (!shown.count
+        || SGKaraokeLinesTiming(answer.karaokeLines) < SGKaraokeLinesTiming(shown));
+    BOOL same = SGLyricsSameSheet(displayed, answer) && (!keeperLines.count
+        || (SGKaraokeLinesTiming(shown) == SGKaraokeLinesTiming(answer.karaokeLines)
+            && [SGLyricsCreditFor(track) isEqual:answer.provider]));
+    BOOL defer = playing && shown.count && !upgrade && !same;
+    if (settled) {
+        walk.settled = YES;
+        walk.pending = defer ? answer : nil;
+        SGKaraokeCancelStoreWrite(track);
+        if (!SGLocalFileIs(track) && SGFlag(SGKeyLyricsOffline, YES)) {
+            SGLyricsNoteCredit(answer);
+            SGLyricsStoreSaveWithLease(track, answer.karaokeLines, answer.provider, walk.lease);
+        }
+    }
+    if (defer) return;
+    // Before settlement, even changes to the page projection alone must not mutate a delivered sheet.
+    if (!settled && displayed && shown.count && !upgrade) return;
+    trimKept(track);
+    sg_kept[track] = answer;
+    @synchronized (sg_missing) { [sg_missing removeObject:track]; }
+    if (walk.answered && (!same || upgrade || !shown)) {
+        SGKaraokeKeepSourceLines(track, answer.karaokeLines ?: @[], answer);
+    }
+}
+
+void SGLyricsPlaybackChanged(NSString *track) {
+    if (sg_playing == track || [sg_playing isEqualToString:track]) return;
+    NSString *left = sg_playing;
+    sg_playing = [track copy];
+    SGLyricsWalk *walk = left ? sg_walks[left] : nil;
+    if (!walk.pending || !ownsWalk(walk)) return;
+    SGLyricsResult *answer = playbackAnswer(walk, walk.pending);
+    if (!SGLyricsSameSheet(answer, walk.pending) && !SGLocalFileIs(left) && SGFlag(SGKeyLyricsOffline, YES))
+        SGLyricsStoreSaveWithLease(left, answer.karaokeLines, answer.provider, walk.lease);
+    walk.pending = nil;
+    trimKept(left);
+    sg_kept[left] = answer;
+    SGKaraokeKeepSourceLines(left, answer.karaokeLines ?: @[], answer);
+}
+
+static void recoverLater(SGLyricsWalk *walk);
+
 // Musixmatch's community translations are not waited for here: the lines take them as they are kept
 // for the lyrics view (Shared/Lyrics/KaraokeSource.x), whichever source won, Spotify included.
 static void finish(SGLyricsWalk *walk) {
-    if (walk.finished || sg_waiting[walk.query.trackID] != walk.waiting) return;
+    if (walk.finished || !ownsWalk(walk)) return;
     walk.finished = YES;
-    SGLyricsQuery *query = walk.query;
-    SGLyricsResult *merged = walk.merged;
-    NSString *trackID = query.trackID;
-    SGLyricsResult *lyrics = merged.karaokeLines.count || merged.texts.count || merged.instrumental ? merged : nil;
-    // A walk that ends with nothing is only an answer when every source got to search. One that passed a
-    // source over for want of a name asked it nothing, and keeping that as "no lyrics" would stick to the
-    // track: every later request would get the kept nil, and the lyrics card would be taken off the track
-    // for the rest of the session. The same goes for a walk during which a request failed: a busy
-    // server's 503 read as "no lyrics" hid a track's lyrics until Spotify was restarted.
-    BOOL everyoneAsked = !walk.passedOver.count;
-    BOOL failed = atomic_load(&sg_failures) != walk.failuresAtStart;
-    id picked = SGLyricsChosenSource(trackID) ? sg_kept[trackID] : nil;
-    if (walk.pickedAnswered) {
-        SGLyricsKeepChosen(trackID, lyrics);
-    } else if ([picked isKindOfClass:SGLyricsResult.class]) {
-        // A source was picked from the player's ⋯ while the walk ran: the pick stands, and the walk's answer
-        // is what Automatic puts back. Not when the walk began with a pick of its own: that one was asked
-        // first and may have answered, so the walk never learned what the order would choose.
-        if (!walk.picked) SGLyricsNoteOrderChoice(trackID, lyrics);
-        lyrics = picked;
-    } else if (lyrics || (everyoneAsked && !failed) || merged.instrumental) {
-        // With a pick whose request failed, the walk's answer is kept, but not as the pick's: it weighs
-        // against Spotify's own lines as any walk's does, and the next walk asks the pick first again.
-        if (sg_kept.count >= kKeptTracks) [sg_kept removeAllObjects];
-        sg_kept[trackID] = lyrics ?: NSNull.null;
-        @synchronized (sg_missing) {
-            if (lyrics) [sg_missing removeObject:trackID];
-            else [sg_missing addObject:trackID];
-        }
-    }
-    SGLog(@"lyrics: %@ ends with %@", trackID, lyrics
-          ? [NSString stringWithFormat:@"%lu %@ lines from %@, %lu page lines",
-             (unsigned long)lyrics.karaokeLines.count, SGKaraokeTimingName(lyrics.karaokeLines),
-             lyrics.provider, (unsigned long)lyrics.texts.count]
-          : everyoneAsked && failed ? @"nothing, a request failed on the way; not kept, so the next request asks again"
-          : everyoneAsked ? @"nothing"
-          : [NSString stringWithFormat:@"nothing, %@ never knowing its name; not kept, so the next request asks again",
-             [walk.passedOver componentsJoinedByString:@", "]]);
-    NSArray *waiting = sg_waiting[trackID];
+    NSString *trackID = walk.query.trackID;
+    BOOL hasAnswer = walk.merged.karaokeLines.count || walk.merged.texts.count || walk.merged.instrumental;
+    NSArray *waiting = [walk.waiting copy];
+    [walk.waiting removeAllObjects];
     [sg_waiting removeObjectForKey:trackID];
+    if (hasAnswer) {
+        publishAnswer(walk, blockers(walk).count == 0);
+        if (!ownsWalk(walk)) return;
+    } else if (!walk.passedOver.count && !walk.failures.count) {
+        trimKept(trackID);
+        sg_kept[trackID] = NSNull.null;
+        @synchronized (sg_missing) { [sg_missing addObject:trackID]; }
+    }
     pruneMissing(trackID);
-    for (void (^done)(SGLyricsResult *) in waiting) done(lyrics);
+    for (void (^done)(SGLyricsResult *) in waiting) {
+        if (!ownsWalk(walk)) return;
+        id answer = sg_kept[trackID];
+        done(answer == NSNull.null ? nil : answer);
+    }
+    walk.answered = hasAnswer;
+    if (!ownsWalk(walk)) return;
+    if (hasAnswer && !walk.settled) recoverLater(walk);
+    else if (!hasAnswer) SGLyricsRetire(trackID);
 }
 
 // Both schedulers share delivery, filtering, ranking and upgrade publication.
 static BOOL currentWalk(SGLyricsWalk *walk) {
-    return !walk.finished && sg_waiting[walk.query.trackID] == walk.waiting;
+    return ownsWalk(walk) && (!walk.finished || walk.replaying);
 }
 
 static BOOL releaseAnswer(SGLyricsWalk *walk) {
     SGLyricsQuery *query = walk.query;
     SGLyricsResult *merged = walk.merged;
     if (walk.typeFirst && !walk.answered && merged.synced && merged.texts.count && merged.karaokeLines.count) {
-        // Release the card request now, but keep this array as the walk's identity. A reload or
-        // pin still retires it, and requests arriving meanwhile get the best answer kept so far.
+        publishAnswer(walk, NO);
         walk.answered = YES;
-        id kept = sg_kept[query.trackID];
-        BOOL picked = SGLyricsChosenSource(query.trackID) && [kept isKindOfClass:SGLyricsResult.class] && [(SGLyricsResult *)kept picked];
-        if (!picked) {
-            if (sg_kept.count >= kKeptTracks) [sg_kept removeAllObjects];
-            sg_kept[query.trackID] = merged;
-            @synchronized (sg_missing) { [sg_missing removeObject:query.trackID]; }
-        }
-        while (walk.waiting.count && sg_waiting[query.trackID] == walk.waiting) {
+        while (walk.waiting.count && currentWalk(walk)) {
             void (^done)(SGLyricsResult *) = walk.waiting.firstObject;
             [walk.waiting removeObjectAtIndex:0];
             id current = sg_kept[query.trackID];
-            done(SGLyricsChosenSource(query.trackID) && [current isKindOfClass:SGLyricsResult.class] && [(SGLyricsResult *)current picked] ? current : merged);
+            done(current);
         }
         // A waiter may itself have pinned or reloaded the track.
         if (!currentWalk(walk)) return NO;
@@ -693,7 +920,7 @@ static BOOL releaseAnswer(SGLyricsWalk *walk) {
     return currentWalk(walk);
 }
 
-static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyricsResult *fresh) {
+static BOOL mergeReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyricsResult *fresh) {
     if (!currentWalk(walk)) return NO;
     SGLyricsQuery *query = walk.query;
     SGLyricsResult *merged = walk.merged;
@@ -706,11 +933,14 @@ static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyrics
     BOOL imported = !walk.concurrent && fresh.synced
         && [provider.key isEqualToString:SGImportedLRCKey] && betterLines(merged, fresh);
     if (fresh.karaokeLines.count && (pick || imported)) {
+        fresh = pick ? pickedSnapshot(fresh) : SGLyricsSnapshot(fresh);
         if (!fresh.provider) fresh.provider = provider.name;
         SGLyricsNoteCredit(fresh);
         walk.merged = fresh;
         walk.pickedAnswered = pick;
-        finish(walk);
+        walk.merged.picked = pick;
+        walk.lineRank = walk.pageRank = [walk.originalOrder indexOfObject:provider.key];
+        walk.terminal = YES;
         return NO;
     }
     SGLyricsTypes allowed = SGLyricsSourceTypes(provider.key);
@@ -728,7 +958,7 @@ static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyrics
         if (walk.typeFirst && (merged.karaokeLines.count || merged.texts.count)) return YES;
         SGLog(@"lyrics: %@ is instrumental, by %@", query.trackID, provider.key);
         merged.instrumental = YES;
-        finish(walk);
+        walk.terminal = YES;
         return NO;
     }
     NSUInteger rank = [walk.originalOrder indexOfObject:provider.key];
@@ -745,6 +975,8 @@ static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyrics
         merged.karaokeLines = fresh.karaokeLines;
         merged.wordTimed = timing == SGKaraokeTimingWords;
         merged.provider = fresh.provider ?: provider.name;
+        merged.creditLinks = fresh.creditLinks;
+        merged.creditRequired = fresh.creditRequired;
         if (walk.typeFirst && !walk.concurrent && timing == SGKaraokeTimingLine && walk.index < walk.order.count) {
             SGLog(@"lyrics: %@ line timed by %@, asking on for words timed", query.trackID, merged.provider);
         }
@@ -758,17 +990,91 @@ static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyrics
         if (!merged.provider) merged.provider = fresh.provider ?: provider.name;
         merged.pageProvider = fresh.provider ?: provider.name;
     }
-    id kept = sg_kept[query.trackID];
-    BOOL picked = SGLyricsChosenSource(query.trackID) && [kept isKindOfClass:SGLyricsResult.class] && [(SGLyricsResult *)kept picked];
-    if (walk.answered && finer && !picked) {
-        if (sg_kept.count >= kKeptTracks && !sg_kept[query.trackID]) [sg_kept removeAllObjects];
-        sg_kept[query.trackID] = merged;
-        @synchronized (sg_missing) { [sg_missing removeObject:query.trackID]; }
-        SGLyricsSetCredit(query.trackID, merged.provider);
-        if (!currentWalk(walk)) return NO;
-        SGKaraokeKeepLines(query.trackID, merged.karaokeLines);
-    }
     return currentWalk(walk);
+}
+
+static void reselect(SGLyricsWalk *walk) {
+    walk.replaying = YES;
+    walk.merged = [SGLyricsResult new];
+    walk.lineRank = walk.pageRank = NSNotFound;
+    walk.pageTiming = SGKaraokeTimingNone;
+    walk.terminal = walk.instrumental = walk.pickedAnswered = NO;
+    for (NSString *key in walk.sequence) {
+        if (!mergeReply(walk, SGLyricsProviderFor(key), walk.answers[key])) break;
+        if (!walk.typeFirst && walk.merged.synced && walk.merged.texts.count && walk.merged.karaokeLines.count) break;
+    }
+    if (walk.concurrent && !walk.merged.karaokeLines.count && !walk.merged.texts.count)
+        walk.merged.instrumental = walk.instrumental;
+    walk.replaying = NO;
+}
+
+static BOOL acceptReply(SGLyricsWalk *walk, SGLyricsProvider *provider, SGLyricsResult *fresh) {
+    if (!currentWalk(walk)) return NO;
+    [walk.sequence addObject:provider.key];
+    if (fresh) walk.answers[provider.key] = SGLyricsSnapshot(fresh);
+    reselect(walk);
+    if (walk.terminal) { finish(walk); return NO; }
+    if (walk.answered) publishAnswer(walk, NO);
+    return currentWalk(walk);
+}
+
+static void scheduleWalk(SGLyricsWalk *walk);
+
+static void recovered(SGLyricsWalk *walk, BOOL roundFinished) {
+    if (!ownsWalk(walk)) return;
+    if (!walk.pinnedAnswered) reselect(walk);
+    BOOL deferred = !walk.pinnedAnswered && !walk.pickedAnswered && named(walk.query) && walk.passedOver.count;
+    BOOL settled = blockers(walk).count == 0 && !deferred;
+    publishAnswer(walk, settled);
+    if (!ownsWalk(walk)) return;
+    if (deferred && roundFinished) {
+        walk.order = [walk.passedOver copy];
+        [walk.passedOver removeAllObjects];
+        walk.index = 0;
+        walk.finished = NO;
+        scheduleWalk(walk);
+        return;
+    }
+    if (ownsWalk(walk) && !settled && roundFinished) recoverLater(walk);
+}
+
+static void recoverLater(SGLyricsWalk *walk) {
+    if (!ownsWalk(walk) || walk.settled || walk.retryScheduled || walk.retries >= SGLyricsRecoveryTries) return;
+    NSArray *keys = blockers(walk);
+    if (!keys.count) { recovered(walk, YES); return; }
+    NSTimeInterval pause = MIN(SGLyricsRetryPause * pow(2, walk.retries), SGLyricsRetryPauseMost);
+    walk.retryScheduled = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(pause * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (!ownsWalk(walk)) return;
+        walk.retryScheduled = NO;
+        walk.retries++;
+        __block NSUInteger remaining = keys.count;
+        for (NSString *key in keys) {
+            void (^done)(SGLyricsResult *, BOOL) = ^(SGLyricsResult *fresh, BOOL failed) {
+                if (!ownsWalk(walk) || walk.settled) return;
+                if (!failed) [walk.failures removeObject:key];
+                if ([key isEqualToString:@"@pin"]) {
+                    if (fresh.karaokeLines.count || fresh.instrumental) {
+                        walk.pinnedAnswered = YES;
+                        walk.merged = SGLyricsSnapshot(fresh);
+                    }
+                } else {
+                    if (fresh) walk.answers[key] = SGLyricsSnapshot(fresh);
+                    // A concurrent recovery enters the arrival race now, not in its original failure slot.
+                    if (walk.concurrent && fresh) {
+                        [walk.sequence removeObject:key];
+                        [walk.sequence addObject:key];
+                    }
+                }
+                recovered(walk, --remaining == 0);
+            };
+            if ([key isEqualToString:@"@pin"]) {
+                SGLyricsRequestContext *context = [SGLyricsRequestContext new];
+                SGLrcLibGetIDIn(context, walk.pin, ^(SGLyricsResult *fresh) { done(fresh, context.failed); });
+            } else SGLyricsInvoke(SGLyricsProviderFor(key), walk.query, done);
+            if (!ownsWalk(walk) || walk.settled) return;
+        }
+    });
 }
 
 static void step(SGLyricsWalk *walk) {
@@ -818,11 +1124,11 @@ static void step(SGLyricsWalk *walk) {
         step(walk);
         return;
     }
-    NSUInteger failures = atomic_load(&sg_failures);
-    provider.ask(query, ^(SGLyricsResult *fresh) {
+    SGLyricsInvoke(provider, query, ^(SGLyricsResult *fresh, BOOL failed) {
         if (!currentWalk(walk)) return;
+        if (failed) [walk.failures addObject:provider.key];
         // Instrumental counts as no lines here; a failed request does not, as the server may only be busy.
-        if ([provider.key isEqualToString:walk.picked] && !fresh.karaokeLines.count && atomic_load(&sg_failures) == failures) {
+        if ([provider.key isEqualToString:walk.picked] && !fresh.karaokeLines.count && !failed) {
             SGLyricsDropChoice(query.trackID, walk.picked);
         }
         if (acceptReply(walk, provider, fresh)) step(walk);
@@ -851,12 +1157,13 @@ static void askAll(SGLyricsWalk *walk) {
         }
         [walk.started addObject:key];
         [walk.inFlight addObject:key];
-        provider.ask(walk.query, ^(SGLyricsResult *fresh) {
+        SGLyricsInvoke(provider, walk.query, ^(SGLyricsResult *fresh, BOOL failed) {
             // Imported files, missing keys and cached replies may answer synchronously. Every
             // initial eligible ask must start before any reply can merge or exhaust the walk.
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (!currentWalk(walk) || ![walk.inFlight containsObject:key]) return;
                 [walk.inFlight removeObject:key];
+                if (failed) [walk.failures addObject:key];
                 if (acceptReply(walk, provider, fresh)) askAll(walk);
             });
         });
@@ -910,15 +1217,28 @@ static void startWalk(NSString *trackID, SGLyricsQuery *query) {
     walk.waiting = sg_waiting[trackID];
     walk.merged = [SGLyricsResult new];
     walk.passedOver = [NSMutableArray array];
-    walk.failuresAtStart = atomic_load(&sg_failures);
+    walk.failures = [NSMutableSet set];
+    walk.answers = [NSMutableDictionary dictionary];
+    walk.sequence = [NSMutableArray array];
+    walk.generation = SGLyricsPinGeneration(trackID);
+    walk.lease = [SGLyricsLease new];
+    SGLyricsRetire(trackID);
+    sg_walks[trackID] = walk;
+    SGKaraokeDeferPersistence(trackID);
     NSNumber *pin = chosen ? nil : SGLyricsPinnedID(trackID);
+    walk.pin = pin;
     if (pin) {
-        SGLrcLibGetID(pin, ^(SGLyricsResult *result) {
+        SGLyricsRequestContext *context = [SGLyricsRequestContext new];
+        SGLrcLibGetIDIn(context, pin, ^(SGLyricsResult *result) {
             if (!currentWalk(walk)) return;
             if (result.karaokeLines.count || result.instrumental) {
-                walk.merged = result;
+                walk.merged = SGLyricsSnapshot(result);
+                walk.pinnedAnswered = YES;
                 finish(walk);
-            } else scheduleWalk(walk);
+            } else {
+                if (context.failed) [walk.failures addObject:@"@pin"];
+                scheduleWalk(walk);
+            }
         });
     } else scheduleWalk(walk);
 }
@@ -1099,19 +1419,19 @@ NSUInteger SGLyricsFailures(void) {
 // gets the same lines. A source that times words but has no page text gets the page lines made from its own.
 void SGLyricsKeepChosen(NSString *trackID, SGLyricsResult *result) {
     setUp();
-    if (!result.texts.count && result.karaokeLines.count) {
-        NSArray<NSNumber *> *starts;
-        NSArray<NSString *> *texts;
-        SGLyricsPageLines(result.karaokeLines, &starts, &texts);
-        result.starts = starts;
-        result.texts = texts;
-        result.synced = SGKaraokeLinesTiming(result.karaokeLines) != SGKaraokeTimingNone;
-    }
+    SGLyricsRetire(trackID);
+    result = pickedSnapshot(result);
     SGLyricsNoteCredit(result);
-    result.picked = YES;
-    if (sg_kept.count >= kKeptTracks) [sg_kept removeAllObjects];
+    trimKept(trackID);
     sg_kept[trackID] = result;
     @synchronized (sg_missing) { [sg_missing removeObject:trackID]; }
+    NSArray *waiting = [sg_waiting[trackID] copy];
+    [sg_waiting removeObjectForKey:trackID];
+    NSUInteger generation = SGLyricsPinGeneration(trackID);
+    for (void (^done)(SGLyricsResult *) in waiting) {
+        if (generation != SGLyricsPinGeneration(trackID)) break;
+        done(result);
+    }
 }
 
 id SGLyricsKeptAnswer(NSString *trackID) {
@@ -1121,17 +1441,23 @@ id SGLyricsKeptAnswer(NSString *trackID) {
 
 void SGLyricsRestoreKept(NSString *trackID, id kept) {
     setUp();
+    SGLyricsRetire(trackID);
     // Automatic changes the order, even when a saved answer can be shown immediately.
     // Retire the promoted-source walk, preserving its consumers for a fresh configured-order walk.
     NSMutableArray *waiting = [sg_waiting[trackID] mutableCopy];
     [sg_waiting removeObjectForKey:trackID];
+    // Preserve the old consumers before the keeper retires the picked sheet and its disk entry.
+    SGKaraokeForgetLyrics(trackID);
+    if ([kept isKindOfClass:SGLyricsResult.class]) kept = SGLyricsSnapshot(kept);
     if (kept) sg_kept[trackID] = kept;
     else [sg_kept removeObjectForKey:trackID];
     @synchronized (sg_missing) {
         if (kept == NSNull.null) [sg_missing addObject:trackID];
         else [sg_missing removeObject:trackID];
     }
-    if (waiting) {
+    BOOL provisional = [kept isKindOfClass:SGLyricsResult.class] && [kept provisional];
+    if (waiting || provisional) {
+        if (!waiting) waiting = [NSMutableArray array];
         sg_waiting[trackID] = waiting;
         whenNamed(trackID, 0, waiting);
     }

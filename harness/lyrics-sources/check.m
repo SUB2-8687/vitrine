@@ -76,6 +76,12 @@ void SGLyricsPostJSONTransform(NSURL *url, NSDictionary *headers, id body, id (^
 void SGLyricsGetJSONTransform(NSURL *url, NSDictionary *headers, id (^transform)(id), void (^done)(id)) {
     SGLyricsPostJSONTransform(url, headers, nil, transform, done);
 }
+void SGLyricsGetJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id (^transform)(id), void (^done)(id)) {
+    SGLyricsGetJSONTransform(url, headers, transform, done);
+}
+void SGLyricsPostJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id body, id (^transform)(id), void (^done)(id)) {
+    SGLyricsPostJSONTransform(url, headers, body, transform, done);
+}
 
 // The settings row is linked but never opened. Credentials and network answers are made up here.
 NSString *SGL(NSString *key, NSString *english) { return english; }
@@ -98,6 +104,12 @@ void SGLyricsSourceRequest(NSURL *url, NSDictionary *headers, NSData *body, void
     NSData *data = [answer isKindOfClass:NSString.class] ? [answer dataUsingEncoding:NSUTF8StringEncoding] :
         answer ? [NSJSONSerialization dataWithJSONObject:answer options:NSJSONWritingFragmentsAllowed error:nil] : nil;
     done(data, status);
+}
+void SGLyricsSourceRequestIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, NSData *body, void (^done)(NSData *, NSInteger)) {
+    SGLyricsSourceRequest(url, headers, body, ^(NSData *data, NSInteger status) {
+        [context noteFailure:status == 429 || status >= 500];
+        done(data, status);
+    });
 }
 
 // Service main-queue completions until the callback stops the run loop. The deadline only reports

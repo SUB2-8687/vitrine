@@ -95,7 +95,7 @@ SGLyricsAsk SGGeniusAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
         done(nil);
         return;
     }
-    SGLyricsGetJSON(SGLyricsURL(SGGeniusSearchURL, SGGeniusSearchQuery(query.title, query.artist)), nil, ^(id root) {
+    SGLyricsGetJSONIn(query.requestContext, SGLyricsURL(SGGeniusSearchURL, SGGeniusSearchQuery(query.title, query.artist)), nil, ^(id root) {
         NSNumber *song = SGGeniusSongIn([root isKindOfClass:NSDictionary.class] ? root[@"response"] : nil, query.title, query.artist);
         if (!song) {
             SGLog(@"genius: no song for %@ by %@", query.title, query.artist);
@@ -103,7 +103,7 @@ SGLyricsAsk SGGeniusAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
             return;
         }
         NSURL *embed = [NSURL URLWithString:[NSString stringWithFormat:@"https://genius.com/songs/%@/embed.js", song]];
-        SGLyricsGetText(embed, ^(NSString *js) {
+        SGLyricsGetTextIn(query.requestContext, embed, ^(NSString *js) {
             NSArray<NSString *> *rows = SGGeniusEmbedRows(js);
             if (!rows) {
                 SGLog(@"genius: %@ by %@ is song %@, no lines in its embed", query.title, query.artist, song);

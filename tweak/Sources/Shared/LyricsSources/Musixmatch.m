@@ -21,8 +21,9 @@ static const NSUInteger kKeptTracks = 40;
 // Main queue only. NSNull is kept for a track Musixmatch has nothing for.
 static NSMutableDictionary<NSString *, id> *sg_kept;
 static NSMutableDictionary<NSString *, NSMutableArray *> *sg_waiting;
-static NSMutableArray<void (^)(NSString *)> *sg_tokenWaiting;
+static NSMutableArray<void (^)(NSString *, BOOL)> *sg_tokenWaiting;
 static NSDate *sg_tokenRefused;
+static BOOL sg_tokenFailed;
 // Musixmatch's own id of a track, by Spotify's, as the lyrics call matched it; translations go by it.
 static NSMutableDictionary<NSString *, NSString *> *sg_commontracks;
 // The community translations, by track and language: those answered, and those still being asked for.
@@ -86,36 +87,44 @@ static NSURLRequest *requestFor(NSString *method, NSDictionary<NSString *, NSStr
     return request;
 }
 
-static void call(NSString *method, NSDictionary<NSString *, NSString *> *query, void (^done)(NSDictionary *message)) {
+static void call(SGLyricsRequestContext *context, NSString *method, NSDictionary<NSString *, NSString *> *query, void (^done)(NSDictionary *message)) {
     [[NSURLSession.sharedSession dataTaskWithRequest:requestFor(method, query) completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         SGLyricsNoteReply(response, error);
+        [context noteResponse:response error:error];
         id message = dig(jsonOf(data), @"message");
+        NSInteger status = integerOf(dig(message, @"header/status_code"));
+        [context noteFailure:status == 429 || status >= 500];
         if (error || !message) SGLog(@"musixmatch: %@ failed: status %ld, error %@ (%ld)", method, (long)[(NSHTTPURLResponse *)response statusCode], error.domain, (long)error.code);
         dispatch_async(dispatch_get_main_queue(), ^{ done([message isKindOfClass:NSDictionary.class] ? message : nil); });
     }] resume];
 }
 
-static void withToken(void (^use)(NSString *token)) {
+static void withToken(SGLyricsRequestContext *context, void (^use)(NSString *token)) {
     NSString *token = [NSUserDefaults.standardUserDefaults stringForKey:kTokenKey];
     if (token.length) {
         use(token);
         return;
     }
     if (sg_tokenRefused && -sg_tokenRefused.timeIntervalSinceNow < kTokenPause) {
+        [context noteFailure:sg_tokenFailed];
         use(nil);
         return;
     }
-    [sg_tokenWaiting addObject:use];
+    [sg_tokenWaiting addObject:^(NSString *token, BOOL failed) {
+        [context noteFailure:failed];
+        use(token);
+    }];
     if (sg_tokenWaiting.count > 1) return;
-    call(@"token.get", @{}, ^(NSDictionary *message) {
+    SGLyricsRequestContext *request = [SGLyricsRequestContext new];
+    call(request, @"token.get", @{}, ^(NSDictionary *message) {
         id fresh = dig(message, @"body/user_token");
         BOOL usable = [fresh isKindOfClass:NSString.class] && [fresh length] && ![fresh isEqualToString:@"UpgradeRequired"];
         SGLog(@"musixmatch: token %@ (status %@, hint %@)", usable ? @"received" : @"refused", dig(message, @"header/status_code"), dig(message, @"header/hint"));
         if (usable) [NSUserDefaults.standardUserDefaults setObject:fresh forKey:kTokenKey];
-        else sg_tokenRefused = NSDate.date;
-        NSArray<void (^)(NSString *)> *waiting = [sg_tokenWaiting copy];
+        else { sg_tokenRefused = NSDate.date; sg_tokenFailed = request.failed; }
+        NSArray<void (^)(NSString *, BOOL)> *waiting = [sg_tokenWaiting copy];
         [sg_tokenWaiting removeAllObjects];
-        for (void (^waiter)(NSString *) in waiting) waiter(usable ? fresh : nil);
+        for (void (^waiter)(NSString *, BOOL) in waiting) waiter(usable ? fresh : nil, request.failed);
     });
 }
 
@@ -227,14 +236,14 @@ static void noteCommontrack(NSString *trackID, id commontrack) {
     sg_commontracks[trackID] = commontrack;
 }
 
-static void finish(NSString *trackID, SGLyricsResult *lyrics, BOOL answered) {
-    if (answered) {
+static void finish(SGLyricsRequestContext *context, NSString *trackID, SGLyricsResult *lyrics, BOOL answered) {
+    if (answered && !context.failed) {
         if (sg_kept.count >= kKeptTracks) [sg_kept removeAllObjects];
         sg_kept[trackID] = lyrics ?: NSNull.null;
     }
     NSArray *waiting = sg_waiting[trackID];
     [sg_waiting removeObjectForKey:trackID];
-    for (void (^done)(SGLyricsResult *) in waiting) done(lyrics);
+    for (void (^done)(SGLyricsResult *, BOOL) in waiting) done(lyrics, context.failed);
 }
 
 // What the matcher settled on, kept even when Musixmatch may show no lyrics: the sources asked after
@@ -252,10 +261,10 @@ static SGLyricsResult *withTrack(SGLyricsResult *lyrics, id track) {
 }
 
 // `match` is what the matcher goes by: Spotify's id, or a local file's names.
-static void ask(NSString *trackID, NSDictionary<NSString *, NSString *> *match, BOOL renewToken) {
-    withToken(^(NSString *token) {
+static void ask(SGLyricsRequestContext *context, NSString *trackID, NSDictionary<NSString *, NSString *> *match, BOOL renewToken) {
+    withToken(context, ^(NSString *token) {
         if (!token) {
-            finish(trackID, nil, NO);
+            finish(context, trackID, nil, NO);
             return;
         }
         NSMutableDictionary<NSString *, NSString *> *query = [@{
@@ -266,18 +275,22 @@ static void ask(NSString *trackID, NSDictionary<NSString *, NSString *> *match, 
             @"richsync_compact_type": @"words",
         } mutableCopy];
         [query addEntriesFromDictionary:match];
-        call(@"macro.subtitles.get", query, ^(NSDictionary *message) {
+        call(context, @"macro.subtitles.get", query, ^(NSDictionary *message) {
             NSInteger status = integerOf(dig(message, @"header/status_code"));
             if (status == 401 && renewToken) {
                 SGLog(@"musixmatch: token no longer accepted (hint %@), asking for a new one", dig(message, @"header/hint"));
                 [NSUserDefaults.standardUserDefaults removeObjectForKey:kTokenKey];
-                ask(trackID, match, NO);
+                ask(context, trackID, match, NO);
                 return;
             }
             id calls = dig(message, @"body/macro_calls");
             if (status != 200 || ![calls isKindOfClass:NSDictionary.class]) {
-                finish(trackID, nil, NO);
+                finish(context, trackID, nil, NO);
                 return;
+            }
+            for (id reply in [calls allValues]) {
+                NSInteger substatus = integerOf(dig(reply, @"message/header/status_code"));
+                [context noteFailure:substatus == 429 || substatus >= 500];
             }
             noteCommontrack(trackID, dig(calls, @"matcher.track.get/message/body/track/commontrack_id"));
             SGLyricsResult *lyrics = fromCalls(calls);
@@ -285,7 +298,7 @@ static void ask(NSString *trackID, NSDictionary<NSString *, NSString *> *match, 
                   : lyrics.wordTimed ? [NSString stringWithFormat:@"%lu word timed lines", (unsigned long)lyrics.karaokeLines.count]
                   : lyrics.synced ? [NSString stringWithFormat:@"%lu line timed lines", (unsigned long)lyrics.karaokeLines.count]
                   : [NSString stringWithFormat:@"%lu untimed lines", (unsigned long)lyrics.texts.count]);
-            finish(trackID, withTrack(lyrics, dig(calls, @"matcher.track.get/message/body/track")), YES);
+            finish(context, trackID, withTrack(lyrics, dig(calls, @"matcher.track.get/message/body/track")), YES);
         });
     });
 }
@@ -317,12 +330,16 @@ SGLyricsAsk SGMusixmatchAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
         return;
     }
     NSMutableArray *waiting = sg_waiting[trackID];
+    void (^completed)(SGLyricsResult *, BOOL) = ^(SGLyricsResult *result, BOOL failed) {
+        [query.requestContext noteFailure:failed];
+        done(result);
+    };
     if (waiting) {
-        [waiting addObject:[done copy]];
+        [waiting addObject:[completed copy]];
         return;
     }
-    sg_waiting[trackID] = [NSMutableArray arrayWithObject:[done copy]];
-    ask(trackID, match, YES);
+    sg_waiting[trackID] = [NSMutableArray arrayWithObject:[completed copy]];
+    ask(query.requestContext, trackID, match, YES);
 };
 
 #pragma mark - translations
@@ -359,7 +376,7 @@ NSString *SGMusixmatchLineKey(NSString *text) {
 // 0 for a page that never came.
 static void translationPage(NSString *token, NSString *commontrack, NSString *code, NSInteger page,
                             NSMutableDictionary<NSString *, NSString *> *found, void (^done)(NSInteger status)) {
-    call(@"crowd.track.translations.get", @{
+    call(nil, @"crowd.track.translations.get", @{
         @"usertoken": token, @"commontrack_id": commontrack, @"selected_language": code,
         @"comment_format": @"text", @"part": @"user", @"translation_fields_set": @"minimal",
         @"page": @(page).stringValue, @"page_size": @(kTranslationPage).stringValue,
@@ -405,7 +422,7 @@ static void askTranslations(NSString *trackID, NSString *language, BOOL renewTok
         done(nil, YES);
         return;
     }
-    withToken(^(NSString *token) {
+    withToken(nil, ^(NSString *token) {
         if (!token) {
             done(nil, NO);
             return;
@@ -432,7 +449,7 @@ static void askTranslations(NSString *trackID, NSString *language, BOOL renewTok
         }
         NSMutableDictionary<NSString *, NSString *> *query = [match mutableCopy];
         query[@"usertoken"] = token;
-        call(@"matcher.track.get", query, ^(NSDictionary *message) {
+        call(nil, @"matcher.track.get", query, ^(NSDictionary *message) {
             NSInteger status = integerOf(dig(message, @"header/status_code"));
             noteCommontrack(trackID, dig(message, @"body/track/commontrack_id"));
             NSString *commontrack = status == 200 ? sg_commontracks[trackID] : nil;

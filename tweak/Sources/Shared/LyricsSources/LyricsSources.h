@@ -35,6 +35,12 @@ UIViewController *SGLyricsTypesPage(void);
 SGModRow *SGLyricsTypesRow(void);
 
 @class SGLyricsResult;
+// One invocation, never a provider-wide or track-wide counter. Subrequests OR their outcomes.
+@interface SGLyricsRequestContext : NSObject
+@property (atomic, readonly) BOOL failed;
+- (void)noteFailure:(BOOL)failed;
+- (void)noteResponse:(NSURLResponse *)response error:(NSError *)error;
+@end
 
 // A manual LRCLIB choice, kept by track id across launches. At most 500 pins.
 #define SGKeyLyricsPins @"spotifyglass.lyrics.pins"
@@ -59,6 +65,7 @@ void SGLyricsUnpin(NSString *trackID);
 // LrcLib.m: the same conversion for a search choice and a pin read back by its id.
 SGLyricsResult *SGLrcLibRecordResult(NSDictionary *record);
 void SGLrcLibGetID(NSNumber *recordID, void (^done)(SGLyricsResult *result));
+void SGLrcLibGetIDIn(SGLyricsRequestContext *context, NSNumber *recordID, void (^done)(SGLyricsResult *result));
 
 // A page a credit names someone on: "Uploader: name" and the address it opens.
 @interface SGLyricsLink : NSObject
@@ -92,7 +99,10 @@ void SGLrcLibGetID(NSNumber *recordID, void (^done)(SGLyricsResult *result));
 // The source picked for the track from the player's ⋯ answered with this (SGLyricsKeepChosen), so it stands
 // over Spotify's own lines however either is timed. The walk's own answer never is, a pick standing or not.
 @property (nonatomic) BOOL picked;
+@property (nonatomic) BOOL provisional;
 @end
+
+SGLyricsResult *SGLyricsSnapshot(SGLyricsResult *result);
 
 // What is known about the track when a source is asked. Only trackID is always there; the rest is
 // filled in by the player, and by whichever source answered before.
@@ -100,6 +110,8 @@ void SGLrcLibGetID(NSNumber *recordID, void (^done)(SGLyricsResult *result));
 @property (nonatomic, copy) NSString *trackID;   // Spotify's base62 id
 @property (nonatomic, copy) NSString *title, *artist, *album;
 @property (nonatomic) NSInteger seconds;
+// Set only on the private query copy made by SGLyricsInvoke, never on the walk's shared query.
+@property (nonatomic, strong) SGLyricsRequestContext *requestContext;
 @end
 
 // The lines as Spotify's own page takes them, ♪ over a break and an empty line at the end.
@@ -120,6 +132,36 @@ typedef void (^SGLyricsAsk)(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
 @property (nonatomic) BOOL untimed;
 @property (nonatomic, copy) SGLyricsAsk ask;
 @end
+
+void SGLyricsInvoke(SGLyricsProvider *provider, SGLyricsQuery *query,
+                    void (^done)(SGLyricsResult *result, BOOL failed));
+
+// Shared backoff for empty-source retries and provisional-answer recovery.
+static const NSTimeInterval SGLyricsRetryPause = 10, SGLyricsRetryPauseMost = 60;
+static const NSUInteger SGLyricsRecoveryTries = 4;
+// A write and its retirement serialize on this lease, including the actual disk commit.
+@interface SGLyricsLease : NSObject
+- (void)invalidate;
+- (void)perform:(dispatch_block_t)work;
+@end
+void SGLyricsStoreSaveWithLease(NSString *track, NSArray<SGKaraokeLine *> *lines, NSString *credit, SGLyricsLease *lease);
+// A keeper retains this authority with its sheet, even after the selection cache is evicted.
+// NSNull means a walk is outstanding but has not published a sheet yet.
+id SGLyricsPersistenceAuthority(NSString *track);
+BOOL SGLyricsMayPersist(NSString *track, id authority);
+BOOL SGLyricsSameSheet(SGLyricsResult *a, SGLyricsResult *b);
+BOOL SGLyricsUseSpotify(NSArray<SGKaraokeLine *> *source, NSArray<SGKaraokeLine *> *spotify, BOOL protected);
+BOOL SGKaraokeKeepSourceLines(NSString *track, NSArray<SGKaraokeLine *> *lines, SGLyricsResult *answer);
+void SGKaraokeKeepSpotifyLines(NSString *track, NSArray<SGKaraokeLine *> *lines);
+SGLyricsResult *SGLyricsAcceptSpotify(NSString *track, NSArray<SGKaraokeLine *> *lines, id previousAuthority);
+NSArray<SGKaraokeLine *> *SGKaraokeSpotifyLines(NSString *track);
+void SGKaraokeDeferPersistence(NSString *track);
+BOOL SGLyricsRecovering(NSString *track);
+void SGLyricsRetire(NSString *track);
+void SGLyricsForgetAnswer(NSString *track);
+// Main queue, only authoritative player reports, not state getters or seeks.
+void SGLyricsPlaybackChanged(NSString *track);
+void SGKaraokeCancelStoreWrite(NSString *track);
 
 // Every source there is, in the order a fresh install asks them.
 NSArray<SGLyricsProvider *> *SGLyricsAllProviders(void);
@@ -190,10 +232,16 @@ static inline void SGLyricsTransform(id (^work)(void), void (^done)(id)) {
     else run();
 }
 void SGLyricsGetTextTransform(NSURL *url, id (^transform)(NSString *), void (^done)(id));
+void SGLyricsGetJSONIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id));
+void SGLyricsGetJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id (^transform)(id), void (^done)(id));
+void SGLyricsGetJSONReplyIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id, NSHTTPURLResponse *));
+void SGLyricsGetTextIn(SGLyricsRequestContext *context, NSURL *url, void (^done)(NSString *));
+void SGLyricsGetTextTransformIn(SGLyricsRequestContext *context, NSURL *url, id (^transform)(NSString *), void (^done)(id));
+void SGLyricsPostJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id body, id (^transform)(id), void (^done)(id));
+void SGLyricsSourceRequestIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, NSData *body, void (^done)(NSData *, NSInteger));
 // QQ's crypt=0 lyric field: base64 UTF-8 or zlib-compressed QRC, then ordinary LRC.
 SGLyricsResult *SGQQMusicResult(id payload);
-// Every source's reply goes through this, so a walk that lost a request to the network or a busy
-// server is not kept as "no lyrics". The two above call it themselves.
+// Aggregate diagnostic count only; transports also record the outcome on their invocation context.
 void SGLyricsNoteReply(NSURLResponse *response, NSError *error);
 // What it counts as lost: the network failed, or the server answered 429 or 5xx.
 BOOL SGLyricsReplyFailed(NSURLResponse *response, NSError *error);
@@ -436,6 +484,7 @@ SGLyricsQuery *SGLyricsQueryFor(NSString *trackID);
 // How many source requests have failed since launch; any thread.
 NSUInteger SGLyricsFailures(void);
 void SGLyricsKeepChosen(NSString *trackID, SGLyricsResult *result);
-// The walk's kept answer for the track: a result, NSNull for none, nil when not kept; and that put back.
+// The walk's kept answer: a result (possibly provisional), NSNull for none, nil when not kept.
 id SGLyricsKeptAnswer(NSString *trackID);
+// Automatic: retires the picked sheet and disk entry, preserving waiters for the configured order.
 void SGLyricsRestoreKept(NSString *trackID, id kept);

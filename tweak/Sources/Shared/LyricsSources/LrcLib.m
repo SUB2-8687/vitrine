@@ -21,8 +21,8 @@ static NSDictionary<NSString *, NSString *> *headers(void) {
 }
 
 // Bound transport before JSON allocation, and each sheet before ranking or LRC conversion.
-static void getJSON(NSURL *url, id (^transform)(id), void (^done)(id)) {
-    SGLyricsSourceRequest(url, headers(), nil, ^(NSData *data, NSInteger status) {
+static void getJSON(SGLyricsRequestContext *context, NSURL *url, id (^transform)(id), void (^done)(id)) {
+    SGLyricsSourceRequestIn(context, url, headers(), nil, ^(NSData *data, NSInteger status) {
         SGLyricsTransform(^id {
             id reply = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
             return transform(reply);
@@ -141,10 +141,13 @@ SGLyricsResult *SGLrcLibRecordResult(NSDictionary *record) {
 }
 
 void SGLrcLibGetID(NSNumber *recordID, void (^done)(SGLyricsResult *result)) {
+    SGLrcLibGetIDIn(nil, recordID, done);
+}
+void SGLrcLibGetIDIn(SGLyricsRequestContext *context, NSNumber *recordID, void (^done)(SGLyricsResult *result)) {
     NSString *identifier = SGLyricsDecimalID(recordID);
     if (!identifier.length) { done(nil); return; }
     NSURL *url = [NSURL URLWithString:[kGet stringByAppendingFormat:@"/%@", identifier]];
-    getJSON(url, ^id(id record) { return SGLrcLibRecordResult(record); }, done);
+    getJSON(context, url, ^id(id record) { return SGLrcLibRecordResult(record); }, done);
 }
 
 // Search is for a person choosing a recording: keep different lengths, and show the closest first
@@ -182,7 +185,7 @@ void SGLrcLibSearch(NSString *title, NSString *artist, NSInteger seconds, void (
         NSMutableDictionary *query = [NSMutableDictionary dictionary];
         if (title.length) query[@"track_name"] = title;
         if (artist.length) query[@"artist_name"] = artist;
-        getJSON(SGLyricsURL(kSearch, query), ^id(id reply) { return searchRecords(reply, seconds); }, done);
+        getJSON(nil, SGLyricsURL(kSearch, query), ^id(id reply) { return searchRecords(reply, seconds); }, done);
     };
     if (NSThread.isMainThread) search();
     else dispatch_async(dispatch_get_main_queue(), search);
@@ -272,7 +275,7 @@ SGLyricsAsk SGLrcLibAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
     NSInteger seconds = query.seconds;
 
     void (^bySearch)(void) = ^{
-        getJSON(SGLyricsURL(kSearch, search), ^id(id found) {
+        getJSON(query.requestContext, SGLyricsURL(kSearch, search), ^id(id found) {
             return resultFor(matching(found, title, artist, seconds), seconds);
         }, ^(SGLyricsResult *result) {
                 SGLog(@"lrclib: search for %@ by %@ gave %@", title, artist,
@@ -290,7 +293,7 @@ SGLyricsAsk SGLrcLibAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
     }
     NSMutableDictionary<NSString *, NSString *> *exact = [search mutableCopy];
     exact[@"duration"] = @(query.seconds).stringValue;
-    getJSON(SGLyricsURL(kGet, exact), ^id(id record) {
+    getJSON(query.requestContext, SGLyricsURL(kGet, exact), ^id(id record) {
         return resultFor([record isKindOfClass:NSDictionary.class] ? @[record] : @[], seconds);
     }, ^(SGLyricsResult *result) {
             if (!result) {

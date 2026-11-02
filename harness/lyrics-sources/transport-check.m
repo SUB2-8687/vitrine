@@ -115,6 +115,7 @@ void SGLyricsPageLines(NSArray *lines, NSArray **starts, NSArray **texts) {
 }
 static NSString *fixtureISRC;
 void SGSpotifyISRC(NSString *uri, NSUInteger tries, void (^done)(NSString *)) { done(fixtureISRC); }
+void SGSpotifyISRCWithOutcome(NSString *uri, NSUInteger tries, void (^done)(NSString *, BOOL)) { done(fixtureISRC, NO); }
 NSString *SGLyricsTranslationLanguage(void) { return nil; }
 static void waitFor(BOOL *finished) {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];

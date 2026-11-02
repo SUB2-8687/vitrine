@@ -82,15 +82,15 @@ SGLyricsResult *SGLyricsPlusResult(id root) {
     return SGLyricsResultWithLines(lines, source.length ? [@"LyricsPlus · " stringByAppendingString:source] : @"LyricsPlus");
 }
 
-static void ask(NSDictionary *parameters, BOOL fallback, void (^done)(SGLyricsResult *)) {
+static void ask(SGLyricsRequestContext *context, NSDictionary *parameters, BOOL fallback, void (^done)(SGLyricsResult *)) {
     NSString *base = fallback ? @"https://lyricsplus.binimum.org" : @"https://lyricsplus.prjktla.my.id";
     NSURL *url = SGLyricsURL([base stringByAppendingString:@"/v2/lyrics/get"], parameters);
-    SGLyricsSourceRequest(url, nil, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(context, url, nil, nil, ^(NSData *data, NSInteger status) {
         SGLyricsTransform(^id {
             id root = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
             return SGLyricsPlusResult(root);
         }, ^(SGLyricsResult *result) {
-        if (!result && !fallback) { ask(parameters, YES, done); return; }
+        if (!result && !fallback) { ask(context, parameters, YES, done); return; }
         SGLog(@"lyricsplus: %lu lines", (unsigned long)result.karaokeLines.count);
         done(result);
         });
@@ -101,5 +101,5 @@ SGLyricsAsk SGLyricsPlusAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ SGLyricsPlusAsk(query, done); }); return; }
     if (!SGLyricsMatchKey(query.title).length || !SGLyricsMatchKey(query.artist).length) { done(nil); return; }
     NSDictionary *parameters = @{@"title": query.title, @"artist": SGLyricsLeadArtist(query.artist), @"album": query.album ?: @"", @"duration": [NSString stringWithFormat:@"%.3f", (double)MAX(0, query.seconds)]};
-    ask(parameters, NO, done);
+    ask(query.requestContext, parameters, NO, done);
 };

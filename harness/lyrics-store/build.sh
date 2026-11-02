@@ -15,7 +15,7 @@ pathlib.Path(sys.argv[2]).write_text(models + registry)
 PY
 xcrun -sdk macosx clang -target arm64-apple-ios17.0-macabi -isysroot "$SDK" \
     -iframework "$SDK/System/iOSSupport/System/Library/Frameworks" -fobjc-arc -g -Wall -I"$SRC" -I"$SRC/Shared/Lyrics" -I"$BUILD" \
-    "$HERE/main.m" "${LYRICS_STORE_SOURCE:-$SRC/Shared/Lyrics/LyricsStore.m}" "$SRC/Core/SGFileHash.m" \
+    "$HERE/main.m" "${LYRICS_STORE_SOURCE:-$SRC/Shared/Lyrics/LyricsStore.m}" "$SRC/Shared/LyricsSources/LyricsRequest.m" "$SRC/Core/SGFileHash.m" \
     "$SRC/Shared/Lyrics/KaraokeTiming.m" "$SRC/Shared/AdBlock/Protobuf.m" \
     -framework Foundation -framework UIKit -o "$BUILD/lyrics-store"
 "$BUILD/lyrics-store"

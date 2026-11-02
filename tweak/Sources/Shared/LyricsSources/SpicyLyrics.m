@@ -40,7 +40,7 @@ static NSDictionary *keyQuery(void) {
              (__bridge id)kSecAttrService: kService, (__bridge id)kSecAttrAccount: kAccount};
 }
 
-static NSString *storedKey(void) {
+static NSString *storedKey(SGLyricsRequestContext *context) {
     if (sg_keyLoaded) return sg_key;
     NSMutableDictionary *query = [keyQuery() mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
@@ -48,6 +48,7 @@ static NSString *storedKey(void) {
     CFTypeRef data = NULL;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &data);
     if (status != errSecSuccess && status != errSecItemNotFound) {
+        [context noteFailure:YES];
         SGLyricsNoteReply(nil, [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
         return nil;
     }
@@ -77,7 +78,7 @@ static BOOL storeKey(NSString *key) {
 }
 
 BOOL SGSpicyLyricsKeySet(void) {
-    return storedKey() != nil;
+    return storedKey(nil) != nil;
 }
 
 #pragma mark - the response
@@ -400,16 +401,18 @@ void SGSpicyLyricsAskWith(NSString *key, SGLyricsQuery *query, void (^done)(SGLy
         // Lost rather than "no lyrics", so the walk is not kept and asks again once the wait is over.
         SGLog(@"spicy lyrics: %@ skipped, rate limited for %.0fs more", trackID, sg_waitUntil - now);
         SGLyricsNoteReply(nil, [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCannotConnectToHost userInfo:nil]);
+        [query.requestContext noteFailure:YES];
         done(nil);
         return;
     }
     NSURL *url = [NSURL URLWithString:[kAPI stringByAppendingString:trackID]];
     NSDictionary *headers = @{@"Authorization": [@"Bearer " stringByAppendingString:key], @"Accept": @"application/json", @"User-Agent": kAgent};
     NSUInteger generation = sg_keyGeneration;
-    SGLyricsGetJSONReply(url, headers, ^(id root, NSHTTPURLResponse *reply) {
+    SGLyricsGetJSONReplyIn(query.requestContext, url, headers, ^(id root, NSHTTPURLResponse *reply) {
         if (generation != sg_keyGeneration) {
             // This credential was retired, not an authoritative answer that the track has no lyrics.
             SGLyricsNoteReply(nil, [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorCancelled userInfo:nil]);
+            [query.requestContext noteFailure:YES];
             done(nil);
             return;
         }
@@ -428,7 +431,7 @@ void SGSpicyLyricsAskWith(NSString *key, SGLyricsQuery *query, void (^done)(SGLy
         }
         if (status == 200 || status == 404) sg_refused = nil;
         SGLyricsResult *result = status == 200 ? SGSpicyLyricsResult(root) : nil;
-        if (status == 200 || status == 404 || status == 400) keepAnswer(trackID, result ?: NSNull.null);
+        if (!query.requestContext.failed && (status == 200 || status == 404 || status == 400)) keepAnswer(trackID, result ?: NSNull.null);
         SGLog(@"spicy lyrics: %@ %@", trackID, result
               ? [NSString stringWithFormat:@"has %lu %@ lines, credited to %@", (unsigned long)result.karaokeLines.count,
                  result.wordTimed ? @"word timed" : result.synced ? @"line timed" : @"untimed", result.provider]
@@ -439,7 +442,7 @@ void SGSpicyLyricsAskWith(NSString *key, SGLyricsQuery *query, void (^done)(SGLy
 
 SGLyricsAsk SGSpicyLyricsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
     if (deliverCached(query.trackID, done)) return;
-    SGSpicyLyricsAskWith(storedKey(), query, done);
+    SGSpicyLyricsAskWith(storedKey(query.requestContext), query, done);
 };
 
 #pragma mark - the row

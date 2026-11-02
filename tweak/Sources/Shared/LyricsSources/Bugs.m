@@ -59,12 +59,12 @@ static NSString *songFor(id root, SGLyricsQuery *query) {
     return nil;
 }
 
-static void lyrics(NSString *song, BOOL timed, void (^done)(SGLyricsResult *)) {
+static void lyrics(SGLyricsRequestContext *context, NSString *song, BOOL timed, void (^done)(SGLyricsResult *)) {
     NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://music.bugs.co.kr/player/lyrics/%@/%@", timed ? @"T" : @"N", song]];
-    SGLyricsSourceRequest(url, nil, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(context, url, nil, nil, ^(NSData *data, NSInteger status) {
         id root = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         SGLyricsResult *result = SGBugsResult(root, timed);
-        if (!result && timed) { lyrics(song, NO, done); return; }
+        if (!result && timed) { lyrics(context, song, NO, done); return; }
         SGLog(@"bugs: %lu lines", (unsigned long)result.karaokeLines.count);
         done(result);
     });
@@ -74,10 +74,10 @@ SGLyricsAsk SGBugsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *)) 
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ SGBugsAsk(query, done); }); return; }
     if (!SGLyricsMatchKey(query.title).length || !SGLyricsMatchKey(query.artist).length) { done(nil); return; }
     NSURL *url = SGLyricsURL(@"https://m.bugs.co.kr/api/getSearchList", @{@"type": @"track", @"query": [NSString stringWithFormat:@"%@ %@", query.title, SGLyricsLeadArtist(query.artist)], @"page": @"1", @"size": @"30"});
-    SGLyricsSourceRequest(url, nil, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(query.requestContext, url, nil, nil, ^(NSData *data, NSInteger status) {
         id root = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
         NSString *song = songFor(root, query);
         if (!song) { done(nil); return; }
-        lyrics(song, YES, done);
+        lyrics(query.requestContext, song, YES, done);
     });
 };

@@ -21,6 +21,9 @@ NSString *const SGImportedLRCKey = @"importedLRC";
 NSString *SGSpicyLyricsStatus(void) { return nil; }
 NSString *SGL(NSString *key, NSString *english) { return english; }
 void SGLrcLibGetID(NSNumber *identifier, void (^done)(SGLyricsResult *)) { done(nil); }
+void SGLrcLibGetIDIn(SGLyricsRequestContext *context, NSNumber *identifier, void (^done)(SGLyricsResult *)) { done(nil); }
+void SGKaraokeCancelStoreWrite(NSString *track) {}
+void SGLyricsStoreSaveWithLease(NSString *track, NSArray *lines, NSString *credit, SGLyricsLease *lease) {}
 SGLyricsResult *SGLrcLibRecordResult(NSDictionary *record) { return nil; }
 BOOL SGLocalFileIs(NSString *uri) { return NO; }
 NSDictionary<NSString *, id> *SGLocalFileInfo(NSString *uri) { return @{@"title": @"a", @"artist": @"b", @"seconds": @200}; }
@@ -39,6 +42,19 @@ UIViewController *SGSourcesPageMake(NSString *title, NSString *note, NSArray<SGS
 static NSMutableDictionary<NSString *, id> *sg_shown;
 static NSMutableArray<NSString *> *sg_askedAgain;
 void SGKaraokeKeepLines(NSString *track, NSArray<SGKaraokeLine *> *lines) { sg_shown[track] = lines ?: NSNull.null; }
+BOOL SGKaraokeKeepSourceLines(NSString *track, NSArray *lines, SGLyricsResult *answer) {
+    if (!SGLyricsSameSheet(answer, SGLyricsKeptAnswer(track))) return NO;
+    SGLyricsSetCredit(track, answer.provider);
+    SGKaraokeKeepLines(track, lines);
+    return YES;
+}
+NSArray *SGKaraokeSpotifyLines(NSString *track) {
+    return [SGLyricsCreditFor(track) isEqual:@"Spotify"] ? SGKaraokeLinesForTrack(track) : nil;
+}
+void SGKaraokeDeferPersistence(NSString *track) {}
+void SGKaraokeKeepSpotifyLines(NSString *track, NSArray *lines) {
+    SGKaraokeKeepSourceLines(track, lines, SGLyricsAcceptSpotify(track, lines, nil));
+}
 NSArray<SGKaraokeLine *> *SGKaraokeLinesForTrack(NSString *track) {
     id lines = sg_shown[track];
     return lines == NSNull.null ? nil : lines;
@@ -52,7 +68,7 @@ void SGKaraokeRequestLyrics(NSString *track) { [sg_askedAgain addObject:track]; 
 
 // The sources, answered by key: a fresh result each ask, nil for none. One key may be held until release()
 // runs, for what lands while the walk waits on it. Every ask is listed as "key:track".
-typedef SGLyricsResult *(^SGAnswer)(void);
+typedef SGLyricsResult *(^SGAnswer)(SGLyricsRequestContext *);
 static NSMutableDictionary<NSString *, SGAnswer> *sg_answers;
 static NSMutableArray<NSString *> *sg_asked;
 static NSString *sg_held;
@@ -62,7 +78,7 @@ static void answer(NSString *key, SGLyricsQuery *query, void (^done)(SGLyricsRes
     [sg_asked addObject:[NSString stringWithFormat:@"%@:%@", key, query.trackID]];
     void (^now)(void) = ^{
         SGAnswer answer = sg_answers[key];
-        done(answer ? answer() : nil);
+        done(answer ? answer(query.requestContext) : nil);
     };
     if ([key isEqualToString:sg_held]) sg_release = now;
     else now();
@@ -85,7 +101,7 @@ ASK(SGDeezerAsk, @"deezer")
 
 // Two lines, timed by the line or not at all, with the page's text made from them as a source would.
 static SGAnswer lines(BOOL timed) {
-    return ^SGLyricsResult *{
+    return ^SGLyricsResult *(SGLyricsRequestContext *context) {
         SGLyricsResult *result = [SGLyricsResult new];
         result.karaokeLines = timed ? SGKaraokeEstimatedLines(@[@1000, @2000], @[@"a", @"b"]) : SGKaraokeStaticLines(@[@"a", @"b"]);
         result.synced = timed;
@@ -100,8 +116,8 @@ static SGAnswer lines(BOOL timed) {
 
 // A request lost on the way: counted as every source's are, so the walk knows nothing was not no lyrics.
 static SGAnswer failing(void) {
-    return ^SGLyricsResult *{
-        SGLyricsNoteReply(nil, [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil]);
+    return ^SGLyricsResult *(SGLyricsRequestContext *context) {
+        [context noteFailure:YES];
         return nil;
     };
 }

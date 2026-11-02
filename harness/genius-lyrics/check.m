@@ -67,6 +67,7 @@ static id (^sg_meaningReply)(NSURLRequest *, NSInteger *);
 NSInteger SGInt(NSString *key, NSInteger fallback) { return [key isEqual:SGKeyLyricsMeanings] ? SGLyricsMeaningsAll : fallback; }
 NSString *SGL(NSString *key, NSString *english) { return english; }
 void SGLyricsSourceRequest(NSURL *url, NSDictionary *headers, NSData *body, void (^done)(NSData *, NSInteger)) { done(nil, 404); }
+void SGLyricsSourceRequestIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, NSData *body, void (^done)(NSData *, NSInteger)) { done(nil, 404); }
 SGModRow *SGChoiceRow(NSString *title, NSString *subtitle, NSString *key, NSArray<NSString *> *choices, NSInteger fallback) { return nil; }
 SPTPlayerTrack *SGKaraokeTrackFor(NSString *trackID) {
     HarnessMeaningTrack *track = [HarnessMeaningTrack new];
@@ -110,6 +111,15 @@ void SGLyricsPostJSONTransform(NSURL *url, NSDictionary *headers, id body, id (^
 void SGLyricsGetText(NSURL *url, void (^done)(NSString *text)) {
     NSData *body = fetched(url);
     done(body ? [[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding] : nil);
+}
+void SGLyricsGetJSONIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id)) {
+    SGLyricsGetJSON(url, headers, done);
+}
+void SGLyricsGetTextIn(SGLyricsRequestContext *context, NSURL *url, void (^done)(NSString *)) {
+    SGLyricsGetText(url, done);
+}
+void SGLyricsPostJSONTransformIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, id body, id (^transform)(id), void (^done)(id)) {
+    SGLyricsPostJSONTransform(url, headers, body, transform, done);
 }
 
 // A search reply holding these hits, in this order: {id, title, primary artists, instrumental, artist_names}.

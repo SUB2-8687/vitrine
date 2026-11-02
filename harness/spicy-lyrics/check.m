@@ -47,6 +47,12 @@ void SGLyricsGetJSONReply(NSURL *url, NSDictionary *headers, void (^done)(id roo
     if (sg_holdReply) { sg_delayedReply = done; return; }
     done(sg_body, sg_reply);
 }
+void SGLyricsGetJSONReplyIn(SGLyricsRequestContext *context, NSURL *url, NSDictionary *headers, void (^done)(id, NSHTTPURLResponse *)) {
+    SGLyricsGetJSONReply(url, headers, ^(id body, NSHTTPURLResponse *reply) {
+        [context noteResponse:reply error:nil];
+        done(body, reply);
+    });
+}
 static NSError *sg_replyFailure;
 void SGLyricsNoteReply(NSURLResponse *response, NSError *error) {
     if (error) { sg_lost++; sg_replyFailure = error; }

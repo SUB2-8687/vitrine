@@ -255,6 +255,10 @@ static NSData *dataForRecord(NSMutableDictionary *record, NSError **error) {
 }
 
 void SGLyricsStoreSave(NSString *track, NSArray<SGKaraokeLine *> *lines, NSString *credit) {
+    SGLyricsStoreSaveWithLease(track, lines, credit, [SGLyricsLease new]);
+}
+
+void SGLyricsStoreSaveWithLease(NSString *track, NSArray<SGKaraokeLine *> *lines, NSString *credit, SGLyricsLease *lease) {
     if (!track.length || !lines.count) return;
     // The keeper calls on main, where the provider credit registry lives. Snapshot before
     // generated translations/pronunciation can be attached; serialization and I/O stay off main.
@@ -263,6 +267,7 @@ void SGLyricsStoreSave(NSString *track, NSArray<SGKaraokeLine *> *lines, NSStrin
     if (links) record[@"creditLinks"] = links;
     if (SGLyricsCreditRequired(credit)) record[@"creditRequired"] = @YES;
     dispatch_async(storeQueue(), ^{
+        [lease perform:^{
         NSError *error = nil;
         NSData *data = record ? dataForRecord(record, &error) : nil;
         if (!data) { SGLog(@"lyrics store: write failed (encode): %@", error); return; }
@@ -286,6 +291,7 @@ void SGLyricsStoreSave(NSString *track, NSArray<SGKaraokeLine *> *lines, NSStrin
             return;
         }
         if (canPrune) { files = inventory(&bytes); prune(files, bytes); }
+        }];
     });
 }
 

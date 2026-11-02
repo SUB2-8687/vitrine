@@ -16,7 +16,7 @@ static NSDictionary *keyQuery(void) {
              (__bridge id)kSecAttrService: @"Vitrine.Deezer", (__bridge id)kSecAttrAccount: @"arl"};
 }
 
-static NSString *storedARL(void) {
+static NSString *storedARL(SGLyricsRequestContext *context) {
     if (sg_arlLoaded) return sg_arl;
     NSMutableDictionary *query = [keyQuery() mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
@@ -24,6 +24,7 @@ static NSString *storedARL(void) {
     CFTypeRef data = NULL;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &data);
     if (status != errSecSuccess && status != errSecItemNotFound) {
+        [context noteFailure:YES];
         SGLyricsNoteReply(nil, [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
         return nil;
     }
@@ -35,7 +36,7 @@ static NSString *storedARL(void) {
     return sg_arl;
 }
 
-BOOL SGDeezerARLSet(void) { return storedARL().length > 0; }
+BOOL SGDeezerARLSet(void) { return storedARL(nil).length > 0; }
 
 // Clear Keychain: the ARL goes and the JWT signed in with it is dropped, so no request uses either; the
 // order is a setting, so it stays.
@@ -152,10 +153,10 @@ static NSString *songFor(id root, SGLyricsQuery *query) {
 
 static id json(NSData *data) { return data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil; }
 
-static void token(NSString *arl, NSUInteger generation, void (^done)(NSString *)) {
+static void token(SGLyricsRequestContext *context, NSString *arl, NSUInteger generation, void (^done)(NSString *)) {
     if (generation != sg_generation) { done(nil); return; }
     if (sg_jwt.length) { done(sg_jwt); return; }
-    SGLyricsSourceRequest([NSURL URLWithString:@"https://auth.deezer.com/login/arl?jo=p&rto=c&i=c"], @{@"Cookie": [@"arl=" stringByAppendingString:arl]}, NSData.data, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(context, [NSURL URLWithString:@"https://auth.deezer.com/login/arl?jo=p&rto=c&i=c"], @{@"Cookie": [@"arl=" stringByAppendingString:arl]}, NSData.data, ^(NSData *data, NSInteger status) {
         NSString *jwt = status == 200 ? SGLyricsString(SGLyricsField(json(data), @"jwt"), 16384) : nil;
         NSCharacterSet *safe = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."];
         if (!jwt.length || [jwt rangeOfCharacterFromSet:safe.invertedSet].location != NSNotFound || generation != sg_generation) { done(nil); return; }
@@ -178,16 +179,16 @@ static BOOL authError(id root, NSInteger status) {
     return NO;
 }
 
-static void lyrics(NSString *song, NSString *arl, NSUInteger generation, BOOL retried, void (^done)(SGLyricsResult *)) {
-    token(arl, generation, ^(NSString *jwt) {
+static void lyrics(SGLyricsRequestContext *context, NSString *song, NSString *arl, NSUInteger generation, BOOL retried, void (^done)(SGLyricsResult *)) {
+    token(context, arl, generation, ^(NSString *jwt) {
         if (!jwt) { done(nil); return; }
         NSDictionary *body = @{@"operationName": @"GetLyrics", @"variables": @{@"trackId": song}, @"query": @"query GetLyrics($trackId: String!) { track(trackId: $trackId) { id lyrics { id text synchronizedLines { lrcTimestamp line milliseconds duration } synchronizedWordByWordLines { start end words { start end word } } } } }"};
-        SGLyricsSourceRequest([NSURL URLWithString:@"https://pipe.deezer.com/api"], @{@"Authorization": [@"Bearer " stringByAppendingString:jwt], @"Content-Type": @"application/json"}, [NSJSONSerialization dataWithJSONObject:body options:0 error:nil], ^(NSData *data, NSInteger status) {
+        SGLyricsSourceRequestIn(context, [NSURL URLWithString:@"https://pipe.deezer.com/api"], @{@"Authorization": [@"Bearer " stringByAppendingString:jwt], @"Content-Type": @"application/json"}, [NSJSONSerialization dataWithJSONObject:body options:0 error:nil], ^(NSData *data, NSInteger status) {
             if (generation != sg_generation) { done(nil); return; }
             id root = json(data);
             if (authError(root, status)) {
                 if ([sg_jwt isEqualToString:jwt]) sg_jwt = nil;
-                if (!retried) { lyrics(song, arl, generation, YES, done); return; }
+                if (!retried) { lyrics(context, song, arl, generation, YES, done); return; }
                 done(nil);
                 return;
             }
@@ -207,16 +208,16 @@ void SGDeezerAskWith(NSString *arl, SGLyricsQuery *query, void (^done)(SGLyricsR
     NSString *title = [query.title stringByReplacingOccurrencesOfString:@"\"" withString:@""];
     NSString *artist = [SGLyricsLeadArtist(query.artist) stringByReplacingOccurrencesOfString:@"\"" withString:@""];
     NSURL *url = SGLyricsURL(@"https://api.deezer.com/search", @{@"q": [NSString stringWithFormat:@"track:\"%@\" artist:\"%@\"", title, artist]});
-    SGLyricsSourceRequest(url, nil, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(query.requestContext, url, nil, nil, ^(NSData *data, NSInteger status) {
         NSString *song = status == 200 ? songFor(json(data), query) : nil;
         if (!song) { done(nil); return; }
-        lyrics(song, arl, generation, NO, done);
+        lyrics(query.requestContext, song, arl, generation, NO, done);
     });
 }
 
 SGLyricsAsk SGDeezerAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *)) {
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ SGDeezerAsk(query, done); }); return; }
-    SGDeezerAskWith(storedARL(), query, done);
+    SGDeezerAskWith(storedARL(query.requestContext), query, done);
 };
 
 static void askForARL(NSString *problem) {

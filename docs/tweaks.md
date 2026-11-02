@@ -309,6 +309,23 @@ Shared:
                   source won, Spotify's own included: matched by the line's folded text, as copies kept in place of the
                   lines (KaraokeSource.x), which the view picks up. The default Word timing first mode asks
                   sequentially for word timing; In order and All at once follow the rules above.
+                  Automatic answers remain provisional while outstanding work or a failed eligible source
+                  could change the selection. Each provider invocation carries its own failure outcome,
+                  including search/fetch subrequests; a normal missing-lyrics reply is not a failure.
+                  Provisional sheets are shown but never saved offline. Only the relevant failed sources
+                  are retried, after 10, 20, 40 and 60 seconds; an exhausted answer stays memory-only.
+                  A recovered or confirmed winner is saved with its own credit for the next playback.
+                  During the current playback, only a higher timing tier can replace the displayed sheet:
+                  equal-tier priority changes, page text and credit wait until the track leaves playback,
+                  including a transition to no track. Pause, backgrounding and seeking are not boundaries.
+                  Translation refreshes cannot save provisional sheets or overwrite a pending winner.
+                  Persistence authority belongs to the delivered sheet, survives source-cache eviction
+                  with the keeper, and rejects late donor replies from an older sheet. A recovered track
+                  name resumes deferred searches; page text is selected independently of karaoke timing.
+                  Recovery and next-playback promotion preserve finer Spotify timing.
+                  Reloading, choosing a source, returning to Automatic, pinning and eviction retire
+                  the old recovery and its deferred writes. Existing offline entries are not migrated;
+                  reload them from the player's ⋯ to ask the sources again.
                   Prefer word-by-word timing (off by default) changes In order mode only: it asks on for
                   word-timed lines, otherwise keeping the finest timing found with ties going to source priority.
                   In either sequential mode, a timed imported LRC above every source as finely timed ends the walk

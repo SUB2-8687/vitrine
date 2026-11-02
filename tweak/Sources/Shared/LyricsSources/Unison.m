@@ -23,7 +23,7 @@ SGLyricsAsk SGUnisonAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
     }];
     if (query.seconds > 0) search[@"duration"] = @(query.seconds).stringValue;
     if (query.album.length) search[@"album"] = query.album;
-    SGLyricsGetJSON(SGLyricsURL(kAPI, search), nil, ^(id root) {
+    SGLyricsGetJSONIn(query.requestContext, SGLyricsURL(kAPI, search), nil, ^(id root) {
         id data = [root isKindOfClass:NSDictionary.class] ? root[@"data"] : nil;
         if (![data isKindOfClass:NSDictionary.class]) {
             SGLog(@"unison: no lyrics for %@ by %@", query.title, query.artist);

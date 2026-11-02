@@ -25,13 +25,16 @@ static const NSUInteger kSeenTracks = 200;
 static const NSUInteger kCompletedRequests = 200;
 // A track whose request was lost may be asked for again after this long, twice as long after each loss
 // in a row up to the most: soon enough for the song still playing, not so soon that a busy server is pressed.
-static const NSTimeInterval kRetryPause = 10, kRetryPauseMost = 60;
+static const NSTimeInterval kRetryPause = SGLyricsRetryPause, kRetryPauseMost = SGLyricsRetryPauseMost;
 // Only the failed-source/empty-fallback path gets automatic retries: one pass through the backoff.
-static const NSUInteger kSourceRetries = 4;
+static const NSUInteger kSourceRetries = SGLyricsRecoveryTries;
 // What spclient needs from a request to answer it as the signed-in app.
 static NSString *const kSpclientHeaders[] = {@"authorization", @"client-token", @"app-platform", @"spotify-app-version", @"user-agent", @"accept-language"};
 
 static NSMutableDictionary<NSString *, NSArray<SGKaraokeLine *> *> *sg_lyrics;
+// Same lifetime as sg_lyrics, not the independently evicted source-order cache. Translation copies
+// retain the original sheet's authority; losing its selection record never makes it persistable.
+static NSMutableDictionary<NSString *, id> *sg_sheetAuthorities;
 static NSMutableSet<NSString *> *sg_requested;
 // Of those, the ones with a request still out or waiting out its pause. A full cache spares their lines
 // and leaves them asked for, so no second request runs beside the first.
@@ -43,7 +46,8 @@ static NSMutableDictionary<NSString *, NSNumber *> *sg_sourceRetries;
 static NSMutableDictionary<NSString *, NSObject *> *sg_requests;
 // Separate from source requests: a keep or forget retires a disk delivery and
 // a deferred write without retiring a source walk that may still improve its answer.
-static NSMutableDictionary<NSString *, NSObject *> *sg_storeRequests, *sg_storeWrites;
+static NSMutableDictionary<NSString *, NSObject *> *sg_storeRequests;
+static NSMutableDictionary<NSString *, SGLyricsLease *> *sg_storeWrites;
 static NSMutableSet<NSString *> *sg_looking;   // asked of the sources or spclient right now (SGKaraokeLooking)
 static NSDictionary<NSString *, NSString *> *sg_spclientHeaders;
 static NSMutableArray<void (^)(NSDictionary<NSString *, NSString *> *)> *sg_headersWaiting;   // SGSpclientHeaders
@@ -216,7 +220,9 @@ static void keep(NSString *track, NSArray<SGKaraokeLine *> *lines, BOOL fromStor
 static void translate(NSString *track) {
     NSString *language = SGRedesignedUI() ? SGLyricsTranslationLanguage() : nil;
     if (!language || SGLyricsHasTranslations(sg_lyrics[track])) return;
+    NSUInteger generation = SGLyricsPinGeneration(track);
     SGMusixmatchTranslations(track, language, ^(NSDictionary<NSString *, NSString *> *byLine) {
+        if (generation != SGLyricsPinGeneration(track)) return;
         // Whatever is kept by now, which may be Spotify's timed lines in place of the plain ones asked for.
         NSArray<SGKaraokeLine *> *kept = sg_lyrics[track];
         if (!byLine || !kept.count || ![language isEqualToString:SGLyricsTranslationLanguage()]
@@ -263,6 +269,13 @@ BOOL SGKaraokeLooking(NSString *trackID) {
 // Main queue only. A full cache is emptied but for the track playing, the one up next and those still
 // being asked for; what goes can be asked for again.
 static void keep(NSString *track, NSArray<SGKaraokeLine *> *lines, BOOL fromStore) {
+    if (!sg_sheetAuthorities[track]) {
+        id authority = SGLyricsPersistenceAuthority(track);
+        if (authority) {
+            if (!sg_sheetAuthorities) sg_sheetAuthorities = [NSMutableDictionary dictionary];
+            sg_sheetAuthorities[track] = NSNull.null;
+        }
+    }
     // Provider decoding can finish after a target change. Never mutate a source's cached
     // result or the old snapshot a layout worker is still measuring.
     lines = SGLyricsProviderTranslationsForLanguage(lines, SGLyricsTranslationLanguage());
@@ -271,7 +284,7 @@ static void keep(NSString *track, NSArray<SGKaraokeLine *> *lines, BOOL fromStor
         [sg_storeRequests removeObjectForKey:track];
         [sg_asking removeObject:track];
     }
-    [sg_storeWrites removeObjectForKey:track];
+    SGKaraokeCancelStoreWrite(track);
     if (sg_lyrics.count >= kKeptTracks && !sg_lyrics[track]) {
         NSMutableSet<NSString *> *spared = [sg_asking mutableCopy];
         SPTPlayerState *state = playerState();
@@ -281,21 +294,25 @@ static void keep(NSString *track, NSArray<SGKaraokeLine *> *lines, BOOL fromStor
         for (NSString *kept in sg_lyrics.allKeys) {
             if ([spared containsObject:kept]) continue;
             [sg_lyrics removeObjectForKey:kept];
+            [sg_sheetAuthorities removeObjectForKey:kept];
             [sg_requested removeObject:kept];
             [sg_requests removeObjectForKey:kept];
+            SGLyricsForgetAnswer(kept);
         }
     }
     sg_lyrics[track] = SGKaraokeInTimeOrder(lines);
-    if (!fromStore && lines.count && !SGLocalFileIs(track) && SGFlag(SGKeyLyricsOffline, YES)) {
+    id authority = sg_sheetAuthorities[track];
+    if (!fromStore && lines.count && !SGLocalFileIs(track) && SGFlag(SGKeyLyricsOffline, YES) && SGLyricsMayPersist(track, authority)) {
         if (!sg_storeWrites) sg_storeWrites = [NSMutableDictionary dictionary];
-        NSObject *token = [NSObject new];
+        SGLyricsLease *token = [SGLyricsLease new];
         sg_storeWrites[track] = token;
+        NSUInteger generation = SGLyricsPinGeneration(track);
         // Most callers set the provider immediately after keep; pins set it before.
         // End-of-turn capture supports both without changing every producer's API.
         dispatch_async(dispatch_get_main_queue(), ^{
             if (sg_storeWrites[track] != token) return;
-            [sg_storeWrites removeObjectForKey:track];
-            if (SGFlag(SGKeyLyricsOffline, YES)) SGLyricsStoreSave(track, lines, SGLyricsCreditFor(track));
+            if (generation != SGLyricsPinGeneration(track) || !SGLyricsMayPersist(track, authority)) return;
+            if (SGFlag(SGKeyLyricsOffline, YES)) SGLyricsStoreSaveWithLease(track, lines, SGLyricsCreditFor(track), token);
         });
     }
     // Saved lines take their translations as fresh ones do: offline, the ask simply goes unanswered.
@@ -307,24 +324,64 @@ void SGKaraokeKeepLines(NSString *track, NSArray<SGKaraokeLine *> *lines) {
     if (!track.length) return;
     void (^save)(void) = ^{
         if (!sg_lyrics) sg_lyrics = [NSMutableDictionary dictionary];
+        id authority = SGLyricsPersistenceAuthority(track);
+        if (authority) {
+            if (!sg_sheetAuthorities) sg_sheetAuthorities = [NSMutableDictionary dictionary];
+            sg_sheetAuthorities[track] = NSNull.null;
+        }
         keep(track, lines, NO);
     };
     if (NSThread.isMainThread) save();
     else dispatch_async(dispatch_get_main_queue(), save);
 }
 
+BOOL SGKaraokeKeepSourceLines(NSString *track, NSArray<SGKaraokeLine *> *lines, SGLyricsResult *answer) {
+    id current = SGLyricsKeptAnswer(track);
+    if (![current isKindOfClass:SGLyricsResult.class] || !SGLyricsSameSheet(answer, current)) return NO;
+    if (!sg_lyrics) sg_lyrics = [NSMutableDictionary dictionary];
+    if (!sg_sheetAuthorities) sg_sheetAuthorities = [NSMutableDictionary dictionary];
+    sg_sheetAuthorities[track] = answer;
+    SGLyricsSetCredit(track, answer.provider);
+    keep(track, lines, NO);
+    return YES;
+}
+
+NSArray<SGKaraokeLine *> *SGKaraokeSpotifyLines(NSString *track) {
+    return [SGLyricsCreditFor(track) isEqualToString:@"Spotify"] ? sg_lyrics[track] : nil;
+}
+
+void SGKaraokeKeepSpotifyLines(NSString *track, NSArray<SGKaraokeLine *> *lines) {
+    SGLyricsResult *answer = SGLyricsAcceptSpotify(track, lines, sg_sheetAuthorities[track]);
+    SGKaraokeKeepSourceLines(track, lines, answer);
+}
+
+void SGKaraokeDeferPersistence(NSString *track) {
+    if (!sg_lyrics[track]) return;
+    if (!sg_sheetAuthorities) sg_sheetAuthorities = [NSMutableDictionary dictionary];
+    sg_sheetAuthorities[track] = NSNull.null;
+    SGKaraokeCancelStoreWrite(track);
+}
+
 void SGKaraokeForgetLyrics(NSString *trackID) {
     if (!trackID.length) return;
     [sg_storeRequests removeObjectForKey:trackID];
-    [sg_storeWrites removeObjectForKey:trackID];
+    SGKaraokeCancelStoreWrite(trackID);
     SGLyricsStoreDelete(trackID);
     [sg_lyrics removeObjectForKey:trackID];
+    [sg_sheetAuthorities removeObjectForKey:trackID];
     [sg_requested removeObject:trackID];
     [sg_asking removeObject:trackID];
     [sg_looking removeObject:trackID];
     [sg_losses removeObjectForKey:trackID];
     [sg_sourceRetries removeObjectForKey:trackID];
     [sg_requests removeObjectForKey:trackID];
+    SGLyricsForgetAnswer(trackID);
+}
+
+void SGKaraokeCancelStoreWrite(NSString *track) {
+    if (!track.length) return;
+    [sg_storeWrites[track] invalidate];
+    [sg_storeWrites removeObjectForKey:track];
 }
 
 static void received(NSURLSession *session, NSURLSessionTask *task, NSData *data) {
@@ -348,7 +405,7 @@ static void completed(NSURLSessionTask *task, NSError *error) {
     NSArray<SGKaraokeLine *> *lines = SGKaraokeLinesFromBody(body);
     SGLog(@"karaoke: lyrics for %@, %lu bytes, %lu synced lines", track, (unsigned long)body.length, (unsigned long)lines.count);
     if (lines) dispatch_async(dispatch_get_main_queue(), ^{
-        if (!SGLyricsPinnedID(track)) SGKaraokeKeepLines(track, lines);
+        if (!SGLyricsPinnedID(track)) SGKaraokeKeepSpotifyLines(track, lines);
     });
 }
 
@@ -376,6 +433,11 @@ static void askAgainLater(NSString *trackID, BOOL automatic) {
 }
 
 static void retrySourcesLater(NSString *trackID) {
+    if (SGLyricsRecovering(trackID)) {
+        [sg_asking removeObject:trackID];
+        [sg_requests removeObjectForKey:trackID];
+        return;
+    }
     if (!sg_sourceRetries) sg_sourceRetries = [NSMutableDictionary dictionary];
     NSUInteger retries = sg_sourceRetries[trackID].unsignedIntegerValue;
     sg_sourceRetries[trackID] = @(MIN(retries + 1, kSourceRetries + 1));
@@ -498,9 +560,8 @@ static BOOL requestFromSpotify(NSString *trackID) {
                 NSArray<SGKaraokeLine *> *kept = sg_lyrics[trackID];
                 id answer = SGLyricsKeptAnswer(trackID);
                 BOOL picked = [answer isKindOfClass:SGLyricsResult.class] && [(SGLyricsResult *)answer picked];
-                if (lines && !picked && !(kept && SGKaraokeLinesTiming(kept) <= SGKaraokeLinesTiming(lines))) {
-                    keep(trackID, lines, NO);
-                    SGLyricsSetCredit(trackID, @"Spotify");
+                if (SGLyricsUseSpotify(kept, lines, picked)) {
+                    SGKaraokeKeepSpotifyLines(trackID, lines);
                     return;
                 }
             }
@@ -515,6 +576,7 @@ static BOOL requestFromSpotify(NSString *trackID) {
 void SGKaraokeAskAgain(NSString *trackID) {
     if (!trackID || [sg_looking containsObject:trackID]) return;
     [sg_lyrics removeObjectForKey:trackID];
+    [sg_sheetAuthorities removeObjectForKey:trackID];
     [sg_requested removeObject:trackID];
     [sg_asking removeObject:trackID];
     [sg_losses removeObjectForKey:trackID];
@@ -636,15 +698,23 @@ static void requestLyrics(NSString *trackID, BOOL tryStore, BOOL tryImported) {
             [sg_requests removeObjectForKey:trackID];
             [sg_asking removeObject:trackID];
             [sg_losses removeObjectForKey:trackID];
-            keep(trackID, @[], NO);
-            SGLyricsSetCredit(trackID, lyrics.provider);
+            if (sg_ownSources || pinned) {
+                SGKaraokeKeepSourceLines(trackID, @[], lyrics);
+            } else {
+                keep(trackID, @[], NO);
+                SGLyricsSetCredit(trackID, lyrics.provider);
+            }
             return;
         }
         if (lyrics.karaokeLines) {
             [sg_asking removeObject:trackID];
             [sg_losses removeObjectForKey:trackID];
-            keep(trackID, lyrics.karaokeLines, NO);   // on the main queue, where the sources answer
-            SGLyricsSetCredit(trackID, lyrics.provider);
+            if (sg_ownSources || pinned) {
+                if (!SGKaraokeKeepSourceLines(trackID, lyrics.karaokeLines, lyrics)) return;
+            } else {
+                keep(trackID, lyrics.karaokeLines, NO);
+                SGLyricsSetCredit(trackID, lyrics.provider);
+            }
             // Plain text is shown while Spotify is asked whether it has the song timed; it has no local file.
             if (local || pinned || SGKaraokeLinesTiming(lyrics.karaokeLines) != SGKaraokeTimingNone) {
                 [sg_requests removeObjectForKey:trackID];
@@ -837,6 +907,7 @@ static void seen(SPTPlayerState *state) {
     [self playerUpNextDidChange:SGPlayerState()];
 }
 - (void)playerStateDidChange:(SPTPlayerState *)state {
+    SGLyricsPlaybackChanged(idOf(state.track));
     seen(state);
     [self playerUpNextDidChange:state];
 }
@@ -954,6 +1025,7 @@ static SGKaraokeTrackWatcher *sg_trackWatcher;
         for (NSString *track in [sg_requested setByAddingObjectsFromArray:sg_lyrics.allKeys]) {
             if (!SGLocalFileIs(track) || [sg_looking containsObject:track]) continue;
             [sg_lyrics removeObjectForKey:track];
+            [sg_sheetAuthorities removeObjectForKey:track];
             [sg_requested removeObject:track];
             [sg_asking removeObject:track];
             [sg_losses removeObjectForKey:track];

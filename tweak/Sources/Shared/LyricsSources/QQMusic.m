@@ -21,10 +21,10 @@ static id dig(id root, NSArray<NSString *> *path) {
     return root;
 }
 
-static void ask(NSString *name, NSDictionary *request, id (^transform)(id), void (^done)(id reply)) {
+static void ask(SGLyricsRequestContext *context, NSString *name, NSDictionary *request, id (^transform)(id), void (^done)(id reply)) {
     NSDictionary *body = @{@"comm": @{@"ct": @"19", @"cv": @"1859", @"uin": @"0"}, name: request};
     NSDictionary *headers = @{@"Referer": @"https://y.qq.com/", @"User-Agent": SGLyricsBrowserAgent, @"Accept": @"application/json"};
-    SGLyricsPostJSONTransform([NSURL URLWithString:kAPI], headers, body, ^id(id root) {
+    SGLyricsPostJSONTransformIn(context, [NSURL URLWithString:kAPI], headers, body, ^id(id root) {
         return transform(dig(root, @[name, @"data"]));
     }, done);
 }
@@ -152,11 +152,11 @@ SGLyricsResult *SGQQMusicResult(id payload) {
     return lines ? SGLyricsResultWithLines(lines, nil) : SGLyricsLRCResult(text);
 }
 
-static void lyricsFor(NSNumber *song, BOOL qrc, void (^done)(SGLyricsResult *)) {
-    ask(kLyricRequest, @{@"module": @"music.musichallSong.PlayLyricInfo", @"method": @"GetPlayLyricInfo",
+static void lyricsFor(SGLyricsRequestContext *context, NSNumber *song, BOOL qrc, void (^done)(SGLyricsResult *)) {
+    ask(context, kLyricRequest, @{@"module": @"music.musichallSong.PlayLyricInfo", @"method": @"GetPlayLyricInfo",
         @"param": @{@"crypt": @0, @"qrc": @(qrc), @"songID": song}},
         ^id(id data) { return SGQQMusicResult(dig(data, @[@"lyric"])); }, ^(SGLyricsResult *result) {
-            if (!result && qrc) { lyricsFor(song, NO, done); return; }
+            if (!result && qrc) { lyricsFor(context, song, NO, done); return; }
             SGLog(@"qqmusic: song %@ gave %lu timed lines", song, (unsigned long)result.karaokeLines.count);
             done(result);
         });
@@ -171,7 +171,7 @@ SGLyricsAsk SGQQMusicAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *
     }
     NSString *title = SGLyricsMatchKey(query.title), *artist = [query.artist copy];
     NSInteger seconds = query.seconds;
-    ask(@"req", @{@"module": @"music.search.SearchCgiService", @"method": @"DoSearchForQQMusicDesktop", @"param": @{
+    ask(query.requestContext, @"req", @{@"module": @"music.search.SearchCgiService", @"method": @"DoSearchForQQMusicDesktop", @"param": @{
         @"query": [NSString stringWithFormat:@"%@ %@", query.title, lead],
         @"search_type": @0, @"grp": @1, @"num_per_page": @8, @"page_num": @1,
     }}, ^id(id found) {
@@ -182,6 +182,6 @@ SGLyricsAsk SGQQMusicAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *
             done(nil);
             return;
         }
-        lyricsFor(song, YES, done);
+        lyricsFor(query.requestContext, song, YES, done);
     });
 };

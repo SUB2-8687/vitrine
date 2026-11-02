@@ -105,6 +105,8 @@ extern NSNotificationName const SGSystemMusicHapticsChangedNotification;
 // A Spotify track URI's ISRC from Spotify's own metadata (SystemMusicHaptics.x), nil for none, on the main queue.
 // Kept for the last 100 tracks; `tries` asks again 4 s apart when Spotify does not answer.
 void SGSpotifyISRC(NSString *uri, NSUInteger tries, void (^done)(NSString *isrc));
+// Same request/cache/retry policy, with failures distinguished from a definitive missing ISRC.
+void SGSpotifyISRCWithOutcome(NSString *uri, NSUInteger tries, void (^done)(NSString *isrc, BOOL failed));
 
 // A strength key's percentage as a factor, 1 for 100%, kept within its range.
 double SGHapticsStrength(NSString *key);

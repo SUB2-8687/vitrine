@@ -48,7 +48,7 @@ static void search(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
     if (query.seconds > 0) search[@"duration"] = @(query.seconds).stringValue;
     if (query.album.length) search[@"album"] = query.album;
     NSInteger seconds = query.seconds;
-    SGLyricsGetJSONTransform(SGLyricsURL(kAPI, search), nil, ^id(id root) {
+    SGLyricsGetJSONTransformIn(query.requestContext, SGLyricsURL(kAPI, search), nil, ^id(id root) {
         return bestOf([root isKindOfClass:NSDictionary.class] ? root[@"results"] : nil, seconds);
     }, ^(NSDictionary *found) {
         if (!found) {
@@ -57,7 +57,7 @@ static void search(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
             return;
         }
         BOOL wordTimed = [found[@"timing_type"] isEqual:@"word"];
-        SGLyricsGetTextTransform([NSURL URLWithString:found[@"lyricsUrl"]], ^id(NSString *ttml) {
+        SGLyricsGetTextTransformIn(query.requestContext, [NSURL URLWithString:found[@"lyricsUrl"]], ^id(NSString *ttml) {
             return SGTTMLResult(ttml, wordTimed);
         }, ^(SGLyricsResult *result) {
             if (!result) SGLog(@"binilyrics: %@ gave nothing the page could show", found[@"lyricsUrl"]);
@@ -75,18 +75,20 @@ SGLyricsAsk SGBiniLyricsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
     SGLyricsQuery *captured = [SGLyricsQuery new];
     captured.trackID = query.trackID; captured.title = query.title; captured.artist = query.artist;
     captured.album = query.album; captured.seconds = query.seconds;
+    captured.requestContext = query.requestContext;
     query = captured;
     if (query.trackID.length != 22) {
         search(query, done);
         return;
     }
     // Asked once: the lyrics wait on it, and the search is there when Spotify does not answer.
-    SGSpotifyISRC([@"spotify:track:" stringByAppendingString:query.trackID], 1, ^(NSString *isrc) {
+    SGSpotifyISRCWithOutcome([@"spotify:track:" stringByAppendingString:query.trackID], 1, ^(NSString *isrc, BOOL failed) {
+        [query.requestContext noteFailure:failed];
         if (!isrc) {
             search(query, done);
             return;
         }
-        SGLyricsGetTextTransform([NSURL URLWithString:[NSString stringWithFormat:kByISRC, isrc]], ^id(NSString *ttml) {
+        SGLyricsGetTextTransformIn(query.requestContext, [NSURL URLWithString:[NSString stringWithFormat:kByISRC, isrc]], ^id(NSString *ttml) {
             return SGTTMLResult(ttml, [ttml containsString:@"timing=\"Word\""]);
         }, ^(SGLyricsResult *result) {
             if (!result) {

@@ -184,14 +184,18 @@ static NSData *decide(NSString *track, SGLyricsResult *chain, NSData *spotifyBod
         viewLines = @[];
     } else if (pinned) {
         viewLines = chain.karaokeLines;
-    } else if (chain.karaokeLines.count && (!spotifyLines || SGKaraokeLinesTiming(chain.karaokeLines) <= spotifyTiming)) {
-        viewLines = chain.karaokeLines;
-    } else if (spotifyLines) {
+    } else if (SGLyricsUseSpotify(chain.karaokeLines, spotifyLines, NO)) {
         viewLines = spotifyLines;
         credit = @"Spotify";
+    } else if (chain.karaokeLines.count) {
+        viewLines = chain.karaokeLines;
     }
-    if (viewLines) SGKaraokeKeepLines(track, viewLines);
-    SGLyricsSetCredit(track, credit);
+    if (viewLines && viewLines != spotifyLines) {
+        if (!SGKaraokeKeepSourceLines(track, viewLines, chain)) return nil;
+    } else {
+        if (viewLines) SGKaraokeKeepSpotifyLines(track, viewLines);
+        else SGLyricsSetCredit(track, credit);
+    }
     // Spotify's JSON may have the song timed where its page does not.
     if (!pinned && !chain.instrumental && !donor && spotifyBody.length && SGKaraokeLinesTiming(viewLines) == SGKaraokeTimingNone) SGKaraokeAskSpotifyForTiming(track);
 
