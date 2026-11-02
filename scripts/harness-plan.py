@@ -835,9 +835,13 @@ def run_harness(command):
         pending_signal = signum
 
     previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
+    # Most harness scripts read $THEOS with no fallback; a local run without it
+    # would fail on /bin/logos.pl before checking anything. CI sets its own.
+    env = dict(os.environ)
+    env.setdefault("THEOS", os.path.expanduser("~/theos"))
     try:
         process = subprocess.Popen(command, shell=True, executable="/bin/bash",
-                                   cwd=REPO, start_new_session=True)
+                                   cwd=REPO, start_new_session=True, env=env)
         while pending_signal is None:
             try:
                 returncode = process.wait(timeout=HARNESS_GROUP_POLL_SECONDS)
