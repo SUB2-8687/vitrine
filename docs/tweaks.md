@@ -86,6 +86,12 @@ Shared:
                   and automix switched on in the player core, the core and Settings both kept on the audio.crossfade
                   prefs rather than the account's Playback Settings, and crossfade's switch kept in step with its
                   slider (Crossfade.x).
+                  With Spoof Premium on, the DJ's eligibility check answers yes, which keeps the full DJ with requests; a
+                  Free account is then told "DJ is not available in your country" at each start while the DJ plays on, so
+                  that dialog alone is closed before it shows (DJ.x: a PopUpPresentableContainer whose title equals the
+                  region dialog's title in Spotify's own SPTStrings.bundle, English and the app's languages; read once;
+                  closed through SPTEncorePopUpPresenter without clearing its queue). Any other pop-up, or a missing title
+                  in the strings, is left alone. Checked by harness/adblock/dj-check.py.
                   With Spoof Premium on, RadioModes.m requests shuffle and repeat overrides for radio/autoplay in either look:
                   only restrictions made entirely of radio, endless_context and autoplay are allowed.
                   Raw reason sets remain intact when Spotify copies its state. Positive radio evidence survives
@@ -997,6 +1003,12 @@ Redesigned:
                   The first read of either carries the global switch of before (spotifyglass.redesign.fullBleedCovers) into both
                   where they have no value of their own and sets spotifyglass.redesign.fullBleedCovers.migrated; the old key is
                   left alone for a downgrade and never read again. In Card an album's animated cover still fills the hero.
+                  Pulled down past the top, the album and artist heroes stretch their artwork from the top edge instead of
+                  leaving a gap and return exactly to their rest size on release (Kit/SGRStretchHero.m): the pull is read
+                  from the overlay that actually scrolls, its rest at -adjustedContentInset.top; the rest-sized rendering is
+                  reused while pulling, so a pull asks for no new render; the bottom fades by a mask over the field, not a
+                  flat colour, since the field darkens lower on the screen; the album cover stays tappable and accessible,
+                  and Blur covers on scroll follows the same scroll owner (harness/album/, harness/artist/).
                   Picture-aware cover (spotifyglass.redesign.album.adaptiveCover, off, read at launch, shown with Full
                   screen) reads the cover once off main (Kit/SGRCoverRead.m: a 64 px OKLab sample, solid, dark-with-accent,
                   portrait, colourful or edge, Vision faces and saliency for the non-solid ones, 64 readings cached) and hands
@@ -1043,13 +1055,20 @@ Redesigned:
                   UITabBarController, so UIKit's tabBarMinimizeBehavior and bottomAccessory cannot do it. The bars,
                   their circles and the card move as one, on one spring of their own (SGRMotionBar, 0.26 s, no
                   overshoot; at once under Reduce Motion), from what is on screen, so a change turned back half way
-                  carries on from there. Each glass tab carries its name for VoiceOver and the large content viewer, labels
+                  carries on from there. The selected tab shows Spotify's filled glyph and the others their outlines, also
+                  after the bar minimizes and expands and when a tab's view is handed another icon: an older
+                  SPTEncoreIcon gives its filled variant through -active, and 9.1.90's Swift Encore.Icon is drawn once with
+                  isActive set and then put back; the images are kept by the glyph drawn, not the label's color
+                  (harness/tabbar/bar-check.sh, `glyphs` and `glyphs swift`). Each glass tab carries its name for VoiceOver and the large content viewer, labels
                   hidden or not, and the leading circle says it shows all tabs. Laid out on
                   the Mac against harness/tabbar/ (`mini`; a tap on the leading circle `tap`, real flings that turn
                   the bar half way `turns`, a minimize from inside Spotify's own animations `nested`, every frame of
                   the move sampled `motion`), the scroll's steps checked by harness/tabbar/minimize-check.c
     NowPlayingBar/ the glass now playing bar (NowPlayingBar.x), with Spotify's device button on it hidden on request
-                  (BarConnect.x, its own key and its own row on the Player page, apart from the native look's). The card's text is the Music
+                  (BarConnect.x, its own key and its own row on the Player page, apart from the native look's). Above the
+                  tab bar the card is exactly as wide as the glass tab row, split tabs included, like the Music app's mini
+                  player (SGRTabBarGlassRow in Navbar.h, posted at most once a run loop turn when the row's edges change);
+                  in a regular width or right-to-left layout it keeps Spotify's edges, and a Jam never puts it inline. The card's text is the Music
                   app's, the title over the artists with no device line, drawn inside Spotify's own text on each swipe page
                   so it slides and fades with it; Spotify lays a page out as "title • artists" over the device line or as
                   title over artists, and both are read. In the minimized row
@@ -1093,7 +1112,9 @@ Redesigned:
                   move outward so each is min(row width / 3, 140 pt) from play's center, less where that would take a
                   button past the row's edge and not at all where it is already farther out; play stays centered and
                   every button keeps its size, and the move is a translation set in the unit's own layout pass, so
-                  Spotify's layout stays underneath and comes back exactly when a button is shown again. With one of
+                  Spotify's layout stays underneath and comes back exactly when a button is shown again. They stay out
+                  while Spotify takes the repeat button out and puts a new one in (9.1.90), and the emptied ends take no
+                  touches meanwhile, so a tap where next lies over repeat's end is next's. With one of
                   the two hidden, on a podcast's row without them, or in landscape, the slots stay Spotify's. The
                   timestamps under the slider are metered (SGRMonospacedDigits) and, with Rolling time digits on (the
                   Player page, on until switched off), their changed characters roll into place (SGRRefinements.h,
@@ -1109,9 +1130,11 @@ Redesigned:
                   behind the header's down arrow and ⋯, in the ordinary player and the AI DJ's (PlayerHeader.x); off, only
                   the circles go, and the buttons draw as Spotify's own with their actions, touches and accessibility, the
                   grabber staying. Music app icons (spotifyglass.redesign.player.musicIcons, on until switched off) keeps
-                  the Music app's AirPlay and queue glyphs over Spotify's in the footer (PlayerFooter.x, and the DJ's Connect
-                  in DJPlayer.x; its queue glyph stays); off, Spotify's glyphs come back in the colors and state Spotify
-                  gives them. The open player follows both at once (SGRPlayerLookChanged lays the watched unit views out
+                  the Music app's lyrics, AirPlay and queue glyphs over Spotify's in the footer and the AI DJ's footer
+                  (PlayerFooter.x, DJPlayer.x), and draws the DJ button as a waveform over its masked disc; off, Spotify's
+                  glyphs come back in the colors and state Spotify gives them (Encore's microphone on Lyrics and queue on the
+                  DJ's Queue, as 9.1.90 has no lyrics glyph) and the blue disc shows again. The hidden share button and its
+                  holder take no touches in either state. The open player follows both at once (SGRPlayerLookChanged lays the watched unit views out
                   again). Animated artwork (PlayerMotion.x)
                   plays a square clip (Apple Music's square animated cover, no taller than 1.05:1) inside the cover
                   itself, a subview of the cover on screen that takes its corners, paused shrink and swipe, over the
@@ -1631,7 +1654,8 @@ follows the head through AirPods, or sways gently without them and holds still u
 saying which, then the switch; its row is on the main page too, under Karaoke's), a Voice model section (Best quality
 and Light, a checkmark against the chosen one, each with its size; then the chosen model's download, Paused and Checking
 among its states, and its removal; and Remove the other model, with its size, while the one not chosen, or the old
-model with the full one, is on the iPhone), Toggle from lyrics (the redesign's mic, on until switched off, issue #12),
+model with the full one, is on the iPhone), Toggle from lyrics (the redesign's mic, issue #12; until switched, on where Karaoke can run and off below iOS 18,
+SGSingButtonShown),
 and under Advanced Runs on (Automatic: the Neural Engine
 beside the CPU; CPU only), Prepare after updates, Ignore heat warnings and Ignore memory warnings, all applying straight away. Lock screen, on the main
 page under either look, opens the lock screen widget's page, titled Lock screen: Widget (the line in place of the artist,

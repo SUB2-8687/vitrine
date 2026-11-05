@@ -12,8 +12,10 @@
 // Footer: DJMFooterUnitView holds the share button, the DJ button, Connect and an empty view, not in a stack.
 // Connect and the DJ button stay Spotify's and are only moved, by a transform that survives relayout. Lyrics
 // and Queue are the Kit's glyph buttons; Queue, the Music app's list.bullet (issue #109), opens spotify:now-playing:queue.
-// With Music app icons off (SGRKeyPlayerMusicIcons) Connect shows Spotify's own glyph again; Queue keeps the list, since
-// the DJ's footer has no queue control of Spotify's to give back.
+// The DJ button's blue disc is masked away and the Music app's waveform drawn over it: the mask hides what the button
+// draws but not its touches or its accessibility, which stay Spotify's. With Music app icons off (SGRKeyPlayerMusicIcons)
+// Connect shows Spotify's own glyph again, Lyrics and Queue draw Spotify's Encore glyphs (SGRPlayerFooterGlyph; the
+// DJ's footer has no queue control of Spotify's to give back), and the mask and the waveform come out for the disc.
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Shared/Navigation/Links.h"
@@ -25,7 +27,7 @@ static const CGFloat kSlots[4] = {0.2, 0.4, 0.6, 0.8};
 // The DJ button's blue disc is 48pt, a good deal more than the glyphs beside it; drawn this much of that.
 static const CGFloat kDJButtonScale = 0.88;
 static char kPrevKey, kNextKey, kPlayKey, kGlyphKey;
-static char kShareKey, kConnectKey, kDJKey, kQueueKey;
+static char kShareKey, kConnectKey, kDJKey, kQueueKey, kWaveKey, kDiscMaskKey, kDiscPriorMaskKey;
 
 #pragma mark - previous and next
 
@@ -101,21 +103,57 @@ static SGRGlyphButton *glyphButtonIn(UIView *host, const void *key, NSString *sy
     return button;
 }
 
+// The DJ button as the Music app's waveform while Music app icons is on: an empty mask on its holder, so nothing of the
+// disc is drawn while the button keeps its touches and accessibility, and the glyph over it, which takes neither. Off,
+// the mask goes (a mask the holder had before ours comes back) and so does the glyph.
+static void drawDJButton(UIView *host, UIView *djHolder) {
+    CALayer *mask = objc_getAssociatedObject(djHolder, &kDiscMaskKey);
+    SGRGlyphView *wave = objc_getAssociatedObject(host, &kWaveKey);
+    if (!SGEnabled(SGRKeyPlayerMusicIcons)) {
+        if (mask && djHolder.layer.mask == mask) {
+            djHolder.layer.mask = objc_getAssociatedObject(djHolder, &kDiscPriorMaskKey);
+            objc_setAssociatedObject(djHolder, &kDiscPriorMaskKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        if (wave.superview) [wave removeFromSuperview];
+        return;
+    }
+    if (!mask) {
+        mask = [CALayer layer];
+        objc_setAssociatedObject(djHolder, &kDiscMaskKey, mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (djHolder.layer.mask != mask) {
+        objc_setAssociatedObject(djHolder, &kDiscPriorMaskKey, djHolder.layer.mask, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        djHolder.layer.mask = mask;
+    }
+    wave = SGRPlayerGlyphFor(host, &kWaveKey, @"waveform", kFooterGlyphSize);
+    if (wave.superview != host) [host addSubview:wave];
+    else if (host.subviews.lastObject != wave) [host bringSubviewToFront:wave];
+    // Where the holder is drawn: its center moved by the transform that places it (placeHolder scales about the center).
+    CGPoint drawn = CGPointMake(djHolder.center.x + djHolder.transform.tx, djHolder.center.y + djHolder.transform.ty);
+    if (!CGPointEqualToPoint(wave.center, drawn)) wave.center = drawn;
+}
+
 #pragma mark the row
 
 static void styleFooter(UIViewController *unit) {
     UIView *host = unit.viewIfLoaded;
     if (!host || host.bounds.size.width < 100) return;
-    // Connect's Music app glyph follows the Player page's switch (SGRKeyPlayerMusicIcons) through SGRPlayerConnectGlyphIn.
+    // Laid out again when Music app icons is flipped on the Player page (SGRKeyPlayerMusicIcons): Connect follows it
+    // through SGRPlayerConnectGlyphIn, Lyrics and Queue through SGRPlayerFooterGlyph, the DJ button through drawDJButton.
     SGRPlayerWatchLook(host);
     CGFloat width = host.bounds.size.width, middleY = CGRectGetMidY(host.bounds);
     BOOL rtl = host.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
     CGFloat (^slot)(NSUInteger) = ^CGFloat(NSUInteger i) { return round(width * (rtl ? 1 - kSlots[i] : kSlots[i])); };
 
-    // No share button; its holder goes too, since a view that takes touches swallows them with nothing on it.
+    // No share button; its holder goes too, since a view that takes touches swallows them with nothing on it. Spotify
+    // gives both their alpha back after the footer lays out, which the disc over them hid and the waveform does not, so
+    // both are masked away too (SGRBlankView), and the DJ button goes above the holder (below).
     UIView *share = SGRFindByIdentifier(host, @"ShareButtonNowPlayingView", &kShareKey);
+    UIView *shareHolder = holderIn(host, share);
     SGRVanish(share);
-    SGRVanish(holderIn(host, share));
+    SGRBlankView(share);
+    SGRVanish(shareHolder);
+    SGRBlankView(shareHolder);
 
     SGRGlyphButton *lyrics = SGRPlayerLyricsGlyphIn(host);
     lyrics.bounds = CGRectMake(0, 0, 44, 44);
@@ -138,15 +176,23 @@ static void styleFooter(UIViewController *unit) {
     });
     queue.bounds = CGRectMake(0, 0, 44, 44);
     queue.center = CGPointMake(slot(2), middleY);
+    SGRPlayerFooterGlyph(queue, @"queue");
 
-    // The DJ button at the last place. Connect's view reaches a long way to the right of its glyph, so the
-    // DJ's goes above it in the stack, or Connect would take its touches.
+    // The DJ button at the last place. Connect's view reaches a long way to the right of its glyph, and the share
+    // holder sits under the button, so the DJ's goes above both, or they would take its touches.
     UIView *dj = SGRFindByIdentifier(host, @"Components.UI.NeffleButtonNowPlayingContainerView", &kDJKey);
     UIView *djHolder = holderIn(host, dj);
     if (djHolder) {
         placeHolder(djHolder, djHolder.center.x, slot(3), kDJButtonScale);
         NSArray<UIView *> *order = host.subviews;
-        if (connectHolder && [order indexOfObject:djHolder] < [order indexOfObject:connectHolder]) [host bringSubviewToFront:djHolder];
+        NSUInteger djAt = [order indexOfObject:djHolder];
+        for (UIView *below in @[connectHolder ?: djHolder, shareHolder ?: djHolder]) {
+            if (djAt < [order indexOfObject:below]) {
+                [host bringSubviewToFront:djHolder];
+                break;
+            }
+        }
+        drawDJButton(host, djHolder);
     }
 
     SGRPlayerLowerRow(host);

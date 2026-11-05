@@ -1212,7 +1212,7 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
                                                   SGL(@"settings.player.header_glass.subtitle", @"Glass circles behind the close and ⋯ buttons at the top of the player."),
                                                   SGRKeyPlayerHeaderGlass), @"playerHeaderGlass");
     SGModRow *musicIcons = SGWithNew(SGSwitchRow(SGL(@"settings.player.music_icons.title", @"Music app icons"),
-                                                 SGL(@"settings.player.music_icons.subtitle", @"The Music app's AirPlay and queue icons in place of Spotify's under the controls."),
+                                                 SGL(@"settings.player.music_icons.subtitle", @"The Music app's lyrics, AirPlay and queue icons under the controls, and the AI DJ's button as a waveform, in place of Spotify's."),
                                                  SGRKeyPlayerMusicIcons), @"playerMusicIcons");
     musicIcons.changed = ^(BOOL on) { SGRPlayerLookChanged(); };
     // The card draws the header's glass and the add button too.

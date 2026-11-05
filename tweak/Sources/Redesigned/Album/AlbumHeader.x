@@ -36,9 +36,6 @@
 #import "Album.h"
 #import "AlbumNotes.h"
 
-// How much of the cover's height the dissolve into the field covers, and the scrim over the top of it that
-// keeps the status bar and the back button legible on a bright picture. The playlist's numbers: one page.
-static const CGFloat kDissolve = 0.46, kTopScrim = 140, kTopScrimAlpha = 0.28;
 // A header whose text begins nearer the top than this is one mid load, not one to measure the hero from;
 // and an artwork view narrower than this is a placeholder glyph rather than the cover.
 static const CGFloat kMinHero = 120, kMinCover = 80;
@@ -148,6 +145,7 @@ typedef struct {
 @property (nonatomic, weak) UIImage *source;
 @property (nonatomic) CGFloat top;
 @property (nonatomic) CGFloat scrimAlpha;
+@property (nonatomic) CGFloat dissolveHeight;
 @end
 
 @implementation SGRCoverRender
@@ -377,6 +375,7 @@ static SGRCoverRender *renderCover(UIImage *cover, SGRCoverDrawing d) {
     render.source = cover;
     render.scrimAlpha = scrimAlpha(title, &d);
     render.top = sharpRows / d.scale;
+    render.dissolveHeight = d.size.height - d.mixStart;
     CGImageRef image = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
     render.image = [UIImage imageWithCGImage:image scale:d.scale orientation:UIImageOrientationUp];
@@ -391,15 +390,14 @@ static SGRCoverRender *renderCover(UIImage *cover, SGRCoverDrawing d) {
 
 #pragma mark - the cover, full bleed
 
-// The picture across the top of the page with the field showing through the bottom of it. Two gradients
-// rather than a mask or a blur: a scrim over the top for the status bar, and under it a fade from the
-// picture to the very color the page's field is drawing, so the two meet with nothing to see.
+// The picture and rendered transition share a rest-sized surface, zoomed by SGRStretchHero on a pull.
+// Only that surface dissolves; the title contrast scrim and square's shadow stay outside its mask.
 //
 // A tap on the picture, above where the title starts, opens the cover full screen (Kit/SGRCoverViewer.h): the still
 // cover, even while the animated one plays. The Kit's view over the header answers only its buttons and the
 // artist line and Spotify's column takes no touches, so the picture is what a tap anywhere else lands on; a
 // drag still scrolls the page, whose pan sees every touch under it.
-@interface SGRAlbumHero : UIView <UIGestureRecognizerDelegate>
+@interface SGRAlbumHero : SGRStretchHero <UIGestureRecognizerDelegate>
 @property (nonatomic, readonly) UIImageView *picture;
 @property (nonatomic, copy) UIColor *fieldColor;
 // Where Spotify lays its cover square out, in the hero's coordinates. With Full bleed covers off the picture is
@@ -418,7 +416,7 @@ static SGRCoverRender *renderCover(UIImage *cover, SGRCoverDrawing d) {
 @end
 
 @implementation SGRAlbumHero {
-    CAGradientLayer *_scrim, *_dissolve;
+    CAGradientLayer *_dissolve;
     CALayer *_shadow;   // under the square, which clips and so cannot cast its own
     __weak UIImageView *_cover;
     UIView *_extension;   // iOS 26's UIBackgroundExtensionView around the picture, nil before it
@@ -433,6 +431,7 @@ static SGRCoverRender *renderCover(UIImage *cover, SGRCoverDrawing d) {
     NSURL *_stillFile;                                // the animated cover _stillReading is (being) read from
     CALayer *_render;                                 // the drawn picture over the cover, nil until one is drawn
     CGFloat _renderTop;                               // where it begins, down to the hero's bottom
+    CGFloat _renderDissolveHeight;
     NSString *_renderKey;                             // what _render shows or is being drawn with
     NSUInteger _renderGeneration;
     CGFloat _scrimAlpha;                              // the dissolve's over the title's area, with _render shown
@@ -461,16 +460,11 @@ static void *kReadyContext = &kReadyContext;
         _extension = [[extension alloc] initWithFrame:self.bounds];
         [_extension setValue:@NO forKey:@"automaticallyPlacesContentView"];
         [_extension setValue:_picture forKey:@"contentView"];
-        [self addSubview:_extension];
+        [self.content addSubview:_extension];
     } else {
         _picture.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self addSubview:_picture];
+        [self.content addSubview:_picture];
     }
-
-    _scrim = [CAGradientLayer layer];
-    _scrim.zPosition = 1;
-    _scrim.colors = @[(id)[UIColor colorWithWhite:0 alpha:kTopScrimAlpha].CGColor, (id)UIColor.clearColor.CGColor];
-    [self.layer addSublayer:_scrim];
 
     // At the bottom, under the picture's layer.
     _shadow = [CALayer layer];
@@ -479,10 +473,12 @@ static void *kReadyContext = &kReadyContext;
 
     _dissolve = [CAGradientLayer layer];
     _dissolve.zPosition = 2;
+    _dissolve.hidden = YES;
     [self.layer addSublayer:_dissolve];
     _adaptive = adaptiveCoverOn() && SGRPageFullCover(SGRKeyAlbumFullCover);
     if (SGRHeroScrollVeilOn()) {
         _veil = [[SGRHeroVeil alloc] initWithHero:self];
+        _veil.stretchesItself = YES;
         [self sgr_fitVeil];
     }
     self.fieldColor = SGRNeutralField();
@@ -520,7 +516,7 @@ static void *kReadyContext = &kReadyContext;
 // Where the cover is laid out full screen: on iOS 26 the top square of the hero, the system carrying its bottom edge
 // down the rest; before, filling the whole hero.
 - (CGRect)sgr_fullPicture {
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     return _extension ? CGRectMake(0, 0, bounds.size.width, MIN(bounds.size.width, bounds.size.height)) : bounds;
 }
 
@@ -559,15 +555,6 @@ static void *kReadyContext = &kReadyContext;
         [self sgr_render];
         return;
     }
-    // The clear end is the same color with no alpha rather than +clearColor, so the fade keeps its hue
-    // instead of going through gray.
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _dissolve.colors = @[(id)[color colorWithAlphaComponent:0].CGColor,
-                         (id)[color colorWithAlphaComponent:0.72].CGColor,
-                         (id)color.CGColor];
-    _dissolve.locations = @[@0, @0.62, @1];
-    [CATransaction commit];
     _veil.color = color;
 }
 
@@ -577,23 +564,24 @@ static void *kReadyContext = &kReadyContext;
     // A path, so the shadow is drawn from it rather than from an offscreen pass over the layer every frame.
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _shadow.frame = square;
+    _shadow.bounds = (CGRect){CGPointZero, square.size};
     _shadow.shadowPath = [UIBezierPath bezierPathWithRoundedRect:_shadow.bounds cornerRadius:kSquareRadius].CGPath;
     [CATransaction commit];
     [self setNeedsLayout];
 }
 
 - (void)layoutSubviews {
+    BOOL bleeds = SGRPageFullCover(SGRKeyAlbumFullCover) || _motion.opacity == 1;
+    self.stretchesContent = bleeds;
+    self.dissolves = bleeds;
     [super layoutSubviews];
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     [_veil artWillLayOut];
     if (SGRPageFullCover(SGRKeyAlbumFullCover)) {
-        if (_extension) {
-            _extension.frame = bounds;
-            _picture.frame = [self sgr_fullPicture];
-        }
+        if (_extension) _extension.frame = bounds;
+        _picture.frame = [self sgr_fullPicture];
     } else {
         // Stays square under an animated cover too: the clip covers the whole hero, so nothing moves under its fade.
         UIView *holder = _extension ?: _picture;
@@ -602,15 +590,11 @@ static void *kReadyContext = &kReadyContext;
         holder.layer.cornerCurve = kCACornerCurveContinuous;
         holder.clipsToBounds = YES;
         if (_extension) _picture.frame = _extension.bounds;
-        BOOL bleeds = _motion.opacity == 1;
         _shadow.hidden = bleeds;
-        _scrim.hidden = !bleeds;
-        _dissolve.hidden = !bleeds;
+        self.scrim.hidden = !bleeds;
     }
+    _shadow.frame = CGRectOffset(_square, 0, self.stretch);
     _motion.frame = bounds;
-    _scrim.frame = CGRectMake(0, 0, bounds.size.width, MIN(kTopScrim, bounds.size.height));
-    CGFloat fade = round(bounds.size.height * kDissolve);
-    _dissolve.frame = CGRectMake(0, bounds.size.height - fade, bounds.size.width, fade);
     if (_adaptive) {
         [self sgr_placeRender];
         [self sgr_fitDissolve];
@@ -671,7 +655,7 @@ static void *kReadyContext = &kReadyContext;
 
 // By bounds and position, which a transform the veil gives it leaves alone.
 - (void)sgr_placeRender {
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     CGFloat height = MAX(0, bounds.size.height - _renderTop);
     _render.bounds = CGRectMake(0, 0, bounds.size.width, height);
     _render.position = CGPointMake(CGRectGetMidX(bounds), _renderTop + height / 2);
@@ -682,29 +666,27 @@ static void *kReadyContext = &kReadyContext;
 // was, under a clip beginning where its first frame stops being sharp.
 - (void)sgr_fitDissolve {
     if (!_adaptive) return;
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     CGFloat width = bounds.size.width, height = bounds.size.height;
     UIColor *color = _fieldColor;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     if (_render && _motion.opacity != 1) {
+        self.dissolveHeight = _renderDissolveHeight;
         CGFloat top = MAX(0, height - SGRHeaderInfoTitleRise - kScrimLead);
-        _dissolve.frame = CGRectMake(0, top, width, height - top);
+        _dissolve.frame = CGRectMake(0, top + self.stretch, width, height - top);
         _dissolve.colors = @[(id)[color colorWithAlphaComponent:0].CGColor, (id)[color colorWithAlphaComponent:_scrimAlpha].CGColor,
                              (id)[color colorWithAlphaComponent:_scrimAlpha].CGColor];
         _dissolve.locations = @[@0, @(MIN(1, kScrimLead / MAX(1, height - top))), @1];
         _dissolve.hidden = _scrimAlpha <= 0;
     } else {
-        CGFloat start = round(height * (1 - kDissolve));
+        CGFloat start = round(height * (1 - SGRStretchHeroDissolve));
         if (_motion.opacity == 1 && _stillReading && height > 0) {
             CGFloat sharp = SGRCoverSharpnessFor(_stillReading, (height - kSharpRise) / height).sharpEnd;
             start = round(height * MIN(MAX(sharp, kStillFadeMin), kStillFadeMax));
         }
-        _dissolve.frame = CGRectMake(0, start, width, height - start);
-        _dissolve.colors = @[(id)[color colorWithAlphaComponent:0].CGColor, (id)[color colorWithAlphaComponent:0.72].CGColor,
-                             (id)color.CGColor];
-        _dissolve.locations = @[@0, @0.62, @1];
-        _dissolve.hidden = NO;
+        self.dissolveHeight = height - start;
+        _dissolve.hidden = YES;
     }
     [CATransaction commit];
 }
@@ -726,7 +708,7 @@ static void *kReadyContext = &kReadyContext;
     if (!_adaptive) return;
     SGRCoverReading *reading = _coverReading;
     UIImage *image = _picture.image;
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     if (!reading || !image || bounds.size.height < kMinHero || bounds.size.width < kMinCover) {
         [self sgr_dropRender];
         return;
@@ -803,8 +785,7 @@ static void *kReadyContext = &kReadyContext;
         _render.name = @"SGRAlbumHero.render";
         _render.zPosition = kRenderZ;
         _render.contentsGravity = kCAGravityResize;
-        // Under the scrim in the order of the layers too, which a snapshot of the hero goes by.
-        [self.layer insertSublayer:_render below:_scrim];
+        [self.content.layer addSublayer:_render];
     }
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
@@ -816,6 +797,7 @@ static void *kReadyContext = &kReadyContext;
         [_dissolve addAnimation:fade forKey:@"contents"];
     }
     _renderTop = render.top;
+    _renderDissolveHeight = render.dissolveHeight;
     [self sgr_placeRender];
     _render.contents = (__bridge id)render.image.CGImage;
     _render.contentsScale = render.image.scale;
@@ -859,9 +841,9 @@ static void *kReadyContext = &kReadyContext;
     _motion = [AVPlayerLayer playerLayerWithPlayer:_player];
     _motion.videoGravity = AVLayerVideoGravityResizeAspectFill;
     _motion.zPosition = 0.5;
-    _motion.frame = self.bounds;
+    _motion.frame = self.restBounds;
     _motion.opacity = 0;
-    [self.layer addSublayer:_motion];
+    [self.content.layer addSublayer:_motion];
     [self sgr_fitVeil];
     [_motion addObserver:self forKeyPath:@"readyForDisplay" options:NSKeyValueObservingOptionInitial context:kReadyContext];
     [self sgr_updateMotion];
@@ -905,10 +887,10 @@ static void *kReadyContext = &kReadyContext;
     [CATransaction setDisableActions:YES];
     layer.opacity = 1;
     [self sgr_fitVeil];
-    // A square cover's hero has no gradients until the clip fills it; they come in with it.
-    NSArray<CALayer *> *fading = SGRPageFullCover(SGRKeyAlbumFullCover) ? @[layer] : @[layer, _scrim, _dissolve];
-    _scrim.hidden = NO;
-    _dissolve.hidden = NO;
+    // A square cover's hero gains the full-bleed surface only once the clip is ready.
+    NSArray<CALayer *> *fading = SGRPageFullCover(SGRKeyAlbumFullCover) ? @[layer] : @[layer, self.scrim];
+    self.scrim.hidden = NO;
+    [self setNeedsLayout];
     if (self.window) {
         CABasicAnimation *fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
         fade.fromValue = @0;
@@ -1013,7 +995,8 @@ static void applyHero(UIView *header, UIView *cover, CGFloat bottom) {
         SGLog(@"redesign album: hero %.0fpt across the top of the header", height);
     }
     if (height < kMinHero) return;
-    setFrame(hero, CGRectMake(0, 0, header.bounds.size.width, height));
+    hero.restHeight = height;
+    [hero sgr_place];
     hero.fieldColor = SGRAlbumFieldColor(header);
     // Spotify's square at full size, in the header's coordinates, which are the hero's: grow-only like the height,
     // so the square stays put while the header fades and collapses. Its bottom too, since the cover can reach its
@@ -1259,7 +1242,7 @@ static void applyHeader(UIView *header, UIView *page) {
     SGRHeroVeil *veil = hero.veil;
     if (veil) {
         veil.info = info;
-        [veil followScroll:SGRHeroVeilScrollAbove(header)];
+        [veil followScroll:SGRStretchHeroScrollAbove(header)];
         [veil update];
     }
     [hero playMotionForArtist:artist album:album];

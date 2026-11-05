@@ -1953,7 +1953,7 @@
 "settings.player.motion_low_data.title" = "Download in Low Data Mode";
 "settings.player.music_close.subtitle" = "Close into the mini player in stages. Applies after restarting Spotify.";
 "settings.player.music_close.title" = "Music-like player close";
-"settings.player.music_icons.subtitle" = "The Music app's AirPlay and queue icons in place of Spotify's under the controls.";
+"settings.player.music_icons.subtitle" = "The Music app's lyrics, AirPlay and queue icons under the controls, and the AI DJ's button as a waveform, in place of Spotify's.";
 "settings.player.music_icons.title" = "Music app icons";
 "settings.player.new_slider.title" = "New progress slider";
 "settings.player.no_clip.cover" = "Cover art";

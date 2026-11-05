@@ -301,8 +301,14 @@ static BOOL setEdges(UIView *bar, CGFloat left, CGFloat right) {
     if (held == 3) return YES;
     restoreEdges(bar);
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ SGLog(@"now playing bar: its edges are not held by its superview's constraints, so it stays above the tab bar"); });
+    dispatch_once(&once, ^{ SGLog(@"now playing bar: its edges are not held by its superview's constraints, so it keeps Spotify's"); });
     return NO;
+}
+
+// The bar's edges set to `r`'s sides, `r` in the coordinates of the container's view's superview and the view standing
+// at `origin` in them. NO, with nothing changed, for a null `r`.
+static BOOL edgesTo(UIView *bar, CGRect r, CGPoint origin) {
+    return !CGRectIsNull(r) && setEdges(bar, CGRectGetMinX(r) - origin.x, CGRectGetMaxX(r) - origin.x);
 }
 
 // In the row the card keeps the cover, the title and play, as the Music app's does: the device and add
@@ -538,7 +544,9 @@ static void placeTexts(UIView *bar) {
 
 // In the minimized tab bar's row (TabBar.x): the bar narrowed to the slot by its edges, so Spotify's content
 // lays itself out to the width, and moved down by a transform on the container's view, which Spotify's
-// layout leaves alone. Outside a Jam only: its strip has no room in the row.
+// layout leaves alone. Outside a Jam only: its strip has no room in the row. Above the bar the card takes the
+// expanded glass row's edges (SGRTabBarGlassRow) the same way, as the Music app's mini player stands as wide as its
+// tab bar, and Spotify's own edges where there is no row (a regular width) or its edges cannot be set (right to left).
 static void placeInline(UIViewController *container) {
     UIView *view = container.view;
     UIView *bar = container.childViewControllers.firstObject.viewIfLoaded;
@@ -547,11 +555,12 @@ static void placeInline(UIViewController *container) {
     CGRect slot = !bar || bar.superview != view || jam ? CGRectNull : SGRTabBarInlineSlot(view.superview, bar.bounds.size.height);
     // Where the view stands untransformed, in the slot's coordinates.
     CGPoint origin = CGPointMake(view.center.x - view.bounds.size.width / 2, view.center.y - view.bounds.size.height / 2);
-    if (CGRectIsNull(slot) || !setEdges(bar, CGRectGetMinX(slot) - origin.x, CGRectGetMaxX(slot) - origin.x)) {
-        if (sg_inline) restoreEdges(bar);
+    if (!edgesTo(bar, slot, origin)) {
         if (sg_inline) tuckExtras(bar, NO);
         sg_inline = nil;
         if (!CGAffineTransformIsIdentity(view.transform)) view.transform = CGAffineTransformIdentity;
+        CGRect row = bar && bar.superview == view ? SGRTabBarGlassRow(view.superview) : CGRectNull;
+        if (!edgesTo(bar, row, origin)) restoreEdges(bar);
         if (bar) placeTexts(bar);
         return;
     }

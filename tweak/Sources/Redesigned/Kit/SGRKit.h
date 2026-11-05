@@ -30,6 +30,7 @@
 #import "SGRActionRow.h"
 #import "SGRDownload.h"
 #import "SGRHeaderInfo.h"
+#import "SGRStretchHero.h"
 #import "SGRRestyle.h"
 #import "SGRBridges.h"
 #import "SGRRepaint.h"

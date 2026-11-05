@@ -184,10 +184,18 @@ void SGRPlayerPaintCover(UIView *stack);
 // switched off; off, the buttons are Spotify's as drawn, with their actions, touches and accessibility, and the grabber
 // stays. Followed at once (SGRPlayerLookChanged).
 #define SGRKeyPlayerHeaderGlass @"spotifyglass.redesign.player.headerGlass"
-// The Music app's glyphs for Connect (AirPlay audio) and the queue (a bulleted list) over Spotify's own in the footer
-// (PlayerFooter.x), the AI DJ's Connect included (DJPlayer.x). On until switched off; off, Spotify's glyphs show again,
-// in the colors and state Spotify gives them. Followed at once (SGRPlayerLookChanged).
+// The Music app's glyphs in the footer row (PlayerFooter.x) and the AI DJ's (DJPlayer.x): AirPlay audio for Connect and a
+// bulleted list for the queue over Spotify's own, a quote bubble for Lyrics, and the DJ button as a waveform. On until
+// switched off; off, Spotify's Connect and queue glyphs show again in the colors and state Spotify gives them, Lyrics and
+// the AI DJ's Queue draw Spotify's Encore glyphs (SGRPlayerFooterGlyph), and the DJ button its blue disc. Followed at
+// once (SGRPlayerLookChanged).
 #define SGRKeyPlayerMusicIcons @"spotifyglass.redesign.player.musicIcons"
+// What one of the redesign's footer buttons draws (PlayerFooter.x): its own symbol while the switch above is on; while
+// it is off, Spotify's Encore glyph `encoreName` (an SPTEncoreIcon class method: "microphone", "queue") in its place, in the
+// symbol's color, the symbol hidden. Asked on every pass of the footer, so the switch reaches it live; hands back the
+// view that draws, for the press. A build without that glyph keeps the symbol.
+@class SGRGlyphButton;
+UIView *SGRPlayerFooterGlyph(SGRGlyphButton *button, NSString *encoreName);
 // The unit views that draw what those two switches change, each made to lay out again when one is flipped on the
 // Player page (PlayerSettings.m), so the open player follows without a restart. Watching a view again changes nothing.
 void SGRPlayerWatchLook(UIView *unitView);
@@ -195,7 +203,8 @@ void SGRPlayerLookChanged(void);
 
 // Shuffle and repeat left out of the controls (PlayerControls.x), each on its own switch under Hide on the player, the
 // way the Music app keeps them off its main controls. Off until switched on, read at launch. The buttons go by alpha
-// and keep their slots, so previous, play and next stay where they are, centered.
+// and keep their slots, so previous, play and next stay centered; with both gone, in portrait, previous and next move
+// out from play (PlayerControls.x, spreadSkips).
 #define SGRKeyPlayerHideShuffle @"spotifyglass.redesign.player.hideShuffle"
 #define SGRKeyPlayerHideRepeat @"spotifyglass.redesign.player.hideRepeat"
 

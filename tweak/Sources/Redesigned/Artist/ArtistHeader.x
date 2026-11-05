@@ -37,9 +37,6 @@
 #import "Artist.h"
 #import "ArtistArtwork.h"
 
-// How much of the photo's height the dissolve into the field covers, and the scrim over the top of it that
-// keeps the status bar and the back button legible on a bright picture. The playlist's and the album's.
-static const CGFloat kDissolve = 0.46, kTopScrim = 140, kTopScrimAlpha = 0.28;
 // A picture shorter than this is one mid load.
 static const CGFloat kMinHero = 120;
 // The collapsed ImageHeaderView, Spotify's navigation bar; the text fades out over the last kFade before it.
@@ -87,9 +84,8 @@ static UIView *containerOf(UIView *header) {
 
 #pragma mark - the photo, full bleed
 
-// The picture across the top of the page with the field showing through the bottom of it: a scrim over the
-// top for the status bar, and under it a fade to the very color the page's field is drawing.
-@interface SGRArtistHero : UIView
+// The rest-sized photo and motion share the stretching surface and its bottom mask.
+@interface SGRArtistHero : SGRStretchHero
 @property (nonatomic, readonly) UIImageView *picture;
 @property (nonatomic, copy) UIColor *fieldColor;
 // The photo in Spotify's artwork view, and every photo it puts there afterward: the hero keeps itself
@@ -129,7 +125,6 @@ extern UIColor *SGRArtistPaletteColor(UIView *view);
 @implementation SGRArtistHero
 #ifndef SG_ARTIST_HEADER_ARTWORK_TEST
 {
-    CAGradientLayer *_scrim, *_dissolve;
     __weak UIImageView *_artwork;
     UIImage *_applePhoto;
     NSString *_artistIdentity;
@@ -151,22 +146,14 @@ extern UIColor *SGRArtistPaletteColor(UIView *view);
     _picture.contentMode = UIViewContentModeScaleAspectFill;
     _picture.clipsToBounds = YES;
     _picture.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:_picture];
+    [self.content addSubview:_picture];
     _request = [SGRArtistArtworkRequest new];
     _motion = [[SGRArtistMotionView alloc] initWithFrame:self.bounds];
     _motion.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self addSubview:_motion];
-
-    _scrim = [CAGradientLayer layer];
-    _scrim.zPosition = 1;
-    _scrim.colors = @[(id)[UIColor colorWithWhite:0 alpha:kTopScrimAlpha].CGColor, (id)UIColor.clearColor.CGColor];
-    [self.layer addSublayer:_scrim];
-
-    _dissolve = [CAGradientLayer layer];
-    _dissolve.zPosition = 2;
-    [self.layer addSublayer:_dissolve];
+    [self.content addSubview:_motion];
     if (SGRHeroScrollVeilOn()) {
         _veil = [[SGRHeroVeil alloc] initWithHero:self];
+        _veil.stretchesItself = YES;
         _veil.art = @[_picture.layer, _motion.layer];
     }
     _adaptive = adaptivePhotoOn();
@@ -192,32 +179,19 @@ extern UIColor *SGRArtistPaletteColor(UIView *view);
 - (void)setFieldColor:(UIColor *)color {
     if (!color || [_fieldColor isEqual:color]) return;
     _fieldColor = [color copy];
-    // The clear end is the same color with no alpha, so the fade keeps its hue instead of going through gray.
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _dissolve.colors = @[(id)[color colorWithAlphaComponent:0].CGColor,
-                         (id)[color colorWithAlphaComponent:0.72].CGColor,
-                         (id)color.CGColor];
-    _dissolve.locations = @[@0, @0.62, @1];
-    [CATransaction commit];
     _veil.color = color;
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGRect bounds = self.bounds;
+    CGRect bounds = self.restBounds;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     // The photo and the clip are resized with the hero, which happened with the veil's placement on them: laid out
     // again without.
     [_veil artWillLayOut];
-    if (_veil) {
-        _picture.frame = bounds;
-        _motion.frame = bounds;
-    }
-    _scrim.frame = CGRectMake(0, 0, bounds.size.width, MIN(kTopScrim, bounds.size.height));
-    CGFloat fade = round(bounds.size.height * kDissolve);
-    _dissolve.frame = CGRectMake(0, bounds.size.height - fade, bounds.size.width, fade);
+    _picture.frame = bounds;
+    _motion.frame = bounds;
     [_veil artDidLayOut];
     [CATransaction commit];
 }
@@ -342,7 +316,8 @@ static void applyHero(UIView *container, UIView *artwork, CGFloat bottom, UIColo
         SGLog(@"redesign artist: hero %.0fpt across the top of the page", height);
     }
     if (height < kMinHero) return;
-    setFrame(hero, CGRectMake(0, 0, container.bounds.size.width, height));
+    hero.restHeight = height;
+    [hero sgr_place];
     hero.fieldColor = fieldColor;
     [hero followArtwork:SGRHeaderArtworkIn(artwork)];
 }
@@ -437,8 +412,12 @@ static void applyHeader(UIView *header, BOOL full) {
 
     // The picture reaches to where the content's top is at rest, plus the name. The container keeps its
     // height as the header collapses, and only ever grows as the page loads.
-    CGFloat rest = MAX([objc_getAssociatedObject(container, &kContainerHeightKey) doubleValue], container.bounds.size.height);
-    objc_setAssociatedObject(container, &kContainerHeightKey, @(rest), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CGFloat rest = [objc_getAssociatedObject(container, &kContainerHeightKey) doubleValue];
+    UIScrollView *list = SGRStretchHeroScrollAbove(container);
+    if (!list || list.contentOffset.y + list.adjustedContentInset.top >= 0) {
+        rest = MAX(rest, container.bounds.size.height);
+        objc_setAssociatedObject(container, &kContainerHeightKey, @(rest), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
     CGFloat bottom = rest - SGRHeaderInfoBottom - [info contentHeightForWidth:container.bounds.size.width] + SGRHeaderInfoTitleRise;
     applyHero(container, artwork, bottom, fieldColor);
     SGRArtistHero *hero = objc_getAssociatedObject(container, &kHeroKey);
@@ -446,7 +425,7 @@ static void applyHeader(UIView *header, BOOL full) {
     SGRHeroVeil *veil = hero.veil;
     if (veil) {
         veil.info = info;
-        [veil followScroll:SGRHeroVeilScrollAbove(container)];
+        [veil followScroll:list];
         [veil update];
     }
     [hero updateAppleArtwork:header name:name];

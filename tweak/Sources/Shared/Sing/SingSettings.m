@@ -196,11 +196,16 @@ UIViewController *SGSpatialVoiceSettingsPage(void) {
 
 NSNotificationName const SGSingButtonDidChangeNotification = @"SGSingButtonDidChangeNotification";
 
+BOOL SGSingButtonShown(void) {
+    return SGFlag(SGKeySingButton, SGSingOSSupported());
+}
+
 UIViewController *SGSingSettingsPage(void) {
     SGModRow *sing = SGOptionRow(SGL(@"settings.karaoke.title", @"Karaoke"), nil, SGKeySing);
     sing.changed = ^(BOOL on) { SGSetSingOn(on); };
     // Only the redesign's lyrics have the mic.
     SGModRow *button = SGSwitchRow(SGL(@"settings.karaoke.togglebutton.title", @"Toggle from lyrics"), SGL(@"settings.karaoke.togglebutton.subtitle", @"The mic in the corner of the lyrics"), SGKeySingButton);
+    button.defaultOn = SGSingOSSupported();
     button.changed = ^(BOOL on) { [NSNotificationCenter.defaultCenter postNotificationName:SGSingButtonDidChangeNotification object:nil]; };
     button.visible = ^BOOL { return SGRedesignedUIStored(); };
     SGModRow *heat = SGOptionRow(SGL(@"settings.karaoke.ignoreheat.title", @"Ignore heat warnings"), SGL(@"settings.karaoke.ignoreheat.subtitle", @"Keeps Karaoke going on a hot iPhone, which then gets hotter"), SGKeySingIgnoreHeat);

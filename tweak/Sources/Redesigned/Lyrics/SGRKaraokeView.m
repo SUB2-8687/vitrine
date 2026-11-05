@@ -1896,7 +1896,7 @@ typedef struct {
     for (NSNotificationName name in @[UIContentSizeCategoryDidChangeNotification, UIAccessibilityDarkerSystemColorsStatusDidChangeNotification])
         [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(creditStyleChanged) name:name object:nil];
     _sing = [SGRSingButton new];
-    _sing.hidden = !SGEnabled(SGKeySingButton);
+    _sing.hidden = !SGSingButtonShown();
     [self addSubview:_sing];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(singButtonChanged) name:SGSingButtonDidChangeNotification object:nil];
     _statusBox = [[UIView alloc] initWithFrame:CGRectZero];
@@ -1949,7 +1949,7 @@ typedef struct {
 
 // Karaoke's settings switched the mic off or on: hidden at once, Karaoke itself as it was.
 - (void)singButtonChanged {
-    _sing.hidden = !SGEnabled(SGKeySingButton);
+    _sing.hidden = !SGSingButtonShown();
     [self setNeedsLayout];   // the translation note takes the mic's room while it is gone
 }
 

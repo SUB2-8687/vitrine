@@ -58,6 +58,11 @@ void SGRSetTabBarMinimized(BOOL minimized, BOOL animated);
 // The room between the minimized bar's two tabs, `height` high and centered on them, in `host`'s
 // coordinates: where the now playing card goes. CGRectNull while the bar is not minimized or not on screen.
 CGRect SGRTabBarInlineSlot(UIView *host, CGFloat height);
+// The expanded bar's glass from the leading edge of its first platter to the trailing edge of its last, in `view`'s
+// coordinates (x only counts), minimized or not: the now playing card above the bar takes these edges, as the Music
+// app's mini player stands as wide as its tab bar. CGRectNull out of a window or in a regular width, where Spotify's
+// bar is not the glass row. TabBar.x calls SGRNowPlayingBarFollowTabBar when it comes, goes or its edges move.
+CGRect SGRTabBarGlassRow(UIView *view);
 
 // A tab's glyph as the glass bar draws it, white, filled when `active` (TabBar.x), for the Tab bar page.
 UIImage *SGRNavbarGlyph(NSDictionary *entry, BOOL active);

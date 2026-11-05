@@ -1949,7 +1949,7 @@
 "settings.player.mini_player.header" = "미니 플레이어";
 "settings.player.motion_low_data.subtitle" = "노래당 최대 약 7MB. Vitrine 전체의 움직이는 아트워크에 적용됩니다.";
 "settings.player.motion_low_data.title" = "저데이터 모드에서 다운로드";
-"settings.player.music_icons.subtitle" = "컨트롤 아래에 Spotify 아이콘 대신 음악 앱 스타일의 AirPlay 및 대기열 아이콘을 표시합니다.";
+"settings.player.music_icons.subtitle" = "컨트롤 아래에 Spotify 아이콘 대신 음악 앱의 가사, AirPlay, 대기열 아이콘을 표시하고, AI DJ 버튼을 파형으로 바꿉니다.";
 "settings.player.music_icons.title" = "음악 앱 아이콘";
 "settings.player.new_slider.title" = "새로운 진행 슬라이더";
 "settings.player.no_clip.cover" = "커버 아트";

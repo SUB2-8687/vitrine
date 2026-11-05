@@ -16,7 +16,8 @@
 // stand-ins off and on while the player is open; the row's places, the hidden device name and the touch square stay.
 // Spotify has no lyrics control down here, so that one is the Kit's glyph button, and it turns the
 // lyrics in the player on and off (PlayerLyrics.x): filled while they are up, dimmed and dead for a
-// track that has none.
+// track that has none. With Music app icons off it draws Spotify's Encore microphone instead
+// (SGRPlayerFooterGlyph), lit and dimmed the same way.
 //
 // The row sits lower than Spotify puts it, just over the home indicator the way the Music app's does
 // (issue #54): the footer unit's view is translated down, the controls follow it part of the way, and a
@@ -33,12 +34,18 @@
 #import "Redesigned/Kit/SGRPress.h"
 #import "Headers/SPTEncoreIconView.h"
 #import "Player.h"
+#import <objc/message.h>
 
 static const CGFloat kLyricsGlyphSize = 20;
 // The platter a pressed glyph of the row sinks into (SGRPress.h), the row's touch square.
 static const CGFloat kFooterPlatter = 44;
 // Filled and at full strength while the lyrics are up, the way the Music app marks the control that is on.
 static NSString *const kLyricsSymbol = @"quote.bubble", *const kLyricsSymbolOpen = @"quote.bubble.fill";
+// Spotify's lyrics glyph, the microphone its other apps mark Lyrics with, drawn instead with Music app icons off.
+// SPTEncoreIcon has no "lyrics" in 9.1.90 (its 571 class methods, SpotifyShared's metadata).
+static NSString *const kLyricsEncore = @"microphone";
+// Spotify's glyphs in the footer are drawn this size: the queue's SPTEncoreIconView is 18x18 (out/rep/ptree.txt:1228-1279).
+static const CGFloat kEncoreGlyphSide = 18;
 // Where the three glyphs sit, as parts of the footer's width.
 static const CGFloat kLeading = 0.2, kMiddle = 0.5, kTrailing = 0.8;
 static const CGFloat kGlyphMaxWidth = 30;
@@ -85,6 +92,62 @@ static CGFloat moveTo(UIView *arranged, UIView *view, CGPoint point, UIView *hos
     return from;
 }
 
+#pragma mark - Spotify's glyphs in the redesign's buttons
+
+// With Music app icons off (SGRKeyPlayerMusicIcons), Lyrics and the AI DJ's Queue are Spotify's Encore glyphs drawn in
+// the button, the button's symbol hidden (not cleared: a press puts the symbol's alpha back). Kept on the button, so the
+// switch on again takes it out and shows the symbol, and off again puts the same one back.
+static char kEncoreGlyphKey;
+static NSMutableSet<NSString *> *sg_missingEncore;
+
+// Spotify's Encore glyph `name`, the size of Spotify's own glyph in the footer (the queue's), taking no touches.
+static SPTEncoreIconView *makeEncoreGlyph(NSString *name) {
+    Class icons = NSClassFromString(@"SPTEncoreIcon"), view = NSClassFromString(@"SPTEncoreIconView");
+    SEL selector = NSSelectorFromString(name);
+    id icon = [icons respondsToSelector:selector] ? ((id (*)(id, SEL))objc_msgSend)(icons, selector) : nil;
+    SPTEncoreIconView *encore = icon && view ? [[view alloc] initWithIcon:icon] : nil;
+    if (!encore) {
+        SGLogOnce(&sg_missingEncore, name, @"redesign player: no Encore glyph %@, the Music app's stays");
+        return nil;
+    }
+    encore.bounds = CGRectMake(0, 0, kEncoreGlyphSide, kEncoreGlyphSide);
+    encore.userInteractionEnabled = NO;
+    encore.isAccessibilityElement = NO;
+    encore.accessibilityElementsHidden = YES;
+    encore.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin
+                            | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+    return encore;
+}
+
+// The Encore glyph in the color the symbol has: Lyrics lit while the lyrics are up, dimmed with the button.
+static void paintEncore(SGRGlyphButton *button) {
+    SPTEncoreIconView *encore = objc_getAssociatedObject(button, &kEncoreGlyphKey);
+    UIColor *color = button.glyph.tintColor;
+    if (encore && ![encore.foregroundColor isEqual:color]) encore.foregroundColor = color;
+}
+
+UIView *SGRPlayerFooterGlyph(SGRGlyphButton *button, NSString *encoreName) {
+    if (!button) return nil;
+    SGRGlyphView *symbol = button.glyph;
+    SPTEncoreIconView *encore = objc_getAssociatedObject(button, &kEncoreGlyphKey);
+    if (SGEnabled(SGRKeyPlayerMusicIcons)) {
+        if (encore.superview) [encore removeFromSuperview];
+        if (symbol.hidden) symbol.hidden = NO;
+        return symbol;
+    }
+    if (!encore) {
+        encore = makeEncoreGlyph(encoreName);
+        if (!encore) return symbol;
+        objc_setAssociatedObject(button, &kEncoreGlyphKey, encore, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    if (encore.superview != button) [button addSubview:encore];
+    CGPoint middle = CGPointMake(CGRectGetMidX(button.bounds), CGRectGetMidY(button.bounds));
+    if (!CGPointEqualToPoint(encore.center, middle)) encore.center = middle;
+    if (!symbol.hidden) symbol.hidden = YES;
+    paintEncore(button);
+    return encore;
+}
+
 #pragma mark - lyrics
 
 void SGRPlayerLyricsChanged(void) {
@@ -102,6 +165,7 @@ void SGRPlayerLyricsChanged(void) {
     void (^mark)(void) = ^{
         glyph.enabled = enabled;
         glyph.glyph.tintColor = open ? SGRPrimary() : SGRSecondary();
+        paintEncore(glyph);
     };
     if (animated) SGRAnimate(SGRMotionFade, mark, nil);
     else mark();
@@ -116,6 +180,7 @@ SGRGlyphButton *SGRPlayerLyricsGlyphIn(UIView *host) {
         objc_setAssociatedObject(host, &kLyricsGlyphKey, glyph, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if (glyph.superview != host) [host addSubview:glyph];
+    SGRPlayerFooterGlyph(glyph, kLyricsEncore);
     sg_lyricsGlyph = glyph;
     return glyph;
 }
@@ -484,8 +549,10 @@ void SGRPlayerLowerRow(UIView *row) {
     SGRPlayerCoverConnect(arrangedAround(connect, host), glyph);
 
     // The Music app's press on each of the three, its platter under the row in the unit's view. The lyrics glyph
-    // sinks and dims on its own (SGRGlyphButton); Connect's and the queue's glyphs are Spotify's image views.
-    SGRPressGlyph(lyrics, lyrics.glyph, host, kFooterPlatter, 0);
+    // sinks and dims on its own (SGRGlyphButton), Spotify's Encore glyph in its place does not and is sunk here; Connect's
+    // and the queue's glyphs are Spotify's image views.
+    UIView *lyricsDrawn = SGRPlayerFooterGlyph(lyrics, kLyricsEncore);
+    SGRPressGlyph(lyrics, lyricsDrawn, host, kFooterPlatter, lyricsDrawn == lyrics.glyph ? 0 : SGRPressScale);
     if (connect && glyph) SGRPressGlyph(connect, glyph, host, kFooterPlatter, SGRPressScale);
     UIView *queueGlyph = connectGlyphIn(queue);
     if (queue) SGRPressGlyph(queue, queueGlyph ?: queue, host, kFooterPlatter, queueGlyph ? SGRPressScale : 0);

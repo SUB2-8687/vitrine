@@ -22,9 +22,15 @@
 #import <objc/message.h>
 
 static char kBarKey, kApartBarKey, kHostKey, kFadeKey, kItemIconKey;
+// On a UITabBarItem: the keys of the icons its image and selectedImage were drawn from (glyphKeysOf, fillBar).
+static char kGlyphKeysKey;
 static const NSUInteger kMinimumMinimizedTabs = 2;
 static __weak UIView *sg_stockBar;
 static CGFloat sg_room, sg_glassHeight;   // see "room for the glass bar"
+// The split tabs the expanded row has (syncBar), and that row's glass in the window as the now playing card was last
+// told of it, CGRectNull for none (see "the glass row").
+static NSUInteger sg_rowApartCount;
+static CGRect sg_glassRow = {{INFINITY, INFINITY}, {0, 0}};
 // See "minimized". sg_keepApart holds the second bar on screen while the main one grows back under it.
 static BOOL sg_minimized, sg_keepApart;
 
@@ -37,9 +43,13 @@ static BOOL sg_minimized, sg_keepApart;
 @property (nonatomic, weak) SGRSystemTabBar *partner;
 // The item last shown selected, so a tap on it can be told from a tap that changes the tab.
 @property (nonatomic, weak) UITabBarItem *shown;
+// Expanded, the glass platter UIKit drew on the bar, as its distances from the bar's left and right sides at the bar
+// width they were read at (see "the glass row"); a width of 0 before the first read.
+@property (nonatomic) CGFloat glassLeftPt, glassRightPt, glassBarWidthPt;
 @end
 
 static void syncBar(UIView *stockBar);
+static void noteGlassRow(void);
 
 #pragma mark - reading Spotify's items
 
@@ -112,19 +122,86 @@ static id encoreIconOf(UIView *view) {
     return type && type[0] == '@' ? object_getIvar(view, ivar) : nil;
 }
 
-// Encore draws a tab's icon from one SPTEncoreIcon in two states: isActive picks its filled variant.
-// Both are drawn on an icon view of our own, off screen, so the images do not wait for Spotify's
-// views to lay out and paint, and UITabBar swaps image and selectedImage itself.
-static UIImage *glyphOf(UIView *item, BOOL active) {
-    UIView *live = iconIn(item);
+// An SPTEncoreIcon's name, which is what tells two icons apart: Spotify may hand a view a new instance of the
+// same glyph. Nil for an icon that does not say.
+static NSString *iconName(id icon) {
+    id name = [icon respondsToSelector:@selector(name)] ? [icon name] : nil;
+    return [name isKindOfClass:NSString.class] ? name : nil;
+}
+
+// The filled variant of a tab's SPTEncoreIcon (-active, which fillBar's log prints), when it has one. A filled
+// icon has none: its -active is itself, or the same glyph again.
+static id activeVariantOf(id icon) {
+    SEL selector = NSSelectorFromString(@"active");
+    if (!icon || ![icon respondsToSelector:selector]) return nil;
+    id variant = ((id (*)(id, SEL))objc_msgSend)(icon, selector);
+    if (variant == icon || ![variant isKindOfClass:[icon class]]) return nil;
+    NSString *name = iconName(icon);
+    return name && [name isEqualToString:iconName(variant)] ? nil : variant;
+}
+
+// The glyph pair an icon view holds when Encore keeps it as a Swift object Objective-C cannot read, so
+// encoreIconOf has nothing: from 9.1.90 the view's `icon` is an Encore.Icon carrying both glyphs, the outline and
+// the filled one, and the view draws the filled one while isActive (simulator, 9.1.90: Home's view kept the same
+// Encore.Icon, glyphs f1b6 and f3b5, selected or not, its isActive following the selection). Known by the reference's
+// value, never followed. Nil for a view without one.
+static NSString *swiftIconKey(UIView *view) {
+    Ivar ivar = class_getInstanceVariable(view.class, "icon");
+    const char *type = ivar ? ivar_getTypeEncoding(ivar) : NULL;
+    if (!type || type[0] == '@') return nil;
+    uintptr_t value = *(const uintptr_t *)((const uint8_t *)(__bridge const void *)view + ivar_getOffset(ivar));
+    return value ? [NSString stringWithFormat:@"Encore.Icon %lx", (unsigned long)value] : nil;
+}
+
+// What tells the glyphs a tab's view draws from apart, the one it holds now first: an SPTEncoreIcon's name and its
+// filled variant's, or the Encore.Icon of swiftIconKey. Nil for a view with neither (a tab of the mod's own drawing
+// an image), which is drawn again only as another view.
+static NSArray<NSString *> *glyphKeysOf(UIView *live) {
+    id icon = live ? encoreIconOf(live) : nil;
+    if (!icon) {
+        NSString *key = live ? swiftIconKey(live) : nil;
+        return key ? @[key] : nil;
+    }
+    NSString *name = iconName(icon), *litName = iconName(activeVariantOf(icon));
+    return name ? (litName ? @[name, litName] : @[name]) : nil;
+}
+
+// `live` drawn as it is, or in the other state for a moment when it is an Encore view holding an Encore.Icon, whose
+// isActive picks its glyph. Set and set back in one turn of the run loop, so nothing on screen sees it.
+static UIImage *drawLive(UIView *live, BOOL active) {
+    CGSize size = live.bounds.size;
+    if (size.width < 2) return nil;
+    SPTEncoreIconView *view = (SPTEncoreIconView *)live;
+    BOOL turn = swiftIconKey(live) && [view respondsToSelector:@selector(setIsActive:)] && view.isActive != active;
+    if (turn) {
+        view.isActive = active;
+        [view layoutIfNeeded];
+        [view.layer displayIfNeeded];
+    }
+    UIImage *image = renderLayer(view.layer, size);
+    if (turn) {
+        view.isActive = !active;
+        [view layoutIfNeeded];
+        [view.layer displayIfNeeded];
+    }
+    return image;
+}
+
+// One glyph of a tab, outline or filled, from the icon view `live` holds now. An SPTEncoreIcon is drawn on an
+// icon view of our own, off screen, so the images do not wait for Spotify's views to lay out and paint: the filled
+// glyph from its -active variant, since isActive on such a view only picks its colors, white either way, and the
+// cache key names the glyph actually drawn. An Encore.Icon, a tab of the mod's own drawing an image, or an icon
+// Encore would not draw off screen is drawn from `live` itself.
+static UIImage *glyphOfIcon(UIView *live, BOOL active) {
     if (!live) return nil;
     CGSize size = live.bounds.size;
     id icon = encoreIconOf(live);
+    if (active) icon = activeVariantOf(icon) ?: icon;
     Class viewClass = NSClassFromString(@"SPTEncoreIconView");
     if (icon && viewClass) {
         static NSCache<NSString *, UIImage *> *cache;
         if (!cache) cache = [NSCache new];
-        NSString *key = [NSString stringWithFormat:@"%@ %d %@", [icon respondsToSelector:@selector(name)] ? [icon name] : icon, active, NSStringFromCGSize(size)];
+        NSString *key = [NSString stringWithFormat:@"%@ %d %@", iconName(icon) ?: icon, active, NSStringFromCGSize(size)];
         UIImage *cached = [cache objectForKey:key];
         if (cached) return cached;
         SPTEncoreIconView *view = [[viewClass alloc] initWithIcon:icon];
@@ -139,8 +216,12 @@ static UIImage *glyphOf(UIView *item, BOOL active) {
             return image;
         }
     }
-    // Tabs of the mod's own draw a UIImageView, or an icon Encore would not draw off screen.
-    return size.width >= 2 ? renderLayer(live.layer, size) : nil;
+    return drawLive(live, active);
+}
+
+// A tab's glyph from what its view holds now.
+static UIImage *glyphOf(UIView *item, BOOL active) {
+    return glyphOfIcon(iconIn(item), active);
 }
 
 // For the Tab bar page's list and preview: a tab of Spotify's drawn from its item on the bar, hidden or not,
@@ -227,6 +308,7 @@ void SGRShrinkTabTitles(UIView *bar) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     SGRShrinkTabTitles(self);
+    noteGlassRow();
 }
 
 - (void)tabBar:(UITabBar *)tabBar didSelectItem:(UITabBarItem *)item {
@@ -466,6 +548,13 @@ static SGRSystemTabBar *makeBar(UIView *stockBar) {
     return bar;
 }
 
+// Setting a tab's image lays its bar's items out again, so an image is set only when it is another one: the glyph
+// cache hands back the same object for the same glyph.
+static void setGlyphs(UITabBarItem *item, UIImage *image, UIImage *selectedImage) {
+    if (image && item.image != image) item.image = image;
+    if (selectedImage && item.selectedImage != selectedImage) item.selectedImage = selectedImage;
+}
+
 // One bar's share of the tabs: its items, their glyphs and titles. YES while a glyph is still missing.
 static BOOL fillBar(SGRSystemTabBar *bar, NSArray<UIView *> *sources, BOOL hideLabels) {
     bar.tintColor = SGRAccent();
@@ -478,9 +567,9 @@ static BOOL fillBar(SGRSystemTabBar *bar, NSArray<UIView *> *sources, BOOL hideL
         for (UIView *source in sources) {
             UIView *live = iconIn(source);
             id icon = live ? encoreIconOf(live) : nil;
-            id variant = [icon respondsToSelector:NSSelectorFromString(@"active")] ? ((id (*)(id, SEL))objc_msgSend)(icon, NSSelectorFromString(@"active")) : nil;
+            id variant = activeVariantOf(icon);
             [out appendFormat:@"\n  %@: %@ icon %@ active-variant %@ live-isActive %d label-white %d", labelIn(source).text, NSStringFromClass(live.class),
-                 [icon respondsToSelector:@selector(name)] ? [icon name] : icon, [variant respondsToSelector:@selector(name)] ? [variant name] : variant,
+                 iconName(icon) ?: icon ?: (live ? swiftIconKey(live) : nil), iconName(variant) ?: variant,
                  [live respondsToSelector:@selector(isActive)] ? [(SPTEncoreIconView *)live isActive] : -1, isActive(source)];
         }
         SGLogLong(@"navbar", out);
@@ -489,14 +578,26 @@ static BOOL fillBar(SGRSystemTabBar *bar, NSArray<UIView *> *sources, BOOL hideL
     BOOL missing = NO;
     for (NSUInteger i = 0; i < sources.count; i++) {
         UITabBarItem *item = bar.items[i];
-        UIView *icon = iconIn(sources[i]);
-        if (objc_getAssociatedObject(item, &kItemIconKey) != icon) {
+        // A tab not selected when its item was drawn kept an outlined selectedImage, and one selected kept its filled
+        // glyph as image. Both images come from the icon the view holds (glyphOfIcon), known by the icon itself and
+        // never by the label's color, which Spotify repaints apart from the icon: an SPTEncoreIcon, which Spotify
+        // swaps for its filled one on the selected tab, gives image and its -active variant selectedImage, a filled
+        // one or one with no variant both; an Encore.Icon holds both glyphs. The item keeps the keys it was drawn
+        // from (glyphKeysOf) and is drawn again when the view holds an icon outside them, so a filled SPTEncoreIcon
+        // whose outline drew the item changes nothing. Another icon view (a tab of the mod's own given another icon,
+        // which has no Encore name when it is an image) draws the item anew too.
+        UIView *live = iconIn(sources[i]);
+        if (objc_getAssociatedObject(item, &kItemIconKey) != live) {
             item.image = nil;
             item.selectedImage = nil;
-            objc_setAssociatedObject(item, &kItemIconKey, icon, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(item, &kGlyphKeysKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(item, &kItemIconKey, live, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        if (!item.image) item.image = glyphOf(sources[i], NO);
-        if (!item.selectedImage || item.selectedImage == item.image) item.selectedImage = glyphOf(sources[i], YES);
+        NSArray<NSString *> *keys = glyphKeysOf(live);
+        if (!item.image || !item.selectedImage || (keys && ![objc_getAssociatedObject(item, &kGlyphKeysKey) containsObject:keys.firstObject])) {
+            setGlyphs(item, glyphOfIcon(live, NO), glyphOfIcon(live, YES));
+            if (item.image && item.selectedImage) objc_setAssociatedObject(item, &kGlyphKeysKey, keys, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         missing |= !item.image || !item.selectedImage;
         item.accessibilityLabel = labelIn(sources[i]).text;
         item.largeContentSizeImage = item.image;
@@ -568,6 +669,7 @@ static void syncBar(UIView *stockBar) {
         main = [sources mutableCopy];
         [apart removeAllObjects];
     }
+    sg_rowApartCount = apart.count;
     // Minimized, the bar keeps the tab it is on, glyph only, on a circle at the leading end, and the last
     // split tab on one at the trailing end when there are any, the way the Music app keeps Search. Without
     // split tabs the now playing card has the rest of the row.
@@ -622,6 +724,7 @@ static void syncBar(UIView *stockBar) {
     }
     if (host.superview != stockBar) [stockBar addSubview:host];
     else if (stockBar.subviews.lastObject != host) [stockBar bringSubviewToFront:host];
+    noteGlassRow();
     logBarOnce(bar);
     makeRoom(containerOf(stockBar));
 }
@@ -873,6 +976,78 @@ CGRect SGRTabBarInlineSlot(UIView *host, CGFloat height) {
     CGRect inWindow = [host convertRect:slot toView:nil];
     if (slot.size.width < 100 || CGRectGetMaxY(inWindow) > CGRectGetMaxY(bar.window.bounds)) return CGRectNull;
     return slot;
+}
+
+#pragma mark - the glass row
+
+// The expanded row's glass, whether the bar is expanded now or minimized: each bar at its SGRExpandedBarFrames frame,
+// its platter where UIKit drew it there. UIKit draws a platter SGRBarPlatterInsetPt in from the sides of a bar its
+// items fill, and a narrower one centered in it when they do not: with Search split the main bar's three tabs got a
+// 274 pt platter at x 27 in a 328 pt bar (harness/tabbar, iPhone 17 Pro). So each bar's platter is read while it is
+// expanded (noteGlassRow) and kept for its width; a bar not yet read at its width counts as filled. Only the x edges
+// are meant; a bar Spotify has slid away for a page keeps them.
+static CGRect glassIn(SGRSystemTabBar *bar, CGRect frame) {
+    if (!bar || fabs(bar.glassBarWidthPt - frame.size.width) >= 0.5) return CGRectInset(frame, SGRBarPlatterInsetPt, 0);
+    return CGRectMake(CGRectGetMinX(frame) + bar.glassLeftPt, CGRectGetMinY(frame), frame.size.width - bar.glassLeftPt - bar.glassRightPt, frame.size.height);
+}
+
+CGRect SGRTabBarGlassRow(UIView *view) {
+    UIView *stockBar = sg_stockBar;
+    UIView *host = stockBar ? objc_getAssociatedObject(stockBar, &kHostKey) : nil;
+    if (!view || !host.window || stockBar.traitCollection.horizontalSizeClass != UIUserInterfaceSizeClassCompact) return CGRectNull;
+    CGRect main, apart;
+    SGRExpandedBarFrames(host.bounds, sg_rowApartCount, &main, &apart);
+    CGRect row = glassIn(objc_getAssociatedObject(stockBar, &kBarKey), main);
+    if (sg_rowApartCount) row = CGRectUnion(row, glassIn(objc_getAssociatedObject(stockBar, &kApartBarKey), apart));
+    return [host convertRect:row toView:view];
+}
+
+// The widest glass platter UIKit drew on `bar`, in its coordinates; CGRectNull before it has drawn one.
+static CGRect platterOf(UIView *bar) {
+    __block CGRect widest = CGRectNull;
+    SGForEachView(bar, ^(UIView *v) {
+        if (v == bar || v.hidden || ![NSStringFromClass(v.class) hasSuffix:@"PlatterView"]) return;
+        CGRect frame = [v convertRect:v.bounds toView:bar];
+        if (CGRectIsNull(widest) || frame.size.width > widest.size.width) widest = frame;
+    });
+    return widest;
+}
+
+// Expanded, each bar's platter read again where the pass that laid it out has left it, and the now playing card told
+// when the row comes, goes or its sides move. Once per turn of the run loop however many passes ask.
+static void noteGlassRow(void) {
+    static BOOL pending;
+    if (pending) return;
+    pending = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        pending = NO;
+        UIView *stockBar = sg_stockBar;
+        UIView *host = stockBar ? objc_getAssociatedObject(stockBar, &kHostKey) : nil;
+        if (!host) return;
+        if (!sg_minimized) {
+            CGRect main, apart;
+            SGRExpandedBarFrames(host.bounds, sg_rowApartCount, &main, &apart);
+            NSArray *bars = @[objc_getAssociatedObject(stockBar, &kBarKey) ?: NSNull.null, objc_getAssociatedObject(stockBar, &kApartBarKey) ?: NSNull.null];
+            for (NSUInteger i = 0; i < bars.count; i++) {
+                SGRSystemTabBar *bar = bars[i];
+                // Read only at its expanded frame's width: the main bar still growing back under a split bar is not.
+                CGFloat width = (i ? apart : main).size.width;
+                if (![bar isKindOfClass:SGRSystemTabBar.class] || bar.hidden || !bar.window || fabs(bar.bounds.size.width - width) >= 0.5) continue;
+                CGRect platter = platterOf(bar);
+                if (CGRectIsNull(platter)) continue;
+                bar.glassLeftPt = CGRectGetMinX(platter);
+                bar.glassRightPt = bar.bounds.size.width - CGRectGetMaxX(platter);
+                bar.glassBarWidthPt = bar.bounds.size.width;
+            }
+        }
+        CGRect row = SGRTabBarGlassRow(stockBar.window);
+        BOOL moved = CGRectIsNull(row) != CGRectIsNull(sg_glassRow)
+            || (!CGRectIsNull(row) && (fabs(CGRectGetMinX(row) - CGRectGetMinX(sg_glassRow)) >= 0.5
+                                       || fabs(CGRectGetMaxX(row) - CGRectGetMaxX(sg_glassRow)) >= 0.5));
+        if (!moved) return;
+        sg_glassRow = row;
+        SGRNowPlayingBarFollowTabBar();
+    });
 }
 
 #pragma mark - hooks
