@@ -34,6 +34,7 @@ PAGE(SGGesturesSettingsPage) PAGE(SGHeadGesturesSettingsPage) PAGE(SGHomeSetting
 PAGE(SGListeningStatsPage) PAGE(SGLiveActivitySettingsPage) PAGE(SGLockScreenWidgetPage) PAGE(SGNavbarSettingsPage)
 PAGE(SGNowPlayingBarSettingsPage) PAGE(SGQueueSettingsPage) PAGE(SGRAlbumSettingsPage) PAGE(SGRArtistSettingsPage)
 PAGE(SGRNavbarSettingsPage)
+PAGE(SGLocalFilesSettingsPage)
 PAGE(SGAlbumSettingsPage) PAGE(SGArtistSettingsPage) PAGE(SGPlaylistSettingsPage)
 PAGE(SGDSPHeadphonesPage) PAGE(SGDSPPresetsPage) PAGE(SGFontLibraryPage)
 PAGE(SGRHomeSettingsPage) PAGE(SGRLibrarySettingsPage) PAGE(SGRVisualiserSettingsPage)
@@ -87,6 +88,9 @@ NSArray<SGModRow *> *SGOnDeviceTranslatorRows(void) {
     return rows;
 }
 SGModSection *SGSleepTimerSettingsSection(void) { return SGSection(nil, @[]); }
+SGModSection *SGRPlayerButtonsSection(void) { return SGSection(nil, @[]); }
+void SGMotionCacheBytes(void (^done)(uint64_t bytes)) { done(0); }
+void SGMotionCacheClear(void (^done)(BOOL complete)) { done(YES); }
 SGAppFont SGAppFontChosen(void) { return SGAppFontSpotify; }
 NSArray<SGModRow *> *SGAppFontRows(void) { return @[]; }
 NSArray<SGModRow *> *SGNativeAppearanceRows(void) { return @[]; }
@@ -99,6 +103,8 @@ NSString *const SGArtistURI = @"uri", *const SGArtistName = @"name";
 BOOL SGArtistBlocked(NSString *uri) { return NO; }
 void SGBlockArtist(NSDictionary *artist) {}
 void SGUnblockArtist(NSString *uri) {}
+NSDictionary<NSString *, NSArray<NSString *> *> *SGBlockedSongs(void) { return @{}; }
+void SGSetSongBlocked(NSString *uri, NSString *title, NSString *artist, BOOL blocked) {}
 
 NSString *SGDSPSummary(void) { return @"Off"; }
 NSString *SGAutoMixSummary(void) { return @"Off"; }

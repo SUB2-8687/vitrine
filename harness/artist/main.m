@@ -348,7 +348,8 @@ static void verifyPlay(UIView *root) {
     self.window.rootViewController = root;
 
     UIView *page = box(root.view, _TtC32CreativeWorkPlatform_TemplateKit12TemplateView.class, CGRectMake(0, 0, W, H), @"creator-page");
-    UIScrollView *scroll = (UIScrollView *)box(page, UIScrollView.class, page.bounds, @"PCFFTabLayoutViewController.containerScrollView");
+    // The fixture combines PCFF's scrolling owner and its mirrored content host in one view.
+    UIScrollView *scroll = (UIScrollView *)box(page, UIScrollView.class, page.bounds, @"PCFFTabLayoutViewController.overlayScrollView");
     scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     UIView *stack = box(scroll, UIView.class, CGRectMake(0, 0, W, 3000), nil);
 
@@ -613,7 +614,7 @@ static void verifyPlay(UIView *root) {
     // `veil` / `veil-off` (../album/hero-veil-check.h): the page scrolled by its own scroll view, the header's container
     // in it.
     NSString *veil = veilMode();
-    if (veil) veilRun(rootView, @"artist", veil, YES, YES, 3.5, nil, ^(CGFloat d) { scroll.contentOffset = CGPointMake(0, d); });
+    if (veil) veilRun(rootView, @"artist", veil, NO, YES, 3.5, nil, ^(CGFloat d) { scroll.contentOffset = CGPointMake(0, d); });
     return YES;
 }
 

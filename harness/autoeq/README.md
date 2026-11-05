@@ -10,9 +10,8 @@ run.
 
 Offline: INDEX.md lines with parentheses in folders, brackets in names, `&` and `$`, and broken lines; the raw
 GraphicEQ addresses made from them; search; a GraphicEQ file applied (switch, nodes, headphone, the master
-switch on with it); each built-in preset over the others, keeping the headphone's correction and turning the
-master switch on; a saved preset reset and loaded back, Graphic EQ included, the master switch left out of it
-and turned on by loading it.
+switch on with it). Generic preset save/load and built-in replacement behavior belong to
+`harness/audio-effects/preset-files.m`.
 
 The headphone form filter (All, In-ear, Over-ear, Earbuds) on `sample-INDEX.md`, read from this folder: the folder's
 text decides, in any case, and a folder that says no form shows under All only.

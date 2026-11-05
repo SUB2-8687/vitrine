@@ -14,6 +14,7 @@
 #import "Shared/AnimatedArtwork/AnimatedArtwork.h"
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
 #import "Shared/LiveActivity/LiveActivity.h"
+#import "Shared/ArtistBlock/ArtistBlock.h"
 
 #pragma mark - the system, underneath
 
@@ -70,13 +71,22 @@ BOOL SGEnabled(NSString *key) { return SGFlag(key, YES); }
 - (double)playbackSpeed { return 1; }
 @end
 
-@interface SGStubPlayer : NSObject
+static NSUInteger skipRequests;
+@interface SPTEsperantoPlayer : NSObject
 @property (nonatomic) SPTPlayerState *state;
 @end
-@implementation SGStubPlayer
+@implementation SPTEsperantoPlayer
+- (void)skipToNextTrack { skipRequests++; }
 @end
 
-static SGStubPlayer *sg_player;
+static SPTEsperantoPlayer *sg_player;
+static NSMutableDictionary *blockedSongs;
+NSString *const SGArtistURI = @"uri", *const SGArtistName = @"name";
+NSString *const SGBlockedSongsDidChangeNotification = @"harness.blockedSongsChanged";
+NSDictionary *SGBlockedSongs(void) { return blockedSongs; }
+BOOL SGSongBlocked(NSString *uri) { return blockedSongs[uri] != nil; }
+BOOL SGArtistBlocked(NSString *uri) { return NO; }
+NSArray *SGArtistsOfTrack(id track) { return @[]; }
 static NSArray<SGKaraokeLine *> *sg_lines;
 static void (^sg_afterTickSnapshot)(void);
 static NSUInteger sg_lyricReads;
@@ -136,6 +146,21 @@ void SGRAutoTranslateWithoutView(NSString *track, NSArray<SGKaraokeLine *> *line
     harnessAutomaticTranslations++;
     SGLyricsLoadTranslation(track, SGLyricsGeminiLanguage(), lines, mayContinue, loaded);
 }
+// The redesign's choice of pronunciation; off unless a check sets it.
+static SGRLyricsReading sg_reading;
+static BOOL sg_readingLeads;
+SGRLyricsReading SGRLyricsReadingShown(BOOL *leads) {
+    if (leads) *leads = sg_readingLeads;
+    return sg_reading;
+}
+void harnessReading(SGRLyricsReading reading, BOOL leads) {
+    sg_reading = reading;
+    sg_readingLeads = leads;
+}
+NSString *harnessSongLanguage;
+NSString *SGLyricsTrackLanguage(NSString *trackID) { return harnessSongLanguage; }
+NSString *SGLyricsDetectedLanguage(NSArray<SGKaraokeLine *> *lines) { return nil; }
+NSNotificationName const SGLyricsLanguageDidChangeNotification = @"harness.lyricsLanguageChanged";
 NSNotificationName const SGLyricsTranslationSavedNotification = @"spotifyglass.lyricsTranslationSaved";
 NSNotificationName const SGLyricsTranslationsDidChangeNotification = @"spotifyglass.lyricsTranslationsDidChange";
 
@@ -188,6 +213,35 @@ static double systemElapsed(void) {
     return [sg_system[MPNowPlayingInfoPropertyElapsedPlaybackTime] doubleValue];
 }
 
+static void songBlockOccurrence(void) {
+    SPTPlayerState *saved = sg_player.state;
+    blockedSongs = [@{@"other": @YES} mutableCopy];
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    [center postNotificationName:SGBlockedSongsDidChangeNotification object:@"other"];
+    harnessState(@"newly-blocked", @"Song");
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    runFor(.03);
+    // The queued now-playing check sees the new block before its list-change handler.
+    blockedSongs[@"newly-blocked"] = @YES;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    [center postNotificationName:SGBlockedSongsDidChangeNotification object:@"newly-blocked"];
+    runFor(.03);
+    check(skipRequests == 1, @"a newly blocked examined occurrence requests one skip");
+    harnessState(@"already-blocked", @"Song");
+    blockedSongs[@"already-blocked"] = @YES;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    [center postNotificationName:SGBlockedSongsDidChangeNotification object:@"already-blocked"];
+    runFor(.03);
+    check(skipRequests == 2, @"a queued skip and its block notification cannot skip twice for one occurrence");
+    harnessState(@"allowed", @"Song");
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    runFor(.03);
+    check(skipRequests == 2, @"the next allowed song is left playing");
+    [blockedSongs removeAllObjects];
+    [center postNotificationName:SGBlockedSongsDidChangeNotification object:nil];
+    sg_player.state = saved;
+}
+
 // Lock screen lyrics: once the line is let go, the artist comes back with the clock moved on, and the
 // extras' clock, which records what passes, is not pulled back by it either.
 static void progressBar(void) {
@@ -229,6 +283,38 @@ static void translation(void) {
           [NSString stringWithFormat:@"its last piece shows by the line's end: \"%@\"", last]);
     sg_lines = was;
     sg_showTranslation = NO;
+}
+
+// Lock screen pronunciation: the artist row has room for one line, the larger of the lyrics' two, so the source's
+// pronunciation shows only where the order leads with it; a choice made while paused shows at once, and the
+// translation chosen for the row keeps its place.
+static void pronunciation(void) {
+    NSArray<SGKaraokeLine *> *was = sg_lines;
+    SGKaraokeLine *line = lineOf(@"안녕", 0, 10000);
+    line.pronunciation = lineOf(@"annyeong", 0, 10000);
+    sg_lines = @[line];
+    sg_reading = SGRLyricsReadingSource;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    check([sg_system[MPMediaItemPropertyArtist] isEqual:@"안녕"], @"the words lead the artist row by the default order");
+    sg_readingLeads = YES;
+    [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:nil];
+    runFor(.05);
+    check([sg_system[MPMediaItemPropertyArtist] isEqual:@"annyeong"], @"paused, the pronunciation takes the row once the order leads with it");
+    sg_showTranslation = YES;
+    line.translation = @"Hello";
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    check([sg_system[MPMediaItemPropertyArtist] isEqual:@"Hello"], @"the row's translation keeps its place over the pronunciation");
+    sg_showTranslation = NO;
+    line.pronunciation = nil;
+    sg_reading = SGRLyricsReadingRomanised;
+    MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo = spotifyInfo(@"Song", 0, 0);
+    check([sg_system[MPMediaItemPropertyArtist] isEqual:@"안녕"], @"uncached reading leaves the original visible until its worker completes");
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (![sg_system[MPMediaItemPropertyArtist] isEqual:@"annyeong"] && deadline.timeIntervalSinceNow > 0) runFor(.01);
+    check([sg_system[MPMediaItemPropertyArtist] isEqual:@"annyeong"], @"completed offline reading refreshes the paused artist row");
+    sg_reading = SGRLyricsReadingNone;
+    sg_readingLeads = NO;
+    sg_lines = was;
 }
 
 static void pausedTrackDuringTick(void) {
@@ -318,13 +404,15 @@ int main(void) {
         track->_uri = @"track";
         SPTPlayerState *state = [SPTPlayerState new];
         state->_track = track;
-        sg_player = [SGStubPlayer new];
+        sg_player = [SPTEsperantoPlayer new];
         sg_player.state = state;
         sg_lines = @[lineOf(@"Hello", 0, 100), lineOf(@"Later", 60000, 61000)];
         BOOL lyrics = getenv("LSL") != NULL;
         printf("lock screen lyrics %s\n", lyrics ? "on" : "off");
+        songBlockOccurrence();
         if (lyrics) progressBar();
         if (lyrics) translation();
+        if (lyrics) pronunciation();
         if (lyrics) pausedTrackDuringTick();
         if (lyrics) deletedTranslation();
         sameTitle();

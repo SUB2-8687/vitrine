@@ -81,7 +81,8 @@ static SGRArtworkField *fieldOf(Page p) {
 }
 
 static CALayer *renderOf(UIView *hero) {
-    for (CALayer *layer in hero.layer.sublayers) {
+    UIView *content = [hero valueForKey:@"content"];
+    for (CALayer *layer in content.layer.sublayers) {
         if ([layer.name isEqualToString:@"SGRAlbumHero.render"]) return layer;
     }
     return nil;
@@ -279,7 +280,8 @@ static BOOL fieldIsRed(Page p) {
 static void startAlbumA(Page p) {
     [p.hero playMotionForArtist:@"Fixture" album:@"A"];
     HARNESS_CHECK(waitUntil(5, ^BOOL {
-        for (CALayer *layer in p.hero.layer.sublayers)
+        UIView *content = [p.hero valueForKey:@"content"];
+        for (CALayer *layer in content.layer.sublayers)
             if ([layer isKindOfClass:AVPlayerLayer.class] && layer.opacity == 1) return YES;
         return NO;
     }));

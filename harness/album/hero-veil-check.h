@@ -96,9 +96,13 @@ static CGFloat veilMidDistance(UIView *root, void (^place)(CGFloat d)) {
 // is NO for a hero that stretches with a pull itself (the playlist's), `moves` NO for a picture placed by Spotify
 // (the playlist's square), which is then checked unmoved.
 static void veilRun(UIView *root, NSString *page, NSString *mode, BOOL zooms, BOOL moves, NSTimeInterval start,
-                    UIView *(^surfaceOf)(UIView *hero), void (^place)(CGFloat d)) {
+                    UIView *(^surfaceOf)(UIView *hero), void (^positionPage)(CGFloat d)) {
     BOOL on = ![mode isEqualToString:@"veil-off"];
     NSString *heroClass = [NSString stringWithFormat:@"SGR%@%@Hero", [page substringToIndex:1].uppercaseString, [page substringFromIndex:1]];
+    void (^place)(CGFloat) = ^(CGFloat d) {
+        positionPage(d);
+        [veilFind(root, heroClass) layoutIfNeeded];
+    };
     UIView *(^surface)(UIView *) = ^UIView *(UIView *hero) { return surfaceOf ? surfaceOf(hero) : hero; };
     // d = 0, 190, 400, then on with the veil a d where the title is half under the bar line, measured at rest.
     NSUInteger count = on ? 4 : 3;
@@ -124,8 +128,25 @@ static void veilRun(UIView *root, NSString *page, NSString *mode, BOOL zooms, BO
         HARNESS_CHECK(hero && hero.window && info);
         UIView *drawnOn = surface(hero);
         HARNESS_CHECK(drawnOn && drawnOn.window);
-        CALayer *art = hero.subviews.firstObject.layer;
+        BOOL stretches = [hero respondsToSelector:NSSelectorFromString(@"restHeight")];
+        UIView *content = stretches ? [hero valueForKey:@"content"] : hero;
+        CALayer *art = content.subviews.firstObject.layer;
         HARNESS_CHECK(art);
+        if (stretches) {
+            place(0);
+            CGRect restFrame = hero.frame;
+            for (NSNumber *offset in @[@-40, @-100, @0, @-40, @0]) {
+                CGFloat d = offset.doubleValue;
+                place(d);
+                if (!veilNear(hero.frame.origin.y, d) ||
+                    !veilNear(CGRectGetMaxY(hero.frame), CGRectGetMaxY(restFrame)) ||
+                    !veilNear(hero.frame.size.height, restFrame.size.height - d))
+                    HARNESS_FAIL(@"pull/release geometry at %@: %@, rest %@", offset,
+                                 NSStringFromCGRect(hero.frame), NSStringFromCGRect(restFrame));
+                HARNESS_CHECK(hero.clipsToBounds);
+            }
+            NSLog(@"[harness] PASS %@ pull/release geometry: top anchored, bottom fixed, exact rest after repeated pulls", page);
+        }
         if (!on) {
             // Off: nothing of the veil, whatever the scroll.
             for (NSNumber *d in @[@0, @190, @400, @-40]) {

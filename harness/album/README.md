@@ -90,10 +90,7 @@ right to left (`-AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`
 symbol, one that lands late, one replaced by another picture, none, one under a mask of its own and one reused as no
 track row, and reads the drawn glyph in OKLab: lightness 0.80 (0.88 with Increase Contrast, set on the simulator), the
 page's hue, chroma at most min(page's, 0.08) and at least half that; white and unmasked where it is to be left alone; ⋯'s action and what VoiceOver
-reads unchanged. Mutants built from a copy of the sources (`faces-more-mutation.py`) must fail at their assertion:
-four faces allowed, a picture in a view hidden since the pass drawn, an avatar's initial taken for the name and a face
-told by its image view's own shape (both at the phone's Trio row), an avatar known only by a shown picture (at Trio with
-Dolly's picture hidden, left to right and right to left), and a baked ⋯ given only a tint. `SHOTS=<dir>` keeps
+reads unchanged. `SHOTS=<dir>` keeps
 `album-faces-two-on.png`, `album-faces-two-off.png`, `album-faces-trio.png` and `album-more.png` (and the variants, suffixed).
 
 The pinned download and ⋯ are watched from the first frame the page draws: after every Core Animation commit while the
@@ -129,19 +126,16 @@ colour, the cover itself down to where the spec lets it stop being sharp, the dr
 it and ending in the colour the field paints just under the hero (read off the rendered field, the hero's gradients
 composited over the drawing; at most 2 levels apart), and the title's area held to L 0.58 over 90% of it. One of them is
 Adele's 21 as the phone showed it (`darkPortraitCover`, `dark-portrait`): a black-and-white portrait reading #0D0C0C,
-which the AMOLED rule paints black; the `field-asked` mutant (the field reporting the colour it was asked for rather than
-the one it paints) must fail there with the phone's 13,13,13 over 0,0,0. The scanned sleeve checks the
+which the AMOLED rule paints black. The scanned sleeve checks the
 pale border and reflected square edge, including the actual layer composition: adjacent-row mean absolute linear
 sRGB luminance difference must not exceed 0.02 within 24pt of the edge. The layer composition also checks
 24pt above the scanned sleeve's stripe at 94% through the square's extension; the drawing must be opaque.
-The runner reintroduces a one-pixel bright row in a generated-source copy and requires the edge assertion to reject it.
 `still-swap` reuses a hero from A with a clip to B without one: both an installed still and late poster/read replies
 must leave B blue. A -> B -> A reuses the identical clip URL and checks both delayed stages against the new album
 lifetime, then accepts its current still. Media lookup, poster delivery and player readiness are test doubles;
 the field and hero are real. `cache-reuse` aliases only the address prefix of cache keys after the first source
 deallocates; a mirrored cover with identical size, page colour and geometry must draw blue, not the old magenta.
-Generated-source mutations remove album-change invalidation, both still-generation guards, or cache source
-validation, and each must fail at the corresponding colour/pixel assertion. `Kit/SGRCoverRead` is not modified.
+`Kit/SGRCoverRead` is not modified.
 The blur reaches its maximum over 40pt rather than 80pt: 80pt left a measured 19/255 step at the scanner border.
 Also checked: a cover replaced mid read whose
 colour never reaches the page; and, with the setting off, the hero written to a PNG. `BASELINE=<rev>` draws that

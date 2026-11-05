@@ -1,4 +1,4 @@
-// Compile the real catalog/service for interactive runs, substituting only the download/installation
+// Compile the real catalog/service, substituting only the download/installation
 // boundary while the selection regression holds a completion. The page and selection guard stay real.
 #define SGFontLibraryDownload SGRealFontLibraryDownload
 #define SGFontLibraryDownloading SGRealFontLibraryDownloading

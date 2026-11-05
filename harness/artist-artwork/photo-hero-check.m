@@ -114,11 +114,9 @@ static SGRArtworkField *fieldOf(Page p) {
     return (SGRArtworkField *)p.page.subviews.firstObject;
 }
 
+// The hero's own photo view: it sits in the hero's stretching content, not directly under the hero.
 static UIImageView *pictureOf(Page p) {
-    for (UIView *view in p.hero.subviews) {
-        if ([view isKindOfClass:UIImageView.class]) return (UIImageView *)view;
-    }
-    return nil;
+    return [p.hero valueForKey:@"picture"];
 }
 
 static CGColorSpaceRef sRGB(void) {

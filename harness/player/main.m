@@ -92,6 +92,8 @@ extern void SGHarnessHold(UIWindow *window, CGPoint point, NSTimeInterval second
 extern void SGHarnessTap(UIWindow *window, CGPoint point);
 // stubs.m: the commands sent to the player.
 NSUInteger SGRHarnessPlayerCommands(void);
+// stubs.m: the last spotify: URI the mod asked Spotify's link dispatcher to open.
+extern NSURL *SGRHarnessLastOpened;
 // Low Power Mode as the process reports it, once reportPower has made it report this.
 static BOOL sg_lowPower;
 static void reportPower(void);
@@ -349,6 +351,7 @@ static NSString *pixelAtPoint(UIView *view, CGPoint point) {
 @interface SPTEncoreIconView : UIView
 @property (nonatomic, strong) UIColor *foregroundColor, *activeForegroundColor;
 @property (nonatomic) BOOL isActive;
+@property (nonatomic, strong) id icon;   // the SPTEncoreIcon it was made with, nil for the queue's in the tree
 @end
 @implementation SPTEncoreIconView {
     UIImageView *_drawn;
@@ -365,10 +368,32 @@ static NSString *pixelAtPoint(UIView *view, CGPoint point) {
     [self paint];
     return self;
 }
+- (instancetype)initWithIcon:(id)icon {
+    if (!(self = [self initWithFrame:CGRectZero])) return nil;
+    _icon = icon;
+    _drawn.image = [UIImage systemImageNamed:[icon symbol]];
+    return self;
+}
 - (void)setForegroundColor:(UIColor *)color { _foregroundColor = color; [self paint]; }
 - (void)setActiveForegroundColor:(UIColor *)color { _activeForegroundColor = color; [self paint]; }
 - (void)setIsActive:(BOOL)active { _isActive = active; [self paint]; }
 - (void)paint { _drawn.tintColor = _isActive ? _activeForegroundColor : _foregroundColor; }
+@end
+
+// Spotify's glyph catalog (+[SPTEncoreIcon lyrics] and the like): each glyph drawn here by an SF Symbol of its own, unlike
+// the Music app's the redesign draws, so a screenshot tells the two apart.
+@interface SPTEncoreIcon : NSObject
+@property (nonatomic, copy) NSString *name, *symbol;
+@end
+@implementation SPTEncoreIcon
++ (instancetype)named:(NSString *)name symbol:(NSString *)symbol {
+    SPTEncoreIcon *icon = [self new];
+    icon.name = name;
+    icon.symbol = symbol;
+    return icon;
+}
++ (instancetype)microphone { return [self named:@"microphone" symbol:@"mic"]; }
++ (instancetype)queue { return [self named:@"queue" symbol:@"text.line.first.and.arrowtriangle.forward"]; }
 @end
 
 // The AI DJ's header and footer units (SGRDJClass's mangled Endless_DJMusicImpl names), built by the options scenario.
@@ -525,7 +550,7 @@ static void loadLyrics(void) {
     // glyph Spotify drew for Connect.
     UIImageView *_connectImage, *_djConnectImage;
     SPTEncoreIconView *_queueIcon;
-    UIView *_djHeader, *_djFooter;
+    UIView *_djHeader, *_djFooter, *_djButton, *_djConnect, *_djShare;
     UIImage *_spotifyConnect, *_djSpotifyConnect;
 }
 
@@ -670,14 +695,9 @@ static void loadLyrics(void) {
         glyphButton(_djHeader, CGRectMake(W / 2 - 104, 0, 48, 48), @"chevron.down", @"now-playing-minimize-button");
         glyphButton(_djHeader, CGRectMake(W / 2 + 56, 0, 48, 48), @"ellipsis", @"Context menu");
         _djFooter = box(host, UIView.class, CGRectMake(0, bandTop, W, 44), nil);
-        UIView *shareHolder = box(_djFooter, UIView.class, CGRectMake(W - 60, 0, 44, 44), nil);
-        glyphButton(shareHolder, shareHolder.bounds, @"square.and.arrow.up", @"ShareButtonNowPlayingView");
-        UIView *djHolder = box(_djFooter, UIView.class, CGRectMake(W - 120, -2, 48, 48), nil);
-        UIView *dj = box(djHolder, UIView.class, djHolder.bounds, @"Components.UI.NeffleButtonNowPlayingContainerView");
-        dj.backgroundColor = UIColor.systemBlueColor;
-        dj.layer.cornerRadius = 24;
         UIView *djConnectHolder = box(_djFooter, UIView.class, CGRectMake(16, 4, 153, 36), nil);
         UIView *djConnect = box(djConnectHolder, UIView.class, djConnectHolder.bounds, @"Components.ConnectButtonOutputSwitcher");
+        _djConnect = djConnect;
         _djConnectImage = [[UIImageView alloc] initWithFrame:CGRectMake(0, 8, 19, 19)];
         _djConnectImage.image = [UIImage systemImageNamed:@"hifispeaker"];
         _djConnectImage.tintColor = UIColor.whiteColor;
@@ -687,6 +707,17 @@ static void loadLyrics(void) {
         device.text = @"Living Room";
         device.textColor = UIColor.whiteColor;
         [djConnect addSubview:device];
+        // Connect under the DJ button and the share button's holder over it, right where the footer puts the DJ button:
+        // the order in which a holder given its touches back would take the DJ button's.
+        UIView *djHolder = box(_djFooter, UIView.class, CGRectMake(W - 120, -2, 48, 48), nil);
+        UIView *dj = box(djHolder, MockEncoreButton.class, djHolder.bounds, @"Components.UI.NeffleButtonNowPlayingContainerView");
+        dj.backgroundColor = UIColor.systemBlueColor;
+        dj.layer.cornerRadius = 24;
+        dj.isAccessibilityElement = YES;
+        dj.accessibilityLabel = @"DJ";
+        _djButton = dj;
+        UIView *shareHolder = box(_djFooter, UIView.class, CGRectMake(round(W * 0.8) - 22, 0, 44, 44), nil);
+        _djShare = glyphButton(shareHolder, shareHolder.bounds, @"square.and.arrow.up", @"ShareButtonNowPlayingView");
         box(_djFooter, UIView.class, CGRectMake(W / 2, 0, 1, 44), nil);   // the empty view
         djHeaderUnit = [_TtC19Endless_DJMusicImpl35DJMHeaderElementsUnitViewController new];
         djHeaderUnit.view = _djHeader;
@@ -2811,9 +2842,133 @@ static NSString *finishChecks(NSUInteger checks, NSUInteger failures, NSString *
     SGRPlayerPlaceGlyph(djGlyph, nextHost, 4);
     [self expect:djGlyph.superview == nextHost && CGPointEqualToPoint(djGlyph.center, CGPointMake(40, 24))
             step:@"glyph moves to a new host" detail:NSStringFromCGPoint(djGlyph.center)];
+    [self runSpreadChecks];
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:SGRKeyPlayerHideShuffle];
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:SGRKeyPlayerHideRepeat];
     NSLog(@"[harness] controls checks: %lu of %lu right -- %@", (unsigned long)(_checks - _failures),
           (unsigned long)_checks, _failures ? @"FAIL" : @"PASS");
     exit(_failures ? 1 : 0);
+}
+
+// One of the controls row's five holders (trees/clean/player/01.txt, .mixdog's phone tree): an arranged view `side`
+// square holding a plain view that holds the button.
+static UIView *controlSlot(UIStackView *row, CGFloat side, Class cls, NSString *identifier) {
+    UIView *slot = [[UIView alloc] initWithFrame:CGRectMake(0, 0, side, side)];
+    [slot.widthAnchor constraintEqualToConstant:side].active = YES;
+    [slot.heightAnchor constraintEqualToConstant:side].active = YES;
+    UIView *inner = box(slot, UIView.class, slot.bounds, nil);
+    UIView *button = box(inner, cls, inner.bounds, identifier);
+    box(button, UIView.class, button.bounds, nil);   // the content view the skip glyphs go in
+    [row addArrangedSubview:slot];
+    return slot;
+}
+
+// Shuffle and repeat both hidden (switched on for this scenario at launch): previous and next spread a third of the
+// 366 pt row (122 pt) either side of play, and stay spread while Spotify takes repeat out, lays the controls out and
+// puts a new repeat in, or swaps repeat's end for a bare placeholder and then a new holder. The emptied ends take no
+// touches meanwhile, so a touch on next where it overlaps repeat's end is next's. A landscape row and a row whose ends
+// hold other controls (a podcast's) get Spotify's places and the ends' touches back.
+- (void)runSpreadChecks {
+    UIView *host = box(self.window.rootViewController.view, UIView.class, CGRectMake(0, 200, 390, 96), nil);
+    UIStackView *row = [[UIStackView alloc] initWithFrame:CGRectMake(12, 16, 366, 64)];
+    row.axis = UILayoutConstraintAxisHorizontal;
+    row.alignment = UIStackViewAlignmentCenter;
+    row.distribution = UIStackViewDistributionEqualSpacing;
+    [host addSubview:row];
+    UIView *shuffleEnd = controlSlot(row, 48, MockEncoreButton.class, @"Components.UI.ShuffleButton");
+    UIView *previous = controlSlot(row, 56, MockEncoreButton.class, @"SPTNowPlayingPreviousTrackButton");
+    UIView *play = controlSlot(row, 64, _TtC28EncoreConsumerMobile_BaseKit14PlayButtonView.class, @"SPTNowPlayingPlayButton");
+    UIView *next = controlSlot(row, 56, MockEncoreButton.class, @"SPTNowPlayingNextTrackButton");
+    __block UIView *repeatEnd = controlSlot(row, 48, MockEncoreButton.class, @"Nowplaying-RepeatButton");
+    UIView *nextButton = next.subviews.firstObject.subviews.firstObject;
+    UIViewController *unit = [_TtC20NowPlaying_ModesImpl28PlaybackControlsElementsUnit new];
+    unit.view = host;
+    // A pass of the unit as Spotify gives it, the row laid out by its constraints first.
+    void (^pass)(void) = ^{
+        [row setNeedsLayout];
+        [row layoutIfNeeded];
+        [unit viewDidLayoutSubviews];
+    };
+    // Where previous and next are drawn from play's middle, and whether a touch over the part of next that lies over
+    // repeat's end (8 pt in from next's outer edge) reaches next.
+    NSString *(^state)(BOOL *, BOOL) = ^NSString *(BOOL *right, BOOL spread) {
+        CGFloat playX = play.center.x;
+        CGFloat previousAt = previous.center.x + previous.transform.tx - playX, nextAt = next.center.x + next.transform.tx - playX;
+        CGFloat side = nextAt < 0 ? -1 : 1;
+        CGPoint outer = [self.window convertPoint:CGPointMake(next.center.x + next.transform.tx + side * 20, next.center.y) fromView:row];
+        UIView *hit = [self.window hitTest:outer withEvent:nil];
+        BOOL onNext = [hit isDescendantOfView:nextButton];
+        BOOL quiet = !shuffleEnd.userInteractionEnabled && !repeatEnd.userInteractionEnabled;
+        BOOL placed = spread ? fabs(fabs(previousAt) - 122) < 0.5 && fabs(fabs(nextAt) - 122) < 0.5 && previousAt * nextAt < 0
+                             : CGAffineTransformIsIdentity(previous.transform) && CGAffineTransformIsIdentity(next.transform);
+        *right = placed && (spread ? quiet && onNext : shuffleEnd.userInteractionEnabled && repeatEnd.userInteractionEnabled);
+        return [NSString stringWithFormat:@"previous %+.1f, next %+.1f pt from play; ends %@; a touch on next over repeat's end lands on %@",
+                previousAt, nextAt, quiet ? @"take no touches" : @"take touches", onNext ? @"next" : NSStringFromClass(hit.class)];
+    };
+    BOOL right = NO;
+    NSString *seen;
+
+    pass();
+    seen = state(&right, YES);
+    [self expect:right step:@"both hidden: previous and next spread" detail:seen];
+
+    UIView *repeatHolder = repeatEnd.subviews.firstObject;
+    [repeatHolder.subviews.firstObject removeFromSuperview];
+    pass();
+    seen = state(&right, YES);
+    [self expect:right step:@"repeat taken out and the controls laid out: still spread" detail:seen];
+
+    UIView *replacement = box(repeatHolder, MockEncoreButton.class, repeatHolder.bounds, @"Nowplaying-RepeatButton");
+    [host layoutIfNeeded];
+    seen = state(&right, YES);
+    [self expect:right && replacement.alpha == 0 && !replacement.userInteractionEnabled step:@"a new repeat put in: hidden, still spread"
+          detail:[seen stringByAppendingFormat:@"; the new repeat at alpha %.0f", replacement.alpha]];
+
+    // Repeat's end swapped for a bare placeholder, as Spotify leaves where it has no repeat, then for a new holder.
+    [row removeArrangedSubview:repeatEnd];
+    [repeatEnd removeFromSuperview];
+    UIView *placeholder = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 48, 48)];
+    [placeholder.widthAnchor constraintEqualToConstant:48].active = YES;
+    [placeholder.heightAnchor constraintEqualToConstant:48].active = YES;
+    [row addArrangedSubview:placeholder];
+    repeatEnd = placeholder;
+    pass();
+    seen = state(&right, YES);
+    [self expect:right step:@"repeat's end a bare placeholder: still spread" detail:seen];
+    [row removeArrangedSubview:placeholder];
+    [placeholder removeFromSuperview];
+    repeatEnd = controlSlot(row, 48, MockEncoreButton.class, @"Nowplaying-RepeatButton");
+    pass();
+    seen = state(&right, YES);
+    [self expect:right step:@"a new holder with a new repeat: spread" detail:seen];
+
+    row.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
+    pass();
+    seen = state(&right, YES);
+    [self expect:right && next.center.x < play.center.x step:@"right to left: next spread to the left" detail:seen];
+    row.semanticContentAttribute = UISemanticContentAttributeUnspecified;
+
+    host.traitOverrides.verticalSizeClass = UIUserInterfaceSizeClassCompact;
+    [host updateTraitsIfNeeded];
+    pass();
+    seen = state(&right, NO);
+    [self expect:right step:@"landscape: Spotify's places, the ends' touches back" detail:seen];
+    [host.traitOverrides removeTrait:UITraitVerticalSizeClass.class];
+    [host updateTraitsIfNeeded];
+    pass();
+    seen = state(&right, YES);
+    [self expect:right step:@"portrait again: spread" detail:seen];
+
+    // A podcast's row in the same holders: other controls at the ends.
+    for (UIView *end in @[shuffleEnd, repeatEnd]) {
+        UIView *inner = end.subviews.firstObject;
+        [inner.subviews.firstObject removeFromSuperview];
+        box(inner, MockEncoreButton.class, inner.bounds, end == shuffleEnd ? @"podcast-speed-button" : @"podcast-sleep-timer-button");
+    }
+    pass();
+    seen = state(&right, NO);
+    [self expect:right step:@"a podcast's row in the same holders: Spotify's places, the ends' touches back" detail:seen];
+    [host removeFromSuperview];
 }
 
 - (void)runScrollChecks {
@@ -3403,6 +3558,76 @@ static NSUInteger hiddenCopiesIn(CALayer *fluid) {
                       djConnect.image == djSpotifyConnect ? @"shown" : @"cleared", standInIn(queue) ? @"in" : @"out", queue.foregroundColor, queue.activeForegroundColor]];
     };
 
+    // Lyrics in both footers and the AI DJ's Queue: the Music app's symbol while the switch is on, Spotify's Encore glyph
+    // (the mock's own symbol) in the symbol's color while it is off; the DJ button a waveform over its masked disc, or the disc.
+    UIView *footerHost = _units[5].view, *djFooter = _djFooter, *djButton = _djButton, *djConnectView = _djConnect, *djShare = _djShare;
+    SGRGlyphButton *(^titled)(UIView *, NSString *) = ^SGRGlyphButton *(UIView *host, NSString *title) {
+        for (UIView *sub in host.subviews) if ([sub isKindOfClass:SGRGlyphButton.class] && [sub.accessibilityLabel isEqualToString:title]) return (SGRGlyphButton *)sub;
+        return nil;
+    };
+    SPTEncoreIconView *(^encoreIn)(UIView *) = ^SPTEncoreIconView *(UIView *button) {
+        for (UIView *sub in button.subviews) if ([sub isKindOfClass:SPTEncoreIconView.class]) return (SPTEncoreIconView *)sub;
+        return nil;
+    };
+    SGRGlyphView *(^waveIn)(UIView *) = ^SGRGlyphView *(UIView *host) {
+        for (UIView *sub in host.subviews) if ([sub isKindOfClass:SGRGlyphView.class] && [((SGRGlyphView *)sub).symbol isEqualToString:@"waveform"]) return (SGRGlyphView *)sub;
+        return nil;
+    };
+    void (^expectGlyphs)(NSString *, BOOL) = ^(NSString *step, BOOL on) {
+        NSMutableArray<NSString *> *seen = [NSMutableArray array];
+        BOOL ok = YES;
+        for (NSArray *drawn in @[@[footerHost, @"Lyrics", @"microphone"], @[djFooter, @"Lyrics", @"microphone"], @[djFooter, @"Queue", @"queue"]]) {
+            SGRGlyphButton *button = titled(drawn[0], drawn[1]);
+            SPTEncoreIconView *encore = encoreIn(button);
+            BOOL right = button && (on ? !button.glyph.hidden && !encore
+                                       : button.glyph.hidden && [[encore.icon name] isEqualToString:drawn[2]] && [encore.foregroundColor isEqual:button.glyph.tintColor]
+                                         && !encore.userInteractionEnabled && encore.accessibilityElementsHidden);
+            ok = ok && right;
+            [seen addObject:[NSString stringWithFormat:@"%@ %@: %@", drawn[0] == djFooter ? @"DJ" : @"player", drawn[1],
+                             !button ? @"NOT FOUND" : encore ? [NSString stringWithFormat:@"Encore %@", [encore.icon name]] : button.glyph.hidden ? @"nothing" : button.glyph.symbol]];
+        }
+        UIView *djHolder = djButton.superview;
+        SGRGlyphView *wave = waveIn(djFooter);
+        CGPoint drawnDJ = [djFooter convertPoint:CGPointMake(CGRectGetMidX(djButton.bounds), CGRectGetMidY(djButton.bounds)) fromView:djButton];
+        BOOL disc = on ? wave && djHolder.layer.mask && !wave.userInteractionEnabled && hypot(wave.center.x - drawnDJ.x, wave.center.y - drawnDJ.y) < 1
+                       : !wave && !djHolder.layer.mask;
+        [seen addObject:[NSString stringWithFormat:@"DJ button: %@, %@", wave ? [NSString stringWithFormat:@"waveform %.0f pt from its middle",
+                         hypot(wave.center.x - drawnDJ.x, wave.center.y - drawnDJ.y)] : @"no waveform", djHolder.layer.mask ? @"disc masked" : @"disc drawn"]];
+        [self expect:ok && disc step:step detail:[seen componentsJoinedByString:@"; "]];
+    };
+    // Where a touch at the middle of what each of the AI DJ's four draws lands, with Spotify having given the share button and
+    // its holder their alpha and touches back: Lyrics and Queue on the redesign's buttons, Connect and the DJ button on
+    // Spotify's, and nothing of the share button drawn. VoiceOver still finds all four.
+    void (^expectDJTouches)(NSString *) = ^(NSString *step) {
+        UIView *shareHolder = djShare.superview;
+        for (UIView *view in @[djShare, shareHolder]) {
+            view.alpha = 1;
+            view.userInteractionEnabled = YES;
+        }
+        UIWindow *window = djFooter.window;
+        UIView *(^hitAt)(UIView *) = ^UIView *(UIView *view) {
+            return [window hitTest:[window convertPoint:CGPointMake(CGRectGetMidX(view.bounds), CGRectGetMidY(view.bounds)) fromView:view] withEvent:nil];
+        };
+        SGRGlyphButton *lyrics = titled(djFooter, @"Lyrics"), *queueButton = titled(djFooter, @"Queue");
+        UIView *onLyrics = hitAt(lyrics), *onQueue = hitAt(queueButton), *onConnect = hitAt(djConnect), *onDJ = hitAt(djButton);
+        BOOL lands = lyrics && queueButton && [onLyrics isDescendantOfView:lyrics] && [onQueue isDescendantOfView:queueButton]
+                  && [onConnect isDescendantOfView:djConnectView] && [onDJ isDescendantOfView:djButton];
+        CALayer *mask = shareHolder.layer.mask;
+        BOOL away = mask && !mask.contents && CGRectIsEmpty(mask.bounds) && djShare.layer.mask;
+        BOOL heard = lyrics.isAccessibilityElement && queueButton.isAccessibilityElement && djButton.isAccessibilityElement && !djButton.accessibilityElementsHidden
+                  && [lyrics.accessibilityLabel isEqualToString:@"Lyrics"] && [queueButton.accessibilityLabel isEqualToString:@"Queue"];
+        NSString *(^name)(UIView *) = ^NSString *(UIView *view) { return view.accessibilityIdentifier ?: view.accessibilityLabel ?: NSStringFromClass(view.class); };
+        [self expect:lands && away && heard step:step
+              detail:[NSString stringWithFormat:@"Lyrics on %@, Queue on %@, Connect on %@, the DJ button on %@; share %@; VoiceOver %@", name(onLyrics),
+                      name(onQueue), name(onConnect), name(onDJ), away ? @"masked away" : @"DRAWN", heard ? @"finds all four" : @"MISSES ONE"]];
+    };
+    // A finger on the AI DJ's Queue, then on its Lyrics twice: the queue is asked for, and the lyrics open and close.
+    __block BOOL lyricsBefore = NO;
+    void (^tapDJ)(NSString *) = ^(NSString *title) {
+        UIView *button = titled(djFooter, title);
+        SGHarnessTap(djFooter.window, [djFooter.window convertPoint:CGPointMake(CGRectGetMidX(button.bounds), CGRectGetMidY(button.bounds)) fromView:button]);
+    };
+
     // One step after another, each its delay after the one before it ran: every state a screenshot is asked for holds
     // two seconds or more, and a check reads a state the step before it set up once UIKit has laid it out.
     __block UIImage *device = nil;
@@ -3411,9 +3636,19 @@ static NSUInteger hiddenCopiesIn(CALayer *fluid) {
     step(2, ^{
         expectGlass(@"glass, as it stands", YES);
         expectIcons(@"Music app icons, as they stand", YES, spotifyConnect);
+        expectGlyphs(@"the Music app's Lyrics, Queue and waveform, as they stand", YES);
+        expectDJTouches(@"the AI DJ's four take their touches, the Music app's glyphs");
         NSLog(@"[harness] options: screenshot on now");
     });
-    step(2.5, ^{ open(); });
+    step(2.5, ^{
+        SGRHarnessLastOpened = nil;
+        tapDJ(@"Queue");
+    });
+    step(0.5, ^{
+        [self expect:[SGRHarnessLastOpened.absoluteString isEqualToString:@"spotify:now-playing:queue"] step:@"the AI DJ's Queue tapped, the Music app's glyph"
+              detail:SGRHarnessLastOpened.absoluteString ?: @"nothing opened"];
+        open();
+    });
     step(0.5, ^{
         BOOL flipped = flip(@"Header glass", NO) && flip(@"Music app icons", NO);
         [self expect:flipped && !SGEnabled(SGRKeyPlayerHeaderGlass) && !SGEnabled(SGRKeyPlayerMusicIcons) step:@"both switched off on the page"
@@ -3422,6 +3657,7 @@ static NSUInteger hiddenCopiesIn(CALayer *fluid) {
     step(0.5, ^{
         expectGlass(@"glass off, the page still up", NO);
         expectIcons(@"Music app icons off, the page still up", NO, spotifyConnect);
+        expectGlyphs(@"Spotify's Lyrics and Queue glyphs and the DJ's disc, the page still up", NO);
         // Spotify draws another device's glyph while they are off: it stays Spotify's.
         device = [[UIImage systemImageNamed:@"hifispeaker.fill"] imageWithTintColor:UIColor.greenColor renderingMode:UIImageRenderingModeAlwaysOriginal];
         connect.image = device;
@@ -3429,13 +3665,35 @@ static NSUInteger hiddenCopiesIn(CALayer *fluid) {
     });
     step(1, ^{
         expectIcons(@"a new device's glyph while off", NO, device);
+        expectDJTouches(@"the AI DJ's four take their touches, Spotify's glyphs");
         NSLog(@"[harness] options: screenshot off now");
     });
-    step(2.5, ^{ open(); });
+    step(2.5, ^{
+        SGRHarnessLastOpened = nil;
+        tapDJ(@"Queue");
+    });
+    step(0.5, ^{
+        [self expect:[SGRHarnessLastOpened.absoluteString isEqualToString:@"spotify:now-playing:queue"] step:@"the AI DJ's Queue tapped, Spotify's glyph"
+              detail:SGRHarnessLastOpened.absoluteString ?: @"nothing opened"];
+        lyricsBefore = SGRPlayerLyricsOpen();
+        tapDJ(@"Lyrics");
+    });
+    step(0.5, ^{
+        BOOL turned = SGRPlayerLyricsOpen() != lyricsBefore;
+        tapDJ(@"Lyrics");
+        [self expect:turned && titled(djFooter, @"Lyrics").enabled step:@"the AI DJ's Lyrics tapped, Spotify's glyph"
+              detail:turned ? (lyricsBefore ? @"the lyrics closed" : @"the lyrics opened") : @"the lyrics did not turn"];
+    });
+    step(0.5, ^{
+        [self expect:SGRPlayerLyricsOpen() == lyricsBefore && encoreIn(titled(djFooter, @"Lyrics")) step:@"tapped again, back as they were"
+              detail:SGRPlayerLyricsOpen() ? @"open" : @"closed"];
+        open();
+    });
     step(0.5, ^{ flip(@"Header glass", YES); flip(@"Music app icons", YES); });
     step(0.5, ^{
         expectGlass(@"glass on again", YES);
         expectIcons(@"Music app icons on again", YES, device);
+        expectGlyphs(@"the Music app's Lyrics, Queue and waveform on again", YES);
         NSLog(@"[harness] options: screenshot controls rows now");
     });
     step(2.5, ^{
@@ -3615,6 +3873,11 @@ __attribute__((constructor(101))) static void sgr_harnessDefaults(void) {
         [store setInteger:SGRPlayerBackgroundFluid forKey:@"spotifyglass.redesign.player.background"];
         [store setInteger:SGRFluidRendererSmooth forKey:@"spotifyglass.redesign.fluid.renderer"];
         for (NSString *key in @[SGRKeyPlayerHeaderGlass, SGRKeyPlayerMusicIcons, @"spotifyglass.redesign.fluid.grain"]) [store removeObjectForKey:key];
+    }
+    // controls: shuffle and repeat both hidden, read at launch (runSpreadChecks), and taken off again before it exits.
+    if ([scenario() isEqualToString:@"controls"]) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:SGRKeyPlayerHideShuffle];
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:SGRKeyPlayerHideRepeat];
     }
     // The shared session the catalog asks with.
     if ([scenario() isEqualToString:@"catalog"]) [NSURLProtocol registerClass:SGRHarnessPictureServer.class];

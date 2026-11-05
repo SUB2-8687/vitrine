@@ -3,7 +3,7 @@ set -e
 SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
 OUT=${MORPH_OUT:-$(mktemp -d "${TMPDIR:-/tmp}/vitrine-morph.XXXXXX")}
 mkdir -p "$OUT/gen" "$OUT/MorphHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "${MORPH_SOURCE:-$SRC/Redesigned/Player/PlayerMorph.x}" > "$OUT/gen/PlayerMorph.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "${MORPH_SOURCE:-$SRC/Redesigned/Player/PlayerMorph.x}" > "$OUT/gen/PlayerMorph.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     -DMORPH_UNSUPPORTED_OWNER=${MORPH_UNSUPPORTED_OWNER:-0} \

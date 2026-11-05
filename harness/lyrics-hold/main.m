@@ -168,8 +168,8 @@ static void runChecks(SGRKaraokeView *view) {
 
     pressLine(view, plain);
     NSArray<NSString *> *titles = titlesOf(menuFor(view, sg_presented));
-    check([titles isEqualToArray:@[@"Copy", @"Share"]],
-          [NSString stringWithFormat:@"a line with no meaning offers Copy and Share (%@)", [titles componentsJoinedByString:@", "]]);
+    check([titles isEqualToArray:@[@"Copy", @"Share", @"Share as Card"]],
+          [NSString stringWithFormat:@"a line with no meaning offers Copy, Share and Share as Card (%@)", [titles componentsJoinedByString:@", "]]);
 
     // The anchor through the press's own life: Began opens it, Changed and Ended leave it where it was, and only the
     // menu's dismissal lets it go.
@@ -195,12 +195,12 @@ static void runChecks(SGRKaraokeView *view) {
     dismissMenu(view, replaced);
     UIMenu *menu = menuFor(view, replacement);
     titles = titlesOf(menu);
-    check(replacement != replaced && [titles isEqualToArray:@[@"Meaning", @"Copy", @"Share"]]
+    check(replacement != replaced && [titles isEqualToArray:@[@"Meaning", @"Copy", @"Share", @"Share as Card"]]
           && CGRectEqualToRect(targetOf(view, replacement), [meaningful convertRect:meaningful.bounds toView:view]),
           [NSString stringWithFormat:@"the menu replacing another keeps its line's items and anchor (%@, %@)",
            [titles componentsJoinedByString:@", "], rectText(targetOf(view, replacement))]);
     UIPasteboard.generalPasteboard.string = @"before";
-    if (menu.children.count == 3) tapAction(menu.children[1]);
+    if (menu.children.count == 4) tapAction(menu.children[1]);
     check([UIPasteboard.generalPasteboard.string isEqualToString:SGKaraokeLineText(lines[1])],
           [NSString stringWithFormat:@"Copy puts the line and nothing else on the pasteboard (\"%@\")", UIPasteboard.generalPasteboard.string]);
     dismissMenu(view, replacement);
@@ -307,11 +307,11 @@ static void runActionChecks(SGRKaraokeView *view, NSArray<SGKaraokeLine *> *line
     }
 
     NSArray<NSString *> *actions = [[meaningful accessibilityCustomActions] valueForKey:@"name"];
-    check([actions isEqualToArray:@[@"Meaning", @"Copy line", @"Share line"]],
+    check([actions isEqualToArray:@[@"Meaning", @"Copy line", @"Share line", @"Share as card"]],
           [NSString stringWithFormat:@"VoiceOver's actions on a line with a meaning (%@)", [actions componentsJoinedByString:@", "]]);
     actions = [[plain accessibilityCustomActions] valueForKey:@"name"];
-    check([actions isEqualToArray:@[@"Copy line", @"Share line"]],
-          [NSString stringWithFormat:@"and two on one without (%@)", [actions componentsJoinedByString:@", "]]);
+    check([actions isEqualToArray:@[@"Copy line", @"Share line", @"Share as card"]],
+          [NSString stringWithFormat:@"and three on one without (%@)", [actions componentsJoinedByString:@", "]]);
     UIPasteboard.generalPasteboard.string = @"before";
     UIAccessibilityCustomAction *copy = plain.accessibilityCustomActions.firstObject;
     BOOL ran = copy.actionHandler && copy.actionHandler(copy);

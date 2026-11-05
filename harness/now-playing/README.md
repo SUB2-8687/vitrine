@@ -62,7 +62,5 @@ demand before the latest prefetch. A held filesystem cleanup interleaves an alre
 worker with a new track's cleanup and video request; the delivered URL must remain readable
 after both cleanups finish.
 
-Run `THEOS=$HOME/theos python3 harness/now-playing/mutations.py` from the repository root
-to remove each fix in isolated temporary source copies and require its regression to fail.
-Those copies and their build outputs are removed automatically. Device ActivityKit delivery,
+Device ActivityKit delivery,
 actual video decoding/encoding, and lock-screen presentation still need a device check.

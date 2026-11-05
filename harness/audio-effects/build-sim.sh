@@ -13,8 +13,8 @@ VENDOR=../../vendor/audio
 OUT=${OUT:-build/sim}
 make -s -C "$VENDOR" PLATFORM=sim -j8
 mkdir -p "$OUT/gen" "$OUT/AudioEffectsHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$FX/AudioEffects.x" > "$OUT/gen/AudioEffects.m"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$FX/AudioEffects.x" > "$OUT/gen/AudioEffects.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O1 -isysroot "$SDK" -Wno-deprecated-declarations \
     -I"$SRC" -I"$FX" -I"$SRC/Shared/Player" -isystem "$VENDOR/libbs2b" -isystem "$VENDOR/wdl/eel2" \

@@ -12,7 +12,7 @@ SRC=$(cd "$HERE/../../tweak/Sources" && pwd)
 OUT=${HARNESS_BUILD_DIR:-"$HERE/build"}
 APP="$OUT/PagePreviewsHarness.app"
 mkdir -p "$APP" "$OUT/gen" "$OUT/png"
-"${THEOS:?Set THEOS}/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Kit/SGRAccent.x" > "$OUT/gen/SGRAccent.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Kit/SGRAccent.x" > "$OUT/gen/SGRAccent.m"
 python3 "$HERE/../album-counts/cover-source.py" "$SRC" "$OUT/gen/cover-prefs.m"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

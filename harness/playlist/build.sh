@@ -6,7 +6,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/PlaylistHarness.app"
 
 for f in Redesigned/Playlist/PlaylistField.x Redesigned/Playlist/PlaylistHeader.x Redesigned/Playlist/PlaylistRows.x Redesigned/Playlist/PlaylistMenu.x; do
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

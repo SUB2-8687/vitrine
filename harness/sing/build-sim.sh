@@ -11,8 +11,8 @@ SING=$SRC/Shared/Sing
 OUT=build/sim
 rm -rf "$OUT"
 mkdir -p "$OUT/gen" "$OUT/SingHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
-"$THEOS/bin/logos.pl" -c generator=internal "$SING/Sing.x" > "$OUT/gen/Sing.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SING/Sing.x" > "$OUT/gen/Sing.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios18.0-simulator -fobjc-arc -g -O1 -isysroot "$SDK" -Wno-deprecated-declarations \
     -I"$SRC" -I"$SING" -I"$SRC/Shared/Player" \

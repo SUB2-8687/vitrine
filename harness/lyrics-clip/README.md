@@ -45,13 +45,11 @@ and read back: one frame, held 2 s or 4 s.
 
     ./build.sh && build/lyrics-clip scenes [cover.jpg]
 
-`unchanged.sh` is a compatibility entry point for `regression.sh`: the visible-frame geometry intentionally
+`regression.sh` checks visible-frame geometry, which intentionally
 differs from beta.23, so historical pixel identity is no longer an acceptance criterion. `frames.m` remains a
-historical frame-comparison utility. `mutations.py` breaks each scene rule in a copy of the sources and
-checks the harness fails at that rule.
+historical frame-comparison utility.
 
-    sh unchanged.sh
-    python3 mutations.py
+    sh regression.sh
 
 `motion` renders Moving artwork with lyrics (`SGLyricsClipWriteOverMotion`, `motion.m`) over two stand-ins
 it makes, a bright busy flag (720x1280, 30 fps, a Canvas's shape) and a dark field (904x1206, 24 fps, an
@@ -85,9 +83,6 @@ memory used.
 
 These land in `build/motion/`. AVFoundation's encoder needs the sandbox off.
 Every decoded lyric clip and preview is checked for the key's exact 3:4 ratio and matching raster.
-`python3 harness/lyrics-clip/artwork-mutations.py` from the repository root restores independently
-rounded cover/motion dimensions and drops only the encoded resting text (leaving previews intact);
-each must fail its raster or decoded-line check.
 
 `regression.sh` renders the reported English sentence and Korean translation without forced line separators at the 1179×2556
 uncropped phone projection: full frame width, top at 10% of screen height; neutral space outside it is not
@@ -99,8 +94,7 @@ The harness observes the actual Core Text frames at the draw boundary: Left, Cen
 and Over the artwork each have an 84%-wide column, and a long sentence's longest shaped line must
 exceed 70% of the visible width. Font size and fitting rules are unchanged. The reported Left/Centered
 fixture naturally occupies two English lines and one Korean line, not the previous forced three/two.
-`OUT=<directory>` keeps its review PNGs; otherwise all outputs are temporary. `regression-mutations.py`
-breaks margin, the old crop/vertical assumptions, contrast, plateau and blur independently.
+`OUT=<directory>` keeps its review PNGs; otherwise all outputs are temporary.
 `REVIEW_ONLY=1 SRC=<snapshot>` renders reference PNGs without running assertions.
 These are native Mac commands, not simulator apps.
 

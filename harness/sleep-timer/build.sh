@@ -3,9 +3,10 @@
 # imports stood in for by stub/, SpotifySleepTimer.m (Spotify's own timer followed) and main.m.
 set -e
 cd "$(dirname "$0")"
-mkdir -p build
+OUT=${OUT:-build}
+mkdir -p "$OUT"
 xcrun clang -fobjc-arc -O2 -Wall -Werror -I stub -I ../../tweak/Sources -framework Foundation \
-    main.m ../../tweak/Sources/Shared/Player/SleepTimer.m ../../tweak/Sources/Shared/Player/SpotifySleepTimer.m \
+    main.m clock.m timer-source.m spotify-source.m \
     ../../tweak/Sources/Core/SGLocalize.m \
-    -o build/sleep-timer
-echo "built build/sleep-timer"
+    -o "$OUT/sleep-timer"
+echo "built $OUT/sleep-timer"

@@ -10,7 +10,7 @@ are plain views standing in for Spotify's; the morph's inputs from `NowPlayingBa
     export MORPH_OUT=$(mktemp -d "${TMPDIR:-/tmp}/vitrine-morph-preview.XXXXXX")
     THEOS=$HOME/theos sh harness/morph/build.sh
     xcrun simctl install booted "$MORPH_OUT/MorphHarness.app"
-    xcrun simctl launch booted com.vojta.morphharness          # opens, closes, repeats
+    xcrun simctl launch booted com.vojta.morphharness          # opens and closes once, then exits
 
 Held at one progress, for a screenshot (the positions are logged as `MORPH` lines):
 
@@ -27,7 +27,7 @@ build. Remove your preview output after use, shut down simulators and quit Simul
 
 From the repository root:
 
-    sh harness/morph/check.sh --mutation
+    sh harness/morph/check.sh
 
 `compact.inc` models the compact transition's setup, stored `UIViewPropertyAnimator`, start/pause,
 gesture-driven fraction, finish/reverse/continue, and Spotify-owned completion/cancellation. Production
@@ -45,10 +45,7 @@ the device. UIKit continuation arguments are observed at the framework boundary.
 An alternate owner fixture lacks the `overlayView` ivar. With the switch on it must retain the original
 0.30-second duration both before and after setup, the original animator and the 1.5× follower path.
 
-Mutations move side convergence to p=0 and remove the required `overlayView` capability from temporary
-copies. The frozen p=0.55 left-edge and unsupported-owner duration checks respectively must fail with a
-normal nonzero app exit, never a trap; the production source is not edited. The script
-removes its app/builds and simulator, shuts down all simulators and quits Simulator.app, also on failure.
+The script removes its app/builds and its own simulator, also on failure.
 
 Not covered: Spotify's real player/list, its snapshot glass (`BarTransition.x`), actual gesture routing,
 physical 120 Hz rendering, or visual/device acceptance. The sheet is black here.

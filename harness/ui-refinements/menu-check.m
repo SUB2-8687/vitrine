@@ -5,6 +5,7 @@
 // (harness-fail.h).
 #import <UIKit/UIKit.h>
 #import "Core/SGUIMode.h"
+#import "Core/SGPrefs.h"
 #import <objc/runtime.h>
 #import "Settings/SGPageStyle.h"
 #import "Redesigned/Kit/SGRKit.h"
@@ -130,6 +131,30 @@ static NSUInteger sg_checks;
 static void expect(BOOL ok, NSString *what) {
     sg_checks++;
     if (!ok) HARNESS_FAIL(@"%@", what);
+}
+
+static void checkPlacementMigration(void) {
+    NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
+    NSDictionary *saved = [store volatileDomainForName:NSArgumentDomain];
+    NSString *old = @"spotifyglass.redesign.album.playCounts", *place = @"spotifyglass.redesign.album.playCounts.place";
+    NSArray *cases = @[
+        @[@{}, @(SGRAlbumPlayCountsInRow)],
+        @[@{old: @YES}, @(SGRAlbumPlayCountsInRow)],
+        @[@{old: @NO}, @(SGRAlbumPlayCountsOff)],
+        @[@{old: @NO, place: @2}, @(SGRAlbumPlayCountsInMenu)],
+        @[@{old: @YES, place: @0}, @(SGRAlbumPlayCountsOff)],
+        @[@{old: @NO, place: @1}, @(SGRAlbumPlayCountsInRow)],
+        @[@{old: @NO, place: @7}, @(SGRAlbumPlayCountsOff)],
+        @[@{old: @YES, place: @(-1)}, @(SGRAlbumPlayCountsInRow)],
+        @[@{@"spotifyglass.stock": @YES}, @(SGRAlbumPlayCountsOff)]
+    ];
+    for (NSArray *fixture in cases) {
+        [store setVolatileDomain:fixture[0] forName:NSArgumentDomain];
+        SGPrefsChanged();
+        expect(SGRAlbumPlayCountsWhere() == [fixture[1] integerValue], @"placement migration and stock reset");
+    }
+    [store setVolatileDomain:saved forName:NSArgumentDomain];
+    SGPrefsChanged();
 }
 
 static void layOut(UIViewController *sheet) {
@@ -391,6 +416,7 @@ int main(int argc, char *argv[]) {
     // A run that never reaches its end fails rather than hangs.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ HARNESS_FAIL(@"timed out"); });
     @autoreleasepool {
+        checkPlacementMigration();
         method_exchangeImplementations(class_getInstanceMethod(NSFileManager.class, @selector(URLsForDirectory:inDomains:)),
                                        class_getInstanceMethod(NSFileManager.class, @selector(fixture_URLsForDirectory:inDomains:)));
         return UIApplicationMain(argc, argv, nil, NSStringFromClass(SGUIRefinementsMenuApp.class));

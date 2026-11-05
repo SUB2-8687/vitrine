@@ -18,7 +18,5 @@ protocol, the clip transfers are fakes, and the alert is read through a stand-in
   nothing in the way reports nothing.
 
     sh build.sh        # builds build/artwork-clear-check and runs it
-    python3 mutate.py  # breaks each rule once in a copy of its file; every mutant must be caught
 
-`OUT=<directory>` isolates the binary. `mutate.py` replaces one production file at a time through `STORE`, `CATALOG`
-or `SETTINGS`, and never edits the real ones.
+`OUT=<directory>` isolates the binary.

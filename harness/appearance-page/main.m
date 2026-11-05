@@ -21,8 +21,6 @@
 #import "Redesigned/Kit/SGRAccent.h"
 #import "Shared/Fonts/Fonts.h"
 
-void SGCheckFontSelection(void);
-
 static void findViews(UIView *root, Class kind, NSMutableArray *found) {
     if ([root isKindOfClass:kind]) [found addObject:root];
     for (UIView *sub in root.subviews) findViews(sub, kind, found);
@@ -80,11 +78,6 @@ static NSInteger hex(NSString *text) {
     self.nav = [[UINavigationController alloc] initWithRootViewController:[self appearancePage]];
     self.window.rootViewController = self.nav;
     [self.window makeKeyAndVisible];
-
-    if ([args containsObject:@"font-race"]) {
-        SGCheckFontSelection();
-        return YES;
-    }
 
     [actions enumerateObjectsUsingBlock:^(NSString *action, NSUInteger i, BOOL *stop) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((1 + 0.9 * i) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

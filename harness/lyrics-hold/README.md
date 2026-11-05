@@ -28,7 +28,7 @@ sheet's own contents, and the haptics. Those are the phone's.
 
 ## The phone's pass (Lead)
 
-1. Hold a lyric line: the menu shows **Copy**, **Share**, and **Meaning** first where that line has a meaning; a light
+1. Hold a lyric line: the menu shows **Copy**, **Share**, **Share as Card**, and **Meaning** first where that line has a meaning; a light
    tap is felt once with Vibrations → Controls on, and nothing with it off.
 2. Hold and drag a little, then let go: the menu stays where it opened on that line, and closes from its own dismissal
    or a tap elsewhere.

@@ -2,14 +2,12 @@
 # Compact library's checks (main.m `check`, settings-check.m) in an iOS simulator of the run's own, made for the run
 # and deleted after it: Compact library off; on, with the list loading late, without a sort row and with a filter the
 # menu has no clear chip for; on at the largest accessibility text size and right to left; the Library page of Mod
-# Settings, left to right and right to left. Then the menu opened by a finger (`look`), taken with simctl. PNGs go to $OUT/png; exits nonzero on the
-# first failed check.
+# Settings, left to right and right to left. Exits nonzero on the first failed check.
 #     THEOS=$HOME/theos ./compact-check.sh
 set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 OUT=${HARNESS_BUILD_DIR:-$HERE/build}
 HARNESS_BUILD_DIR=$OUT sh "$HERE/build.sh"
-mkdir -p "$OUT/png"
 
 TYPE=$(xcrun simctl list devicetypes | sed -n 's/.*(\(com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro\))$/\1/p' | head -1)
 RUNTIME=$(xcrun simctl list runtimes available | sed -n 's/.* - \(com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*\)$/\1/p' | tail -1)
@@ -23,7 +21,7 @@ xcrun simctl install "$UDID" "$OUT/LibraryHarness.app"
 run() {
     expected=$1
     shift
-    SIMCTL_CHILD_LIBRARY_PNG="$OUT/png" xcrun simctl launch --console-pty --terminate-running-process "$UDID" com.vojta.libraryharness \
+    xcrun simctl launch --console-pty --terminate-running-process "$UDID" com.vojta.libraryharness \
         -AppleLanguages '(en)' -AppleLocale en_US "$@" > "$OUT/run.log" 2>&1 || true
     cat "$OUT/run.log"
     grep -q "$expected" "$OUT/run.log" || { echo "FAILED: $*"; exit 1; }
@@ -39,10 +37,4 @@ run "PASS all compact" check compact -tag rtl -AppleTextDirection YES -NSForceRi
 run "PASS all settings" settings
 run "PASS all settings" settings -tag rtl -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES
 
-xcrun simctl launch --terminate-running-process "$UDID" com.vojta.libraryharness look compact steady
-sleep 3
-xcrun simctl io "$UDID" screenshot "$OUT/png/menu-open.png"
-xcrun simctl launch --terminate-running-process "$UDID" com.vojta.libraryharness look compact steady -tag rtl -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES
-sleep 3
-xcrun simctl io "$UDID" screenshot "$OUT/png/menu-open-rtl.png"
-echo "PASS library compact checks; pictures in $OUT/png"
+echo "PASS library compact checks"

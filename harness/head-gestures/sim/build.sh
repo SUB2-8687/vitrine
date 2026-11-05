@@ -5,7 +5,7 @@ set -e
 SRC=$(cd "$(dirname "$0")/../../../tweak/Sources" && pwd)
 OUT=${OUT:-$(dirname "$0")/../build/sim}
 mkdir -p "$OUT/gen" "$OUT/HeadGesturesSim.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/HeadGestures/HeadGestures.x" > "$OUT/gen/HeadGestures.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/HeadGestures/HeadGestures.x" > "$OUT/gen/HeadGestures.m"
 
 # The repeat transition as PlayerState.x has it, so HeadGestures.x links the real one; the Logos observer
 # hooks in that file are not compiled here (main.m stands in for SGPlayer, the state and the observers).

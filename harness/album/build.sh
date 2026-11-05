@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-# HARNESS_SRC builds another copy of the sources (faces-more-check.sh's mutants).
+# HARNESS_SRC selects another copy of the sources.
 SRC=${HARNESS_SRC:-$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)}
 OUT=${HARNESS_BUILD_DIR:-$(dirname "$0")/build}
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/AlbumHarness.app"
@@ -9,7 +9,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/AlbumHarness.app"
 for f in Shared/Fonts/Fonts.x Redesigned/Album/AlbumField.x Redesigned/Album/AlbumHeader.x Redesigned/Album/AlbumRows.x Redesigned/Album/AlbumSections.x \
          Redesigned/Kit/SGRAmoled.x; do
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
@@ -22,7 +22,7 @@ xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-ar
     "$SRC"/Core/SGBackdrop.m "$SRC"/Core/SGFlagForce.m "$SRC"/Core/SGUIMode.m "$(dirname "$0")/../page-style-with-presenter-stubs.m" \
     "$SRC"/Redesigned/Kit/SGRTokens.m "$SRC"/Redesigned/Kit/SGRPalette.m "$SRC"/Redesigned/Kit/SGRField.m "$SRC"/Redesigned/Kit/SGRFlow.m "$SRC"/Redesigned/Kit/SGRFluid.m "$SRC"/Redesigned/Kit/SGRFluidGPU.m "$SRC"/Shared/AnimatedArtwork/SGMotionCatalog.m "$SRC"/Shared/AnimatedArtwork/SGMotionStore.m "$SRC"/Shared/AnimatedArtwork/SGMotionTicket.m \
     "$SRC"/Redesigned/Kit/SGRGlass.m "$SRC"/Redesigned/Kit/SGRGlyph.m "$SRC"/Redesigned/Kit/SGRRestyle.m \
-    "$SRC"/Redesigned/Kit/SGRActionRow.m "$SRC"/Redesigned/Kit/SGRDownload.m "$SRC"/Redesigned/Kit/SGRHeaderInfo.m "$SRC"/Redesigned/Kit/SGRHeroVeil.m \
+    "$SRC"/Redesigned/Kit/SGRActionRow.m "$SRC"/Redesigned/Kit/SGRDownload.m "$SRC"/Redesigned/Kit/SGRHeaderInfo.m "$SRC"/Redesigned/Kit/SGRHeroVeil.m "$SRC"/Redesigned/Kit/SGRStretchHero.m \
     "$SRC"/Redesigned/Kit/SGRedesign.m "$SRC"/Redesigned/Album/AlbumCredits.m "$SRC"/Shared/Fonts/FontLibrary.m "$SRC"/Core/SGLocalize.m \
     "$SRC"/Redesigned/Album/AlbumPlays.m "$SRC"/Redesigned/Album/AlbumPlaysText.m "$SRC"/Redesigned/Album/AlbumSpotifyCounts.m "$SRC"/Redesigned/Kit/SGRCoverViewer.m "$SRC"/Shared/ListeningStats/SGPlayLog.m \
     "$SRC"/Redesigned/Album/AlbumNotes.m "$SRC"/Shared/AnimatedArtwork/SGMotionClip.m "$SRC"/Shared/AdBlock/Protobuf.m \

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds the lyrics clip harness for the Mac: SGLyricsClip.m as the tweak compiles it, and main.m. motion.m
 # times the words over moving artwork against SGMotionClip.m's cut, which needs Protobuf.m to link. scenes.m
-# checks Messages and Vinyl. SRC=<tree> builds another source tree (mutations.py).
+# checks Messages and Vinyl. SRC=<tree> builds another source tree.
 set -e
 cd "$(dirname "$0")"
 OUT=${OUT:-build}

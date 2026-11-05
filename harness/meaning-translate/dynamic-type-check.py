@@ -30,6 +30,5 @@ with tempfile.TemporaryDirectory(prefix="meaning-dynamic-type.") as directory:
         if result.returncode or "[harness] meaning Dynamic Type passed" not in output:
             raise SystemExit(1)
     finally:
-        command("xcrun", "simctl", "shutdown", "all")
-        command("osascript", "-e", 'if application "Simulator" is running then tell application "Simulator" to quit')
+        command("xcrun", "simctl", "shutdown", device)
         command("xcrun", "simctl", "delete", device)

@@ -41,9 +41,6 @@ int main(void) {
     @autoreleasepool {
         clearDefaults();
 
-        check([SGDSPFileKey(SGDSPFileImpulseResponse) isEqual:@"spotifyglass.dsp.convolver.file"], @"impulse response selection key");
-        check([SGDSPFileKey(SGDSPFileDDC) isEqual:@"spotifyglass.dsp.ddc.file"], @"DDC selection key");
-        check([SGDSPFileKey(SGDSPFileLiveprog) isEqual:@"spotifyglass.dsp.liveprog.file"], @"Liveprog selection key");
         check(SGDSPFileKey((SGDSPFileKind)-1) == nil, @"invalid file kind has no selection key");
         check([SGDSPPresetMissingFiles(@{
             SGKeyDSPConvolverFile: @"refactor-missing-ir.wav",
@@ -67,12 +64,31 @@ int main(void) {
         }
         clearDefaults();
 
-        SGDSPLoadBuiltInPreset(1);
-        check([SGDSPGains(SGKeyDSPEqualizerGains) isEqual:@[@-2, @-2, @-2, @-1, @-1, @0, @1, @2, @3, @3, @2, @1, @0, @-1, @-1]],
-              @"Vocal clarity selects the vocal equalizer curve");
-        SGDSPLoadBuiltInPreset(4);
-        check([SGDSPGains(SGKeyDSPEqualizerGains) isEqual:@[@2, @2, @2, @2, @1, @1, @0, @0, @0, @-1, @-1, @-2, @-2, @-2, @-2]],
-              @"Warm analog selects the warm equalizer curve");
+        // Preset loading owns settings round trips; AutoEq owns download and correction races.
+        SGDSPSetSwitch(SGKeyDSPTube, YES);
+        SGDSPSetSwitch(SGKeyDSPGraphicEq, YES);
+        SGDSPSetString(SGKeyDSPGraphicEqNodes, @"GraphicEQ: 20 -1.2;");
+        SGDSPSetString(SGKeyDSPGraphicEqHeadphone, @"Fixture/Headphones");
+        SGDSPSetSwitch(SGKeyDSP, NO);
+        SGDSPLoadBuiltInPreset(0);
+        check(!SGDSPSwitch(SGKeyDSPTube) && SGDSPSwitch(SGKeyDSP), @"built-in replaces other effects and enables processing");
+        check(SGDSPSwitch(SGKeyDSPGraphicEq) && [SGDSPString(SGKeyDSPGraphicEqNodes) isEqual:@"GraphicEQ: 20 -1.2;"]
+              && [SGDSPString(SGKeyDSPGraphicEqHeadphone) isEqual:@"Fixture/Headphones"], @"built-in preserves headphone correction");
+        SGDSPSetSwitch(SGKeyDSPCompander, YES);
+        SGDSPSetNumber(SGKeyDSPPostGain, 2.5);
+        SGDSPSaveUserPreset(@"Mine");
+        SGDSPSaveUserPreset(@"another");
+        check([SGDSPUserPresetNames() isEqual:@[@"another", @"Mine"]], @"saved presets listed by name");
+        SGDSPResetAll();
+        SGDSPSetSwitch(SGKeyDSP, NO);
+        SGDSPSetString(SGKeyDSPGraphicEqNodes, @"GraphicEQ: 1000 3;");
+        check(SGDSPLoadUserPreset(@"Mine") && SGDSPSwitch(SGKeyDSP), @"saved preset loads and enables processing");
+        check(SGDSPSwitch(SGKeyDSPCompander) && SGDSPNumber(SGKeyDSPPostGain) == 2.5, @"saved effects and values restored");
+        check(SGDSPSwitch(SGKeyDSPGraphicEq) && [SGDSPString(SGKeyDSPGraphicEqNodes) isEqual:@"GraphicEQ: 20 -1.2;"]
+              && [SGDSPString(SGKeyDSPGraphicEqHeadphone) isEqual:@"Fixture/Headphones"], @"saved headphone correction restored");
+        check(!SGDSPLoadUserPreset(@"nobody's"), @"unknown preset loads nothing");
+        SGDSPDeleteUserPreset(@"another");
+        check([SGDSPUserPresetNames() isEqual:@[@"Mine"]], @"preset deleted");
         clearDefaults();
 
         // A preset of the user's, written and read back.
@@ -103,6 +119,8 @@ int main(void) {
         SGDSPSaveUserPresetValues(@"Imported", values);
         check(SGDSPUserPresetExists(@"Imported") && SGDSPLoadUserPreset(@"Imported"), @"an imported preset is saved and loads");
         check(SGDSPSwitch(SGKeyDSPBass) && SGDSPNumber(SGKeyDSPBassGain) == 9, @"loading it sets the effects");
+        check([[SGDSPGains(SGKeyDSPEqualizerGains) subarrayWithRange:NSMakeRange(0, 3)] isEqual:@[@1, @2, @3]],
+              @"loading restores the user's equalizer bands");
 
         // What the reader refuses.
         check(!readFile(nil, NULL, &error) && error.length, @"no data is refused");

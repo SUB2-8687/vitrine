@@ -63,10 +63,6 @@ return base64 UTF-8 QRC or base64 zlib QRC in `lyric`; otherwise crypt=0,qrc=0 m
 This harness does not establish encrypted QRC compatibility or transition-frame timing on a phone.
 Build products use a unique temporary directory removed on exit; `LYRICS_SOURCE_ROOT` can point to
 an isolated source copy for mutation checks without changing the checkout.
-`python3 -B harness/lyrics-sources/mutation-check.py` from the Project root checks seven isolated
-mutations: absolute QRC clocks, expansion bound, mixed malformed clocks falling back to LRC,
-short-name containment, aliases within joined credits, main-thread parsing and missing NetEase
-title validation. Every mutation must fail at its own behavior assertion.
 
 `sh ./state-build.sh` checks the actual keeper and source walk as a second Mac Catalyst binary. Only
 Spotify's Logos hooks are omitted; the route getter and the pinned/provider replies are replaced by

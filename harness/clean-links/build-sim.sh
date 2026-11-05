@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 SRC=../../tweak/Sources
 mkdir -p build/gen
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Privacy/CleanLinks.x" > build/gen/CleanLinks.m
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Privacy/CleanLinks.x" > build/gen/CleanLinks.m
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -O0 -g -isysroot "$SDK" \
     -I "$SRC" -I "$SRC/Shared/Privacy" \

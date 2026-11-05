@@ -3,6 +3,8 @@
 // line's -at at -rate, and holds at -pauseAt for -holdFor seconds before it runs on.
 #import <UIKit/UIKit.h>
 #import "Shared/Lyrics/Lyrics.h"
+#import "Shared/Sing/Sing.h"
+#import "Core/SGPrefs.h"
 
 UIColor *SGRAccentColor(void) { return nil; }
 
@@ -248,6 +250,10 @@ void SGKaraokeSeek(NSInteger ms) {
 NSString *SGLyricsSongName(NSString *trackID) { return @"“Sample” by Harness"; }
 // Karaoke's settings tell the lyrics to show or hide the mic.
 NSNotificationName const SGSingButtonDidChangeNotification = @"SGSingButtonDidChangeNotification";
+BOOL SGSingButtonShown(void) {
+    if (@available(iOS 18.0, *)) return SGFlag(SGKeySingButton, YES);
+    return SGFlag(SGKeySingButton, NO);
+}
 
 // The other translators and the lyrics' tools (LyricsTools.m): off in the harness, so the menu offers what it
 // did before, with Sync and Search LRCLIB under it.
@@ -344,3 +350,9 @@ NSNotificationName const SGTitleTranslationSettingsDidChangeNotification = @"spo
 NSNotificationName const SGLyricsTranslationServiceSettingsDidChangeNotification = @"spotifyglass.translationServiceSettingsDidChange";
 
 NSNotificationName const SGLyricsWordTimingDidChangeNotification = @"spotifyglass.lyricsWordTimingDidChange";
+
+// LyricCardPicker.m and ShareCards.m are not built: a lyric card's picker and image are checked on the phone.
+#import "Redesigned/Lyrics/LyricCardPicker.h"
+@implementation SGRLyricCardLine
+@end
+void SGRPresentLyricCardPicker(NSArray<SGRLyricCardLine *> *lines, NSUInteger picked, BOOL pronunciation, NSString *trackID) {}

@@ -21,9 +21,9 @@ if [ "$1" = before ]; then
 fi
 rm -rf "$OUT"
 mkdir -p "$OUT/gen" "$OUT/HapticsHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$HAPTICS/MusicHaptics.x" > "$OUT/gen/MusicHaptics.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$HAPTICS/MusicHaptics.x" > "$OUT/gen/MusicHaptics.m"
 # Shared/Player keeps Spotify's outputs apart and tells Music Haptics which is the music's.
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O1 -isysroot "$SDK" -Wno-deprecated-declarations \
     $EXTRA -I"$SRC" -I"$SRC/Shared/Haptics" -I"$SRC/Shared/Player" -Isim \

@@ -777,6 +777,26 @@ void artworkChecks(void) {
     runFor(0.03);
     check(!artwork(), @"late now-playing info cannot revive disabled lyrics");
 
+    SGKaraokeLine *spoken = lineOf(@"原文", 0, 10000);
+    spoken.pronunciation = lineOf(@"first reading", 0, 10000);
+    harnessReading(SGRLyricsReadingSource, YES);
+    track(@"reading-revision", SGLockArtworkLyrics, nil, @[spoken]);
+    id firstReading = artwork();
+    video(firstReading);
+    spoken.pronunciation = lineOf(@"replacement reading", 0, 10000);
+    [NSNotificationCenter.defaultCenter postNotificationName:SGKaraokeLinesKeptNotification object:@"reading-revision"];
+    id replacementReading = artwork();
+    video(replacementReading);
+    check([encodedLines containsObject:@"replacement reading"] && video(firstReading) == nil,
+          @"source pronunciation replacement renders new words and cancels the old clip");
+    harnessSongLanguage = @"ja";
+    [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsLanguageDidChangeNotification object:@"reading-revision"];
+    check(video(replacementReading) == nil && video(artwork()) != nil,
+          @"song language change retires pending pronunciation clips while paused");
+    harnessSongLanguage = nil;
+    harnessReading(SGRLyricsReadingNone, NO);
+    choose(SGLockArtworkOff);
+
     background(@{@"darkness": @0});
     runFor(.2);
     // A non-nil native placeholder is not a missing image. The old test supplied nil,

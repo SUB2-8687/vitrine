@@ -7,7 +7,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/LibraryHarness.app"
 
 for f in Redesigned/Library/LibraryHeader.x; do
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

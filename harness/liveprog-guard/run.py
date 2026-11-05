@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build/run the real engine and one negative mutation per guard contract."""
+"""Build/run the real engine; negative mutations require explicit manual opt-in."""
+import argparse
 import pathlib
 import subprocess
 import tempfile
@@ -8,6 +9,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 FX = ROOT / "tweak/Sources/Shared/AudioEffects"
 VENDOR = ROOT / "vendor/audio"
 HERE = pathlib.Path(__file__).resolve().parent
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--mutations", action="store_true", help="run manual mutation proofs")
+args = parser.parse_args()
 
 
 def run(args, **kwargs):
@@ -62,6 +66,9 @@ with tempfile.TemporaryDirectory(prefix="vitrine-liveprog-guard-") as directory:
     executable = build("guard", source)
     for case in ("thresholds", "normal", "heavy", "deadline", "abandonment", "messages", "quarantine", "adjacent"):
         run([executable, case], timeout=15)
+
+    if not args.mutations:
+        raise SystemExit(0)
 
     mutations = [
         ("consecutive", "engine->liveprogOverBudget >= kLiveprogConsecutiveBlocks",

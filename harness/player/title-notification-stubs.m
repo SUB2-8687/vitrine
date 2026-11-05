@@ -65,7 +65,12 @@ BOOL SGEnabled(NSString *key) { return [key isEqualToString:SGRKeyLyricsAutoHide
 SGRLyricsHide SGRLyricsHideMode(void) { return SGRLyricsHideAll; }
 BOOL SGRPlayerLyricsAvailable(void) { return YES; }
 BOOL SGRPlayerLyricsNone(void) { return NO; }
-BOOL SGRPlayerLyricsOpen(void) { return NO; }
+// The lyrics turned sideways: with them closed the screen is the player's, laid out without lines.
+BOOL SGRPlayerLyricsOpen(void) { return YES; }
+BOOL SGFlag(NSString *key, BOOL fallback) { return fallback; }
+BOOL SGRPlayerIsTransitioning(void) { return NO; }
+NSString *const SGPlayerTransitionEndedNotification = @"harness.playerTransitionEnded";
+void SGRequireClasses(NSArray<NSString *> *names) {}
 id SGKaraokePlayer(void) { return nil; }
 UIImage *SGRNowPlayingArtwork(NSString **uri, NSString **identity) { return nil; }
 UIColor *SGRAccentColor(void) { return nil; }

@@ -134,6 +134,21 @@ with the bar hidden, and Spotify's own `TabBarGradientView` left clear throughou
 (navsettings.m): its fade switch starts on, the preview reads the fade, and the switch takes the fade off the real
 bar at once. It does so through the switch's own path in the product (`SGRRefreshBarFade`, TabBar.x): stubs.m's
 `SGRRefreshTabBar` lays out nothing, as Navbar.x's would with no bar composed, so a switch that relied on it fails.
+That scenario also checks Icons only, Custom tab bar and hiding Home through the page controls,
+without screenshot pauses.
+
+`bar-check.sh` runs the tabs' glyphs and the now playing card's edges in a simulator of its own, and `audit`.
+`glyphs` makes the tabs' icons Encore's glyph view (a mock under its name that draws a ring for an outline icon
+and a solid shape for its `-active` variant, which the tab's view is handed when it is selected, its `isActive`
+changing only colors) and asserts the selected tab's filled glyph and every other tab's outline at launch, after
+picking Search and Home again, minimized and expanded on the spring, and after Home's view is handed another
+icon (a square), which must replace Home's old glyph. `glyphs swift` does the same with the icon held as 9.1.90
+holds it: a reference Objective-C cannot read to one icon carrying both glyphs, which the view keeps selected or
+not, its `isActive` picking the filled one. `edges` (after `none`, `split`, `split2` or `jam`, with
+`regular` or `rtl`) asserts the card's sides: above the bar at the expanded platters' outer edges as UIKit drew
+them (with Search split the main platter is centered narrower than its bar, x 27 on an iPhone 17 Pro), minimized
+in the row 8 pt from the circles, back after a minimize turned back mid-spring, above the bar while a Jam's strip
+is up, and Spotify's 8 pt in a regular width and right to left.
 
 What it does not cover: Spotify's own chrome, which is Swift with no symbols (the constraints above
 are read from its code, not run), the real now playing bar's content and its page's inset, the tab

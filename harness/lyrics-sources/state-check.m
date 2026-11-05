@@ -1670,6 +1670,87 @@ static void checkConcurrentWalk(void) {
     printf("all-at-once: launch, synchronous replies, coalescing, early delivery, ranked merges, first words, deferred naming, filters, exhaustion, pins and retirement passed\n");
 }
 
+static void checkWalkSelection(void) {
+    NSArray *keys = @[@"musixmatch", @"netease", SGImportedLRCKey];
+    NSMutableArray *saved = [NSMutableArray array], *asked = [NSMutableArray array];
+    __block NSInteger pickedReply = 0; // 0: lyrics, 1: failed transport, 2: successful empty reply
+    for (NSString *key in keys) {
+        SGLyricsProvider *provider = SGLyricsProviderFor(key);
+        [saved addObject:(id)provider.ask ?: NSNull.null];
+        provider.ask = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *)) {
+            [asked addObject:key];
+            if ([key isEqual:@"netease"] && pickedReply) {
+                if (pickedReply == 1) [query.requestContext noteFailure:YES];
+                done(nil);
+            } else done(madeUpLyrics(key, SGKaraokeTimingLine));
+        };
+    }
+    SGLyricsSetOrder(@[@"musixmatch", @"netease"]);
+    SGSetInt(SGKeyLyricsAskMode, 0);
+    SGSetEnabled(SGKeyLyricsPreferWordTiming, NO);
+    SGLyricsResult *(^fetch)(NSString *) = ^SGLyricsResult *(NSString *track) {
+        __block BOOL finished = NO;
+        __block SGLyricsResult *answer;
+        SGLyricsFetch(track, ^(SGLyricsResult *result) { answer = result; finished = YES; });
+        pumpUntil(^BOOL { return finished; });
+        return answer;
+    };
+    void (^evictWalk)(void) = ^{
+        for (NSUInteger i = 0; i < 40; i++) fetch(NSUUID.UUID.UUIDString);
+        [asked removeAllObjects];
+    };
+    NSString *track = NSUUID.UUID.UUIDString;
+    SGLyricsResult *answer = fetch(track);
+    CHECK([answer.provider isEqual:@"musixmatch"] && !answer.picked);
+    SGLyricsAskOffers(track);
+    SGLyricsChooseSource(track, @"netease");
+    CHECK([SGLyricsCreditFor(track) isEqual:@"netease"]);
+    evictWalk();
+    answer = fetch(track);
+    CHECK([asked isEqual:@[@"netease"]] && answer.picked);
+    evictWalk();
+    pickedReply = 1;
+    answer = fetch(track);
+    CHECK([asked isEqual:(@[@"netease", @"musixmatch"])]);
+    CHECK([answer.provider isEqual:@"musixmatch"] && !answer.picked);
+    CHECK([SGLyricsChosenSource(track) isEqual:@"netease"] && fetch(track) == answer);
+    pickedReply = 0;
+    evictWalk();
+    CHECK(fetch(track).picked);
+    evictWalk();
+    pickedReply = 2;
+    answer = fetch(track);
+    CHECK([answer.provider isEqual:@"musixmatch"] && !answer.picked && !SGLyricsChosenSource(track));
+    pickedReply = 0;
+
+    // Automatic restores the real keeper's Spotify sheet, not a test-owned lines dictionary.
+    track = NSUUID.UUID.UUIDString;
+    NSArray *spotify = SGKaraokeStaticLines(@[@"Spotify original"]);
+    SGKaraokeKeepSpotifyLines(track, spotify);
+    SGLyricsAskOffers(track);
+    SGLyricsChooseSource(track, @"netease");
+    SGLyricsChooseAutomatic(track);
+    CHECK(!SGLyricsChosenSource(track) && [SGLyricsCreditFor(track) isEqual:@"Spotify"]);
+    CHECK([SGKaraokeLineText(SGKaraokeLinesForTrack(track).firstObject) isEqual:@"Spotify original"]);
+    evictWalk();
+    CHECK([fetch(track).provider isEqual:@"musixmatch"] && [asked isEqual:@[@"musixmatch"]]);
+
+    SGSetEnabled(SGKeyLyricsPreferWordTiming, YES);
+    SGLyricsSetOrder(@[SGImportedLRCKey, @"musixmatch", @"netease"]);
+    [asked removeAllObjects];
+    CHECK([fetch(NSUUID.UUID.UUIDString).provider isEqual:SGImportedLRCKey]);
+    CHECK([asked isEqual:@[SGImportedLRCKey]]);
+    SGLyricsSetOrder(@[@"musixmatch", SGImportedLRCKey, @"netease"]);
+    [asked removeAllObjects];
+    CHECK([fetch(NSUUID.UUID.UUIDString).provider isEqual:@"musixmatch"]);
+    CHECK([asked isEqual:(@[@"musixmatch", SGImportedLRCKey, @"netease"])]);
+    for (NSUInteger i = 0; i < keys.count; i++)
+        SGLyricsProviderFor(keys[i]).ask = saved[i] == NSNull.null ? nil : saved[i];
+    SGSetEnabled(SGKeyLyricsPreferWordTiming, NO);
+    SGLyricsSetOrder(@[@"musixmatch"]);
+    puts("walk selection: 40-track eviction, failed/empty picks, Spotify restoration and imported timing passed");
+}
+
 static void checkReload(void) {
     NSString *track = @"reload-song";
     NSDictionary *record = @{@"id": @456, @"syncedLyrics": @"[00:01]Before reload"};
@@ -2733,6 +2814,7 @@ int main(void) {
         puts("recovery: invocation isolation, all policies, provisional disk exclusion, stable snapshots, next playback, upgrades, misses, exhaustion, Spotify, translations and retirement passed");
         checkReload();
         checkPickRaces(0);
+        checkWalkSelection();
         checkBackgroundSkip();
         for (NSUInteger i = 0; i < 501; i++) CHECK(SGLyricsPin([@(i) stringValue], record));
         CHECK([defaults dictionaryForKey:SGKeyLyricsPins].count == 500 && [SGLyricsPinnedID(@"500") isEqual:@123]);

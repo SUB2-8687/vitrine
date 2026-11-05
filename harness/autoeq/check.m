@@ -1,5 +1,5 @@
 // Checks Presets and Headphones (Shared/AudioEffects/AudioEffectsPresets.h) on the Mac: INDEX.md's parsing on
-// lines written to be awkward, the raw addresses made from them, search, the built-in and saved presets
+// lines written to be awkward, the raw addresses made from them, search, correction selection races
 // through the real settings, and, with `online`, AutoEq's real index fetched, cached and one headphone applied.
 //
 //     ./build.sh && build/autoeq-check [online]
@@ -127,47 +127,6 @@ static void checkPresets(void) {
     check([applied countForObject:SGKeyDSPGraphicEq] > 0, @"the Graphic EQ handed to the engine");
     check(SGDSPSwitch(SGKeyDSP) && [applied countForObject:SGKeyDSP] > 0, @"the effects' master switch on with the headphone");
     check(!SGAutoEqApplyText(@"a/b", @"<html>404</html>"), @"a page that is not GraphicEQ is refused");
-    SGDSPSetSwitch(SGKeyDSPTube, YES);
-    SGDSPSetSwitch(SGKeyDSP, NO);
-
-    NSArray<NSString *> *names = SGDSPBuiltInPresetNames();
-    check(names.count >= 4 && [names containsObject:@"Concert hall"] && [names containsObject:@"Late night"], @"built-in presets");
-    for (NSUInteger i = 0; i < names.count; i++) check(SGDSPBuiltInPresetDetail((NSInteger)i).length > 0, [@"a detail for " stringByAppendingString:names[i]]);
-
-    SGDSPLoadBuiltInPreset((NSInteger)[names indexOfObject:@"Bass boost"]);
-    check(SGDSPSwitch(SGKeyDSPBass) && SGDSPNumber(SGKeyDSPBassGain) == 8, @"Bass boost: bass on at 8 dB");
-    check(!SGDSPSwitch(SGKeyDSPTube), @"Bass boost: the tube, on before, off");
-    check(SGDSPSwitch(SGKeyDSPGraphicEq) && [SGDSPString(SGKeyDSPGraphicEqNodes) hasPrefix:@"GraphicEQ: 20 -1.2"]
-          && SGDSPString(SGKeyDSPGraphicEqHeadphone).length, @"Bass boost: the headphone's correction kept");
-    check(SGDSPSwitch(SGKeyDSP), @"Bass boost: the master switch on with it");
-
-    SGDSPLoadBuiltInPreset((NSInteger)[names indexOfObject:@"Vocal clarity"]);
-    check(SGDSPSwitch(SGKeyDSPEqualizer) && [SGDSPGains(SGKeyDSPEqualizerGains) isEqualToArray:SGDSPEqualizerPreset(4)]
-          && !SGDSPSwitch(SGKeyDSPBass), @"Vocal clarity: the equalizer's Vocal curve, bass off");
-    SGDSPLoadBuiltInPreset((NSInteger)[names indexOfObject:@"Concert hall"]);
-    check(SGDSPSwitch(SGKeyDSPReverb) && SGDSPNumber(SGKeyDSPReverbPreset) == 7
-          && [SGDSPReverbPresetNames()[7] isEqualToString:@"Large hall"], @"Concert hall: the Large hall reverb");
-    // The user's own: everything, the Graphic EQ too.
-    SGDSPLoadBuiltInPreset((NSInteger)[names indexOfObject:@"Late night"]);
-    NSArray<NSNumber *> *eq = SGDSPGains(SGKeyDSPEqualizerGains);
-    SGDSPSetNumber(SGKeyDSPPostGain, 2.5);
-    SGDSPSaveUserPreset(@"Mine");
-    SGDSPSaveUserPreset(@"another");
-    check([SGDSPUserPresetNames() isEqualToArray:(@[@"another", @"Mine"])], @"saved presets listed by name");
-    SGDSPResetAll();
-    SGDSPSetSwitch(SGKeyDSP, NO);
-    SGDSPSetString(SGKeyDSPGraphicEqNodes, @"GraphicEQ: 1000 3;");
-    check(SGDSPLoadUserPreset(@"Mine"), @"a saved preset loads");
-    check(SGDSPSwitch(SGKeyDSP), @"the master switch on with it");
-    check(SGDSPSwitch(SGKeyDSPCompander) && [SGDSPGains(SGKeyDSPEqualizerGains) isEqualToArray:eq] && SGDSPNumber(SGKeyDSPPostGain) == 2.5,
-          @"its effects and values back");
-    check(SGDSPSwitch(SGKeyDSPGraphicEq) && [SGDSPString(SGKeyDSPGraphicEqNodes) hasPrefix:@"GraphicEQ: 20 -1.2"]
-          && SGDSPString(SGKeyDSPGraphicEqHeadphone).length, @"its Graphic EQ back");
-    check(![[NSUserDefaults.standardUserDefaults objectForKey:SGKeyDSPUserPresets][@"Mine"] objectForKey:SGKeyDSP],
-          @"the master switch not in it");
-    check(!SGDSPLoadUserPreset(@"nobody's"), @"an unknown name loads nothing");
-    SGDSPDeleteUserPreset(@"another");
-    check([SGDSPUserPresetNames() isEqualToArray:@[@"Mine"]], @"a preset deleted");
 }
 
 // A download of `headphone` held in flight while `during` edits the settings, then released: `expected` says

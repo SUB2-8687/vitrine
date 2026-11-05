@@ -39,8 +39,13 @@ SIGKILL cannot be handled and may leave children running after the kernel
 releases the runner's locks.
 
 `plan --changed-from <file|->` prints the selection, shards and matrix JSON.
-No simulator, phone, Spotify installation, API credentials or visual review is
-used.
+Selected assertion-based entries use isolated iOS simulators. No phone, Spotify
+installation, API credentials or visual review is used.
+
+CI entries do not build mutants. Mutation proofs belong to check creation, not
+ordinary runs; Liveprog's `--mutations` and the player's manual Automix script
+are explicit opt-ins. `local-files/suggest-sim.py` runs only its assertion scenario
+and shuts down/deletes its own simulator. Harness scripts default THEOS to `$HOME/theos`.
 
 Run the commands in the workflow locally on an Apple Silicon Mac with Xcode.
 The individual READMEs describe assertions and boundaries. Image/video output
@@ -72,9 +77,9 @@ their check executable in the workflow.
 | `head-gestures/build.sh` | Synthetic motion traces with expected gestures. |
 | `listening-stats/build.sh` | Synthetic imports, calendar cases and 100k-row checks. |
 | `local-files/build.sh` | Isolated metadata and imported LRC checks, the cover resolver, and the native cover watcher (`watcher.m`) updating to system artwork that arrives after its retries. |
-| `local-files/suggest-build.py` | Find Info's pure parts on the Mac: query cleaning, the three-second duration window, ranking, JSON parsing and size caps, artwork URL rewriting, and that accepting only fills the editor (with mutations). |
+| `local-files/suggest-build.py` | Find Info's pure parts on the Mac: query cleaning, the three-second duration window, ranking, JSON parsing and size caps, artwork URL rewriting, and that accepting only fills the editor. |
 | `lyrics/translation-check.sh` | Catalyst lyrics-menu assertions, not screenshots alone. |
-| `lyrics-clip/build.sh` | Default synthetic still/animated clips with decode assertions, and the Messages and Vinyl scenes (`scenes`). `unchanged.sh` (needs Git history) proves Left, Centered and Poster pixel-identical to the commit before the scenes; `mutations.py` breaks each scene rule once. |
+| `lyrics-clip/build.sh` | Default synthetic still/animated clips with decode assertions, and the Messages and Vinyl scenes (`scenes`). `regression.sh` checks visible-frame geometry and contrast. |
 | `lyrics-pip/build.sh` | Catalyst PiP text decision (`LyricsPiPText.m`) for synthetic lines and positions, plus frame fitting checks (`LyricsPiPFrame.m`) and sample frame PNGs. |
 | `lyrics-sources/build.sh` | Offline provider/parser/language fixtures. |
 | `lyrics-sources/state-build.sh` | Real keeper and concurrent source walk with fake replies. |
@@ -90,14 +95,14 @@ their check executable in the workflow.
 | `pitch/build.sh` | Synthetic sine pitch/speed assertions, no song argument. |
 | `player/title-notification-check.sh` | Real Logos controller with offline notification fixtures. |
 | `now-playing-bar/check.sh` | Catalyst title and artists split of the redesigned now playing bar through Logos: titles with and without " • ", with and without a device line, neighbour pages and an unknown track. |
-| `artwork-clear/build.sh` | Clearing downloaded animated covers and artist answers in a sandboxed Caches folder: size, alert, Cancel, leased clips, stale transfers and lookups, failure reporting; songs, chosen covers, edits and lyrics untouched (`mutate.py` for the mutants). |
+| `artwork-clear/build.sh` | Clearing downloaded animated covers and artist answers in a sandboxed Caches folder: size, alert, Cancel, leased clips, stale transfers and lookups, failure reporting; songs, chosen covers, edits and lyrics untouched. |
 | `fonts/build.sh` | Catalyst `FontLibrary.m` and the Free fonts page with Core Text faked at its two entry calls: installed families register off main, publish on main, never twice, and a removal is never overridden by a late publish; the real Font page (free and imported families) opens and the Free fonts page finishes a download while registrations are held, a block queued on main runs before each release, and the previews and the chosen font update after; a hidden Font page reloads nothing. |
-| `gesture-hold/check.sh` | Mac check of the hold-to-play-faster helpers (`GestureHold.m`): defaults, index to speed, clamping, independence from the double tap, label and announcement text (`mutate.sh` for the mutants). |
-| `liveprog-guard/run.py` | Mac run of the real effects engine with EEL2 Liveprog scripts: CPU-budget trips and the click-free bypass, re-enable reset, the two-second compile/@init deadline and abandoned-VM cleanup, no allocation on the render path, with mutations. |
+| `gesture-hold/check.sh` | Mac check of the hold-to-play-faster helpers (`GestureHold.m`): defaults, index to speed, clamping, independence from the double tap, label and announcement text. |
+| `liveprog-guard/run.py` | Mac run of the real effects engine with EEL2 Liveprog scripts: CPU-budget trips and the click-free bypass, re-enable reset, the two-second compile/@init deadline and abandoned-VM cleanup, no allocation on the render path. Manual mutation proofs require `--mutations`. |
 | `library/rows-check.sh` | Simulator executable through Logos: the Library row separator spans from the artwork's text edge, mirrored right to left. |
 | `home-podcasts/check.sh` | Catalyst Home filter menu through Logos: the Podcasts and audiobooks switch shown and hidden, audiobook chips, return to the default chip once, live flip. |
 | `playlist/creator-check.sh` | Simulator executable through Logos: the playlist header's creator lookup keeps one-character names and skips the facepile's initial. |
-| `player/lyrics-layout-check.sh` | Catalyst, `PlayerLyrics.x`'s measurements as compiled: the lyric viewport and its controls keep the player's own bounds while the cover cell pages between tracks; `lyrics-layout-mutation-check.py` proves the old artwork-bound viewport fails. |
+| `player/lyrics-layout-check.sh` | Catalyst, `PlayerLyrics.x`'s measurements as compiled: the lyric viewport and its controls keep the player's own bounds while the cover cell pages between tracks. |
 | `player/repeat-check.sh` | Production repeat-mode transition (`SGPlayerAdvanceRepeat`) extracted from `PlayerState.x`: every flag combination, command order and returned answer; no simulator. |
 | `player/upcoming-tracks-check.sh` | Production upcoming-track parsing (`SGURIString`, `SGPlayerUpcomingTracks`) extracted from `PlayerState.x` and run against Foundation doubles; no simulator. |
 | `player-lyric-line/build.sh` | Catalyst fitting (shrink and whole-word portions) and the line's wait/re-arm rules for synthetic lines and positions. |
@@ -120,8 +125,9 @@ their check executable in the workflow.
 ## Excluded scripts
 
 This inventory includes the offline scripts above and the simulator/service scripts below.
-Simulator checks are excluded even when they assert; visual-only simulator
-scenarios are not promoted to CI by merely compiling them.
+Simulator use alone does not exclude a check; `scripts/harness-plan.py` is the
+authoritative entry list. Visual-only simulator scenarios are not promoted to CI
+by merely compiling them.
 
 | Script | Reason |
 | --- | --- |
@@ -136,7 +142,6 @@ scenarios are not promoted to CI by merely compiling them.
 | `clean-links/build-sim.sh` | iOS simulator share/pasteboard hooks. |
 | `connect/build.sh` | Opens loopback sockets; excluded by the no-network requirement. |
 | `driver/build.sh` | iOS simulator driver app. |
-| `glass/build.sh` | iOS simulator visual rendering. |
 | `haptics-page/build.sh` | iOS simulator UI. |
 | `home-tiles/build.sh` | iOS simulator UI. |
 | `haptics/build-sim.sh` | iOS simulator audio/haptics hooks. |
@@ -155,9 +160,9 @@ scenarios are not promoted to CI by merely compiling them.
 | `lyrics-page/build.sh` | iOS simulator settings UI. |
 | `menu/build.sh` | iOS simulator UI. |
 | `mod-settings/build.sh` | iOS simulator settings UI. |
-| `morph/build.sh` | iOS simulator visual rendering. `morph/check.sh --mutation` also checks the opt-in Music-like close against 9.1.90's compact transition doubles: staged geometry, velocity release, cancellation with the reversed fraction, the off path's old numbers, and a mutation. |
+| `morph/build.sh` | iOS simulator visual rendering. `morph/check.sh` checks the opt-in Music-like close against 9.1.90's compact transition doubles: staged geometry, velocity release, cancellation with the reversed fraction, and the off path's old numbers. |
 | `native-player/build.sh` | iOS simulator UI. |
-| `onboarding/build.sh` | iOS simulator UI; also generates product release notes. |
+| `onboarding/build.sh` | iOS simulator UI; generates fixture release notes only inside its output directory. |
 | `page-previews/build.sh` | iOS simulator: the five page settings with their preview cards, in a simulator of the run's own; asserts what VoiceOver reads and writes PNGs. |
 | `player/build.sh` | iOS simulator player UI. |
 | `playlist/build.sh` | iOS simulator UI. |

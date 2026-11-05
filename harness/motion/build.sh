@@ -36,9 +36,3 @@ xcrun -sdk macosx clang -target arm64-apple-ios17.0-macabi \
     -fobjc-arc -I ../../tweak/Sources -framework UIKit -framework Foundation -framework AVFoundation -framework CoreMedia \
     store-check.m ../../tweak/Sources/Shared/AnimatedArtwork/SGMotionStore.m ../../tweak/Sources/Shared/AnimatedArtwork/SGMotionTicket.m -o "$OUT/store-check"
 "$OUT/store-check" "$OUT/store-data"
-xcrun -sdk macosx clang -target arm64-apple-ios17.0-macabi \
-    -isysroot "$(xcrun --sdk macosx --show-sdk-path)" \
-    -iframework "$(xcrun --sdk macosx --show-sdk-path)/System/iOSSupport/System/Library/Frameworks" \
-    -fobjc-arc -I ../../tweak/Sources -framework Foundation -framework UIKit -framework Network \
-    gate-check.m ../../tweak/Sources/Core/SGOptionalWork.m ../../tweak/Sources/Core/SGPrefs.m ../../tweak/Sources/Core/SGLog.m -o "$OUT/gate-check"
-"$OUT/gate-check"

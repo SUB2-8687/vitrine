@@ -7,7 +7,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/TabBarHarness.app"
 
 for f in Shared/Navigation/Links.x Redesigned/Navbar/TabBar.x Redesigned/Navbar/TabBarMinimize.x Redesigned/NowPlayingBar/NowPlayingBar.x; do
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

@@ -106,12 +106,17 @@ void SGRPlayerMenuSetBackground(NSInteger kind) { sg_background = kind; SGPlayer
 @class SPTPlayerState;
 SPTPlayerState *SGPlayerState(void) { return nil; }
 NSString *SGURIString(id uri) { return nil; }
+// Song blocking (ArtistBlock.m): with no track URI the menu never offers it here.
+BOOL SGSongBlocked(NSString *uri) { return NO; }
+void SGSetSongBlocked(NSString *uri, NSString *title, NSString *artist, BOOL blocked) {}
 UIView *SGRPinnedMoreRecentButton(void) { return nil; }
 void SGRAnimate(NSInteger motion, void (^animations)(void), void (^completion)(BOOL finished)) {
     [UIView animateWithDuration:0.2 animations:animations completion:completion];
 }
 // LyricsTools.m is not built; no lyrics action is offered.
 UIAction *SGRLyricsSearchAction(NSString *trackID) { return nil; }
+// ShareCards.m is not built; with no track playing, the menu offers no song card.
+void SGRShareSongCard(UIView *source) {}
 NSString *SGLyricsPiPMenuTitle(void) { return @"Open lyrics Picture in Picture"; }
 void SGLyricsPiPToggle(UIView *from) { NSLog(@"[harness] lyrics PiP"); }
 // LyricsStyle.m and PlayerQueue.m are not built. Playing Next presents a real navigation panel, after the

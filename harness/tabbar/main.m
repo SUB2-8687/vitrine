@@ -2,6 +2,7 @@
 // screen, laid out with the constraints 9.1.78 makes (see the README for the addresses), under Spotify's
 // class names, with Spotify's message bar (Offline, Private Session) able to come in under the tab bar.
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import "../harness-fail.h"
 #import "Core/SGViewTree.h"
 #import "Core/SGPrefs.h"
@@ -46,8 +47,74 @@
 @implementation _TtGC7SwiftUI14_UIHostingViewV19Jam_AttachmentsImpl13JamHatElement_
 @end
 
-static BOOL sgJam, sgColorful;
+static BOOL sgJam, sgColorful, sgGlyphs, sgSwiftIcons;
 static __weak UIView *sgJamStrip;
+
+// `glyphs`: the tabs' icons are Encore's glyph view, SPTEncoreIconView, made at launch (main) on SGHarnessGlyphView with
+// its `icon` ivar as the Spotify version keeps it, drawing a ring for an outline icon and a solid shape for a filled
+// one. As in 9.1.78 the ivar is an object: an icon whose view's isActive changes only its colors, Spotify giving the
+// selected tab's view the icon's filled variant (-active) in place of the outline one, as the mock tab does on a tap
+// (`tapped:`). With `swift` after `glyphs`, as in 9.1.90, the ivar is a reference Objective-C cannot read (no type) to
+// an icon carrying both glyphs, which the view keeps selected or not, its isActive picking the filled one. There is
+// no SPTEncoreIcon class, so the Tab bar page's icons (TabIcons.m) stay symbols.
+@interface SGHarnessEncoreIcon : NSObject
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic) BOOL square, solid;
+@property (nonatomic, strong) SGHarnessEncoreIcon *filled;   // nil on a filled icon
+@end
+@implementation SGHarnessEncoreIcon
++ (instancetype)outlineNamed:(NSString *)name square:(BOOL)square {
+    SGHarnessEncoreIcon *outline = [self new], *filled = [self new];
+    outline.name = name;
+    filled.name = [name stringByAppendingString:@"-active"];
+    outline.square = filled.square = square;
+    filled.solid = YES;
+    outline.filled = filled;
+    return outline;
+}
+// A filled icon answers with itself.
+- (id)active { return self.filled ?: self; }
+@end
+
+@interface SGHarnessGlyphView : UIView
+@property (nonatomic, strong) SGHarnessEncoreIcon *outline;   // the outline icon the tab was made with
+@property (nonatomic, strong) SGHarnessEncoreIcon *held;      // what the `icon` ivar refers to, kept alive here
+@property (nonatomic, strong) UIColor *foregroundColor, *activeForegroundColor;
+@property (nonatomic) BOOL isActive;
+@end
+@implementation SGHarnessGlyphView {
+    CAShapeLayer *_shape;
+}
+- (instancetype)initWithIcon:(id)anIcon {
+    if (!(self = [super initWithFrame:CGRectZero])) return nil;
+    _shape = [CAShapeLayer layer];
+    [self.layer addSublayer:_shape];
+    [self show:anIcon];
+    return self;
+}
+// Spotify handing the same view another icon. TabBar.x reads the ivar by its name, as it reads Encore's.
+- (void)show:(SGHarnessEncoreIcon *)anIcon {
+    self.held = anIcon;
+    Ivar ivar = class_getInstanceVariable(self.class, "icon");
+    *(void **)((uint8_t *)(__bridge void *)self + ivar_getOffset(ivar)) = (__bridge void *)anIcon;
+    [self setNeedsLayout];
+}
+- (void)setIsActive:(BOOL)isActive {
+    _isActive = isActive;
+    [self setNeedsLayout];
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    SGHarnessEncoreIcon *shown = sgSwiftIcons && self.isActive ? self.held.active : self.held;
+    UIColor *color = (self.isActive ? self.activeForegroundColor : nil) ?: self.foregroundColor ?: UIColor.whiteColor;
+    CGRect box = CGRectInset(self.bounds, 3, 3);
+    _shape.frame = self.bounds;
+    _shape.path = (shown.square ? [UIBezierPath bezierPathWithRect:box] : [UIBezierPath bezierPathWithOvalInRect:box]).CGPath;
+    _shape.fillColor = shown.solid ? color.CGColor : nil;
+    _shape.strokeColor = color.CGColor;
+    _shape.lineWidth = shown.solid ? 0 : 2;
+}
+@end
 
 // Spotify's own fade under its bar (9.1.90), which the redesign keeps clear whatever its own fade does (`fade`).
 @interface _TtC23NavigationUI_TabBarImpl18TabBarGradientView : UIView
@@ -196,6 +263,10 @@ static __weak UIView *sgJamStrip;
     for (UIView *item in tap.view.superview.subviews) {
         for (UIView *sub in item.subviews) {
             if ([sub isKindOfClass:UILabel.class]) ((UILabel *)sub).textColor = item == tap.view ? UIColor.whiteColor : [UIColor colorWithWhite:0xB3 / 255.0 alpha:1];
+            if (![sub isKindOfClass:SGHarnessGlyphView.class]) continue;
+            SGHarnessGlyphView *glyph = (SGHarnessGlyphView *)sub;
+            if (!sgSwiftIcons) [glyph show:item == tap.view ? glyph.outline.active : glyph.outline];
+            glyph.isActive = item == tap.view;
         }
     }
     for (UIView *v = tap.view; v; v = v.superview) [v setNeedsLayout];
@@ -204,9 +275,19 @@ static __weak UIView *sgJamStrip;
 static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
     UIView *item = [cls new];
     [item addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:_TtC23NavigationUI_TabBarImpl19TabBarContainerImpl.class action:@selector(tapped:)]];
-    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
-    icon.tintColor = UIColor.whiteColor;
-    icon.contentMode = UIViewContentModeScaleAspectFit;
+    UIView *icon;
+    if (sgGlyphs) {
+        SGHarnessEncoreIcon *outline = [SGHarnessEncoreIcon outlineNamed:symbol square:NO];
+        SGHarnessGlyphView *glyph = [[NSClassFromString(@"SPTEncoreIconView") alloc] initWithIcon:active && !sgSwiftIcons ? outline.active : outline];
+        glyph.outline = outline;
+        glyph.isActive = active;
+        icon = glyph;
+    } else {
+        UIImageView *image = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:symbol]];
+        image.tintColor = UIColor.whiteColor;
+        image.contentMode = UIViewContentModeScaleAspectFit;
+        icon = image;
+    }
     icon.frame = CGRectMake(0, 5.67, 24, 24);
     icon.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     UILabel *label = [UILabel new];
@@ -325,6 +406,10 @@ static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
     [super viewDidLoad];
     UIView *view = self.view;
     view.backgroundColor = UIColor.blackColor;
+    // `regular`: a regular width, as on an iPad; `rtl`: right to left.
+    NSArray<NSString *> *args = NSProcessInfo.processInfo.arguments;
+    if ([args containsObject:@"regular"]) self.traitOverrides.horizontalSizeClass = UIUserInterfaceSizeClassRegular;
+    if ([args containsObject:@"rtl"]) self.traitOverrides.layoutDirection = UITraitEnvironmentLayoutDirectionRightToLeft;
 
     self.tabs = [_TtC23NavigationUI_TabBarImpl19TabBarContainerImpl new];
     [self addChildViewController:self.tabs];
@@ -679,6 +764,97 @@ static void check(SGHarnessChrome *chrome, NSString *moment) {
     NSLog(@"[harness] %@ check: %@ | circle %@ (shown %@) | card %@ (shown moved %.0f) | %lu animations | %@", moment,
           minimized ? @"minimized" : @"expanded", NSStringFromCGRect(circle), NSStringFromCGRect(shownCircle), NSStringFromCGRect(card),
           shownCard ? shownCard.transform.m42 : 0, (unsigned long)running, inStep ? @"IN STEP" : @"OUT OF STEP");
+}
+
+#pragma mark - the card's edges and the tabs' glyphs
+
+// The glass platters shown on the bars, left to right in the window.
+static NSArray<NSValue *> *shownPlatters(SGHarnessChrome *chrome) {
+    UIWindow *window = chrome.view.window;
+    NSMutableArray<NSValue *> *frames = [NSMutableArray array];
+    SGForEachView(chrome.tabs.bar, ^(UIView *v) {
+        if (![NSStringFromClass(v.class) hasSuffix:@"PlatterView"] || !v.window) return;
+        for (UIView *up = v; up; up = up.superview) if (up.hidden || up.alpha < 0.01) return;
+        [frames addObject:[NSValue valueWithCGRect:[v convertRect:v.bounds toView:window]]];
+    });
+    return [frames sortedArrayUsingComparator:^NSComparisonResult(NSValue *a, NSValue *b) {
+        return [@(a.CGRectValue.origin.x) compare:@(b.CGRectValue.origin.x)];
+    }];
+}
+
+// `edges`: the card's sides where they should be. Above the bar the card runs from the leading platter's leading edge
+// to the trailing platter's trailing edge as UIKit drew them expanded (read at the first check, at rest), minimized
+// too (in a Jam); in a regular width or right to left it keeps the 8 pt Spotify's constraints give it. In the
+// minimized row it stands 8 pt from the leading circle and from the trailing one, or ends 21 pt in where there is none.
+static CGFloat sgRowLeft = NAN, sgRowRight = NAN;
+static void expectEdges(SGHarnessChrome *chrome, NSString *moment) {
+    UIWindow *window = chrome.view.window;
+    NSArray<NSString *> *args = NSProcessInfo.processInfo.arguments;
+    BOOL spotify = [args containsObject:@"regular"] || [args containsObject:@"rtl"];
+    BOOL split = [args containsObject:@"split"] || [args containsObject:@"split2"];
+    CGFloat width = window.bounds.size.width;
+    NSArray<NSValue *> *platters = shownPlatters(chrome);
+    CGRect card = SGRNowPlayingCardFrameIn(window, NULL);
+    if (CGRectIsNull(card) || !platters.count) HARNESS_FAIL(@"%@: card %@, %lu platters", moment, NSStringFromCGRect(card), (unsigned long)platters.count);
+    CGRect lead = platters.firstObject.CGRectValue, trail = platters.lastObject.CGRectValue;
+    BOOL docked = CGRectGetMinY(card) > CGRectGetMinY(lead) - 1;
+    BOOL inRow = SGRTabBarMinimized() && !spotify && !sgJamStrip.window;
+    if (isnan(sgRowLeft)) {
+        if (SGRTabBarMinimized()) HARNESS_FAIL(@"%@: the first check is to be made expanded", moment);
+        sgRowLeft = CGRectGetMinX(lead);
+        sgRowRight = CGRectGetMaxX(trail);
+    }
+    CGFloat left, right;
+    if (spotify) {
+        left = 8;
+        right = width - 8;
+    } else if (inRow) {
+        left = CGRectGetMaxX(lead) + 8;
+        right = split ? CGRectGetMinX(trail) - 8 : width - 21;
+    } else {
+        left = sgRowLeft;
+        right = sgRowRight;
+    }
+    if (docked != inRow || fabs(CGRectGetMinX(card) - left) > 0.5 || fabs(CGRectGetMaxX(card) - right) > 0.5) {
+        HARNESS_FAIL(@"%@: card %@ (docked %d), expected x %.1f to %.1f %@; platters %@", moment, NSStringFromCGRect(card), docked, left, right,
+                     inRow ? @"in the row" : @"above the bar", platters);
+    }
+    NSLog(@"[harness] PASS %@ edges: card x %.1f to %.1f %@", moment, CGRectGetMinX(card), CGRectGetMaxX(card), inRow ? @"in the row" : @"above the bar");
+}
+
+// Whether a glyph is filled: the mock's filled icons are solid shapes, its outline ones rings empty in the middle.
+static BOOL solidGlyph(UIImage *image) {
+    CGImageRef cg = image.CGImage;
+    if (!cg) return NO;
+    CGFloat width = CGImageGetWidth(cg), height = CGImageGetHeight(cg);
+    uint8_t alpha = 0;
+    CGContextRef context = CGBitmapContextCreate(&alpha, 1, 1, 8, 1, NULL, (CGBitmapInfo)kCGImageAlphaOnly);
+    CGContextDrawImage(context, CGRectMake(-floor(width / 2), -floor(height / 2), width, height), cg);
+    CGContextRelease(context);
+    return alpha > 128;
+}
+
+// `glyphs`: the main bar selects tab `selected`, whose filled glyph it shows, and every other tab shows its outline.
+static void expectGlyphs(SGHarnessChrome *chrome, NSString *moment, NSUInteger selected) {
+    UITabBar *bar = systemBarIn(chrome.tabs.bar);
+    NSArray<UITabBarItem *> *items = bar.items;
+    if (selected >= items.count || bar.selectedItem != items[selected]) {
+        HARNESS_FAIL(@"%@: tab %lu of %lu not selected (selected %lu)", moment, (unsigned long)selected, (unsigned long)items.count,
+                     (unsigned long)[items indexOfObject:bar.selectedItem]);
+    }
+    for (NSUInteger i = 0; i < items.count; i++) {
+        if (!solidGlyph(items[i].selectedImage)) HARNESS_FAIL(@"%@: tab %lu's selected glyph is an outline", moment, (unsigned long)i);
+        if (i != selected && solidGlyph(items[i].image)) HARNESS_FAIL(@"%@: tab %lu not selected shows a filled glyph", moment, (unsigned long)i);
+    }
+    NSLog(@"[harness] PASS %@ glyphs: tab %lu filled, %lu outlined", moment, (unsigned long)selected, (unsigned long)items.count - 1);
+}
+
+// A tab of the main bar picked, the calls a finger ends in.
+static void pickTab(SGHarnessChrome *chrome, NSUInteger index) {
+    UITabBar *bar = systemBarIn(chrome.tabs.bar);
+    UITabBarItem *item = bar.items[index];
+    bar.selectedItem = item;
+    [bar.delegate tabBar:bar didSelectItem:item];
 }
 
 // The list from its top, `drag` points up (a scroll down) or down (a scroll back up), let go moving.
@@ -1063,6 +1239,86 @@ static void after(double seconds, dispatch_block_t block) {
         });
         after(7.5, ^{ reportNames(chrome, @"after Spotify lays out"); });
     }
+    // `edges` (after `none`, `split`, `split2` or `jam`, with `regular` or `rtl` for Spotify's own edges): the card's
+    // sides at rest, minimized and expanded with no animation, after a minimize turned back mid-spring, and minimized
+    // and expanded on the spring. In `jam` the strip leaves at 3.5 s, so the spring's minimize docks the card.
+    if ([args containsObject:@"edges"]) {
+        after(1.5, ^{
+            expectEdges(chrome, @"at rest");
+            SGRSetTabBarMinimized(YES, NO);
+            [chrome.view layoutIfNeeded];
+            expectEdges(chrome, @"minimized, cut");
+            SGRSetTabBarMinimized(NO, NO);
+            [chrome.view layoutIfNeeded];
+            expectEdges(chrome, @"expanded, cut");
+            SGRSetTabBarMinimized(YES, YES);
+        });
+        after(1.65, ^{ SGRSetTabBarMinimized(NO, YES); });
+        after(3.0, ^{
+            expectEdges(chrome, @"after a minimize turned back");
+            SGRSetTabBarMinimized(YES, YES);
+        });
+        after(4.4, ^{
+            expectEdges(chrome, @"minimized on the spring");
+            SGRSetTabBarMinimized(NO, YES);
+        });
+        after(5.8, ^{
+            expectEdges(chrome, @"expanded on the spring");
+            printf("PASS all edges\n");
+            fflush(stdout);
+            exit(0);
+        });
+    }
+    // `glyphs`: Home selected at launch, its view holding its filled icon. Search picked, then Home again, the bar
+    // minimized and expanded on the spring, and Home's view handed another icon: the selected tab shows the filled
+    // glyph and every other one its outline throughout.
+    if ([mode isEqualToString:@"glyphs"]) {
+        static NSData *circle;
+        after(1.0, ^{
+            expectGlyphs(chrome, @"at launch", 0);
+            pickTab(chrome, 1);
+        });
+        after(1.8, ^{
+            expectGlyphs(chrome, @"after Search", 1);
+            pickTab(chrome, 0);
+        });
+        after(2.6, ^{
+            expectGlyphs(chrome, @"after Home", 0);
+            SGRSetTabBarMinimized(YES, YES);
+        });
+        after(3.8, ^{
+            UITabBar *bar = systemBarIn(chrome.tabs.bar);
+            if (!SGRTabBarMinimized() || bar.items.count != 1) HARNESS_FAIL(@"the bar did not minimize to one circle");
+            expectGlyphs(chrome, @"minimized", 0);
+            SGRSetTabBarMinimized(NO, YES);
+        });
+        after(5.0, ^{
+            expectGlyphs(chrome, @"expanded", 0);
+            circle = UIImagePNGRepresentation(systemBarIn(chrome.tabs.bar).items.firstObject.image);
+            // The same view, another icon: Home's selected, so its filled one.
+            for (UIView *sub in stockItem(chrome, @"Home").subviews) {
+                if (![sub isKindOfClass:SGHarnessGlyphView.class]) continue;
+                SGHarnessGlyphView *glyph = (SGHarnessGlyphView *)sub;
+                glyph.outline = [SGHarnessEncoreIcon outlineNamed:@"square" square:YES];
+                [glyph show:sgSwiftIcons ? glyph.outline : glyph.outline.active];
+            }
+            [chrome.tabs.bar setNeedsLayout];
+            [chrome.tabs.bar layoutIfNeeded];
+        });
+        after(5.5, ^{
+            expectGlyphs(chrome, @"Home's icon replaced", 0);
+            pickTab(chrome, 1);
+        });
+        after(6.3, ^{
+            expectGlyphs(chrome, @"after Search, Home's icon replaced", 1);
+            if ([circle isEqual:UIImagePNGRepresentation(systemBarIn(chrome.tabs.bar).items.firstObject.image)]) {
+                HARNESS_FAIL(@"Home still shows the icon it had before its view was handed another");
+            }
+            printf("PASS all glyphs\n");
+            fflush(stdout);
+            exit(0);
+        });
+    }
     // `lit`: Library stands in for a tab of the mod's own whose page is up at 2 s, while Spotify still paints
     // Home white: the glass bar selects Library. Home picked at 3.5 s takes the light back.
     if ([mode isEqualToString:@"lit"]) {
@@ -1126,5 +1382,10 @@ static void after(double seconds, dispatch_block_t block) {
 int main(int argc, char *argv[]) {
     sgJam = argc > 1 && strcmp(argv[1], "jam") == 0;
     sgColorful = argc > 1 && (strcmp(argv[1], "fade") == 0 || strcmp(argv[1], "navsettings") == 0);
+    sgGlyphs = argc > 1 && strcmp(argv[1], "glyphs") == 0;
+    sgSwiftIcons = sgGlyphs && argc > 2 && strcmp(argv[2], "swift") == 0;
+    Class glyphView = objc_allocateClassPair(SGHarnessGlyphView.class, "SPTEncoreIconView", 0);
+    class_addIvar(glyphView, "icon", sizeof(void *), __builtin_ctz(sizeof(void *)), sgSwiftIcons ? "" : "@");
+    objc_registerClassPair(glyphView);
     @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(SGHarnessApp.class)); }
 }

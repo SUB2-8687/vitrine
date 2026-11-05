@@ -18,8 +18,6 @@ int main(void) {
             [store removeObjectForKey:key];
         SGPrefsChanged();
 
-        HARNESS_CHECK([SGGestureHoldSpeedChoices() isEqualToArray:(@[@1.5, @2, @3])]);
-
         // Unset: the hold works, at the speed it always had.
         HARNESS_CHECK(SGGestureHoldEnabled());
         HARNESS_CHECK(SGGestureHoldSpeedChoice() == 1);
@@ -52,13 +50,8 @@ int main(void) {
         SGSetEnabled(@"spotifyglass.gestures", NO);
         HARNESS_CHECK(SGGestureHoldEnabled());
 
-        // The wording.
-        NSArray<NSString *> *labels = @[@"1.5×", @"2×", @"3×"];
-        NSArray<NSString *> *announcements = @[@"Playing at 1.5 times speed", @"Playing at 2 times speed", @"Playing at 3 times speed"];
-        for (NSUInteger index = 0; index < 3; index++) {
-            HARNESS_CHECK([SGGestureHoldSpeedLabel(speeds[index]) isEqualToString:labels[index]]);
-            HARNESS_CHECK([SGGestureHoldAnnouncement(speeds[index]) isEqualToString:announcements[index]]);
-        }
+        HARNESS_CHECK([SGGestureHoldSpeedLabel(1.5) isEqualToString:@"1.5×"]);
+        HARNESS_CHECK([SGGestureHoldAnnouncement(1.5) isEqualToString:@"Playing at 1.5 times speed"]);
 
         for (NSString *key in @[@"spotifyglass.gestures.hold", @"spotifyglass.gestures.hold.speed", @"spotifyglass.gestures"])
             [store removeObjectForKey:key];

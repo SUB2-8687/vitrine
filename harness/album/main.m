@@ -456,7 +456,8 @@ static NSString *trailingLabel(UIView *root) {
 
     // the tab, the scroll and the stack the header and the list sit in
     UIView *tab = box(page, UIView.class, CGRectMake(0, 0, W, H), @"CreativeWorkPlatform.Tab");
-    UIScrollView *scroll = (UIScrollView *)box(tab, UIScrollView.class, CGRectMake(0, 0, W, H), @"PCFFTabLayoutViewController.containerScrollView");
+    // The fixture combines PCFF's scrolling owner and its mirrored content host in one view.
+    UIScrollView *scroll = (UIScrollView *)box(tab, UIScrollView.class, CGRectMake(0, 0, W, H), @"PCFFTabLayoutViewController.overlayScrollView");
     // Spotify's starts its content at the very top of the page, under the status bar.
     scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     UIStackView *stack = (UIStackView *)box(scroll, UIStackView.class, CGRectMake(0, 0, W, 2200), nil);
@@ -996,7 +997,7 @@ static NSString *trailingLabel(UIView *root) {
     NSString *veil = veilMode();
     BOOL square = [veil isEqualToString:@"veil-card"];
     if (veil)
-        veilRun(root.view, @"album", veil, YES, !square, 2.5,
+        veilRun(root.view, @"album", veil, NO, !square, 2.5,
                 square ? ^UIView *(UIView *hero) { return veilFind(hero.subviews.firstObject, @"UIImageView"); } : nil,
                 ^(CGFloat d) { scroll.contentOffset = CGPointMake(0, d); });
     return YES;

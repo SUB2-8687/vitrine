@@ -24,7 +24,7 @@ file registers nothing.
 What it does not cover: a finger on the pull-down (UIKit opens it only from a touch), the document picker itself,
 and Fonts.x's hooks, which only Spotify can show.
 
-`font-race` is an offline, self-terminating regression using the simulator's Chalkduster file.
+`harness/fonts/build.sh` owns the offline, self-terminating font-selection regression using Chalkduster.
 It pauses the real import at its worker copy, selects the real New York row, and verifies that import
 completion registers/makes the family available without overriding the choice. Direct defaults removal
 (reset) and replacement (restore) during an import must also survive completion. An unchanged stored
@@ -36,8 +36,4 @@ The same run exercises the real free-font page with an offline download/installa
 Nanum Gothic finishing must preserve a later San Francisco or already-installed Nanum Myeongjo choice,
 remain available, and become selected when the choice was untouched. The real service remains in
 use for interactive runs; this check does not download or validate library font bytes.
-`OUT` may select an isolated build directory.
-
-    OUT=/absolute/unique/output ./build.sh
-    xcrun simctl install <udid> /absolute/unique/output/AppearancePageHarness.app
-    xcrun simctl launch --console <udid> com.vojta.appearancepageharness font-race
+`BUILD_DIR` selects an isolated output directory for `harness/fonts/build.sh`; no simulator is needed.

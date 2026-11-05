@@ -8,7 +8,7 @@ SRC=${SRC:-$(cd "$HERE/../../tweak/Sources" && pwd)}
 OUT=${HARNESS_BUILD_DIR:-$HERE/build-creator}
 rm -rf "$OUT"; mkdir -p "$OUT/gen"
 for f in PlaylistField PlaylistHeader PlaylistRows PlaylistMenu; do
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Playlist/$f.x" > "$OUT/gen/$f.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Playlist/$f.x" > "$OUT/gen/$f.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

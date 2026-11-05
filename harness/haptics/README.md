@@ -4,7 +4,7 @@ Two halves: the analyzer on the Mac, and the hook in the simulator. Beside them,
 pure steps on the Mac (`./build.sh && build/track`): the ISRC check, hand-built TRACK_V4 replies and Apple's
 catalog songs matched or turned down.
 
-`./build.sh && build/ring` checks the production event ring under Thread Sanitizer: full/empty behavior,
+`./build.sh ring && build/ring` checks the production event ring under Thread Sanitizer: full/empty behavior,
 discard, and a million concurrent events crossing reused slots without loss, duplication or torn fields.
 
 ## The analyzer on the Mac (`main.m`, `score.py`)
@@ -16,7 +16,7 @@ onsets for each Follows choice, beside what random taps at the same rate score. 
 song (`<song>.drums.wav`, `.bass.wav`, `.vocals.wav`, htdemucs) it also scores against the drums, the low end
 and the vocals.
 
-    ./build.sh && build/haptics <song> <events.csv> [rate] [frames]
+    ./build.sh analyzer && build/haptics <song> <events.csv> [rate] [frames]
     python score.py <song.wav> <events.csv>        # numpy, scipy, soundfile, librosa, mir_eval
 
 2026-09-19, `song.mp3` beside the repo (`test.mp3` is the same audio with a cover, and gives the same events), at

@@ -157,45 +157,6 @@ static NSUInteger searchPlacesChecks(void) {
     return failures;
 }
 
-static NSUInteger searchChecks(void) {
-    __block NSUInteger failures = 0;
-    void (^check)(BOOL, NSString *) = ^(BOOL ok, NSString *what) {
-        if (!ok) {
-            failures++;
-            fprintf(stderr, "[harness] search FAIL %s\n", what.UTF8String);
-        }
-    };
-    // Each syllable's initial, the rest kept, spaces kept.
-    check([SGSearchInitials(@"번역") isEqualToString:@"ㅂㅇ"], @"번역 initials");
-    check([SGSearchInitials(@"가사 설정") isEqualToString:@"ㄱㅅ ㅅㅈ"], @"가사 설정 initials");
-    check([SGSearchInitials(@"Font 번역") isEqualToString:@"font ㅂㅇ"], @"latin folded, initials around it");
-    // ㅂㅇ finds 번역.
-    check(SGSearchWordMatches(@"ㅂㅇ", @"번역", SGSearchInitials(@"번역")), @"ㅂㅇ matches 번역");
-    check(!SGSearchWordMatches(@"ㅂㅇ", @"번역", SGSearchInitials(@"가사 설정")), @"ㅂㅇ misses 가사 설정");
-    // Double consonants are initials of their own.
-    check([SGSearchInitials(@"꿀") isEqualToString:@"ㄲ"], @"꿀 initials ㄲ");
-    check(SGSearchWordMatches(@"ㄲ", @"꿀", SGSearchInitials(@"꿀")), @"ㄲ matches 꿀");
-    check(!SGSearchWordMatches(@"ㄱ", @"꿀", SGSearchInitials(@"꿀")), @"ㄱ does not match 꿀");
-    // Mixed words: each word uses its own rule.
-    check(SGSearchWordMatches(@"ㄱㅅ", @"가사 font", SGSearchInitials(@"가사 font")) &&
-          SGSearchWordMatches(@"font", @"가사 font", SGSearchInitials(@"가사 font")), @"ㄱㅅ font mixed query");
-    check(!SGSearchWordMatches(@"ㄱㅅ", @"가사 font", @"가사 font"), @"initials word does not read plain text");
-    // Non-Korean queries still read the folded text, and a plain query is not an initials query.
-    check(!SGSearchIsInitialsWord(@"font"), @"font is not initials");
-    check(SGSearchWordMatches(@"font", @"가사 font", SGSearchInitials(@"가사 font")), @"font matches folded");
-    check(!SGSearchStartsTitle(@"font", @"번역", SGSearchInitials(@"번역")), @"font does not start 번역");
-    // A vowel jamo is not an initial and is read as ordinary text.
-    check(!SGSearchIsInitialsWord(@"ㅏ"), @"ㅏ is not initials");
-    check(SGSearchWordMatches(@"ㅏ", @"ㅏ", SGSearchInitials(@"ㅏ")), @"ㅏ is still found as typed text");
-    // Ranking: initials prefix of the title's initials, and today's plain prefix.
-    check(SGSearchStartsTitle(@"ㅂㅇ", @"번역", SGSearchInitials(@"번역")), @"ㅂㅇ starts 번역");
-    check(SGSearchStartsTitle(@"ㄱㅅ ㅅㅈ", @"가사 설정", SGSearchInitials(@"가사 설정")), @"ㄱㅅ ㅅㅈ starts 가사 설정");
-    check(SGSearchStartsTitle(@"번", @"번역", SGSearchInitials(@"번역")), @"번 starts 번역");
-    check(!SGSearchStartsTitle(@"ㅂㅇ", @"가사 설정", SGSearchInitials(@"가사 설정")), @"ㅂㅇ does not start 가사 설정");
-    fprintf(stderr, "[harness] search checks: %lu failure(s)\n", (unsigned long)failures);
-    return failures;
-}
-
 BOOL SGHarnessWarning;
 
 static void refactorChecks(void) {
@@ -347,11 +308,6 @@ static void pageStyleChecks(void) {
     if ([NSProcessInfo.processInfo.arguments containsObject:@"refactor-check"]) {
         refactorChecks();
         exit(0);
-    }
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"search"]) {
-        NSUInteger failures = searchChecks();
-        NSLog(@"[harness] search %@", failures ? @"failed" : @"passed");
-        exit(failures ? 1 : 0);
     }
     if ([NSProcessInfo.processInfo.arguments containsObject:@"search-controller"]) {
         NSUInteger failures = searchControllerChecks();

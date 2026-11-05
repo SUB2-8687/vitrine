@@ -42,8 +42,7 @@ and on with About hidden:
 
     THEOS=$HOME/theos python3 harness/artist/listeners-check.py
 
-The check allocates isolated build directories and a simulator, runs all three cases, and checks copied
-mutants of the unavailable-About guard, configuration replacement, and layout provenance. It removes
+The check allocates an isolated build directory and a simulator and runs all three cases. It removes
 its builds and simulator afterwards. Existing `harness/artist/build/` is untouched.
 
 About membership is learned from a diffable source's completed cell configuration, bound to its item

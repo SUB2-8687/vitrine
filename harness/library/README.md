@@ -59,8 +59,7 @@ the chips come back on the chips' own pass, fold again when it is cleared there,
 the time the menu opens. The same run at the largest accessibility text size and right to left, then `settings`
 (settings-check.m: the Library page's preview reads the chips or the menu with the switch, its title and sort rows
 read from the leading edge, the switch stores the key, the card grows with the text) left to right and right to
-left, and `look`, the menu opened by a finger (`../tabbar/touch.m`), screenshotted with simctl. PNGs are in
-`$HARNESS_BUILD_DIR/png`.
+left. Screenshot rehearsals are not part of this assertion runner; `look` remains available for manual review.
 
 What it does not cover: Spotify's real chips, sort sheet and list, whose identifiers and class names come from
 static reading rather than a recorded tree; whether the real list's content size changes once its rows arrive (the

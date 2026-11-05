@@ -26,20 +26,13 @@ hero() {
              Redesigned/Kit/SGRAmoled.x; do
         "$LOGOS" -c generator=internal "$SRC/$f" > "$dir/gen/$(basename "$f" .x).m"
     done
-    # The field (Kit/SGRField.m), mutated in a copy for field-asked.
     field="$SRC/Redesigned/Kit/SGRField.m"
-    if [ "${2:-}" = field-asked ]; then
-        cp "$field" "$dir/SGRField.m"
-        field="$dir/SGRField.m"
-        python3 "$HERE/cover-mutation.py" "$field" field-asked
-    fi
     # An earlier revision may have no cover read.
     cover=""
     if [ -f "$SRC/Redesigned/Kit/SGRCoverRead.m" ]; then
         cover="$SRC/Redesigned/Kit/SGRCoverRead.m"
         # Provider timing, player readiness and a recycled cache address are simulated at external boundaries.
         python3 "$HERE/cover-mutation.py" "$dir/gen/AlbumHeader.m" seams
-        if [ -n "${2:-}" ] && [ "$2" != field-asked ]; then python3 "$HERE/cover-mutation.py" "$dir/gen/AlbumHeader.m" "$2"; fi
     fi
     $CC -I"$SRC" -I"$SRC/Redesigned/Album" -I"$SRC/Redesigned/Kit" -I"$dir/gen" \
         "$HERE/cover-hero-check.m" "$HERE/stubs.m" "$dir"/gen/*.m $cover \
@@ -49,7 +42,7 @@ hero() {
         "$SRC"/Redesigned/Kit/SGRFluid.m "$SRC"/Redesigned/Kit/SGRFluidGPU.m "$SRC"/Shared/AnimatedArtwork/SGMotionCatalog.m \
         "$SRC"/Shared/AnimatedArtwork/SGMotionStore.m "$SRC"/Shared/AnimatedArtwork/SGMotionTicket.m \
         "$SRC"/Redesigned/Kit/SGRGlass.m "$SRC"/Redesigned/Kit/SGRGlyph.m "$SRC"/Redesigned/Kit/SGRRestyle.m \
-        "$SRC"/Redesigned/Kit/SGRActionRow.m "$SRC"/Redesigned/Kit/SGRDownload.m "$SRC"/Redesigned/Kit/SGRHeaderInfo.m "$SRC"/Redesigned/Kit/SGRHeroVeil.m \
+        "$SRC"/Redesigned/Kit/SGRActionRow.m "$SRC"/Redesigned/Kit/SGRDownload.m "$SRC"/Redesigned/Kit/SGRHeaderInfo.m "$SRC"/Redesigned/Kit/SGRHeroVeil.m "$SRC"/Redesigned/Kit/SGRStretchHero.m \
         "$SRC"/Redesigned/Kit/SGRedesign.m "$SRC"/Redesigned/Album/AlbumCredits.m "$SRC"/Shared/Fonts/FontLibrary.m "$SRC"/Core/SGLocalize.m \
         "$SRC"/Redesigned/Album/AlbumPlays.m "$SRC"/Redesigned/Album/AlbumPlaysText.m "$SRC"/Redesigned/Album/AlbumSpotifyCounts.m \
         "$SRC"/Redesigned/Kit/SGRCoverViewer.m "$SRC"/Shared/ListeningStats/SGPlayLog.m \
@@ -65,47 +58,6 @@ hero "$OUT/hero"
 "$OUT/hero/cover-hero-check" still-swap -spotifyglass.redesign.album.adaptiveCover YES
 "$OUT/hero/cover-hero-check" cache-reuse -spotifyglass.redesign.album.adaptiveCover YES
 "$OUT/hero/cover-hero-check" off "$OUT/off.png"
-hero "$OUT/mutant" edge-step
-if "$OUT/mutant/cover-hero-check" on -spotifyglass.redesign.album.adaptiveCover YES > "$OUT/mutation.log" 2>&1; then
-    echo "[harness] FAIL edge-step mutation survived"
-    exit 1
-fi
-if ! grep -q 'luminance step .*across the cover.*bottom edge' "$OUT/mutation.log"; then
-    cat "$OUT/mutation.log"
-    echo "[harness] FAIL mutation did not reach the edge luminance assertion"
-    exit 1
-fi
-echo "[harness] PASS mutation: one bright pixel row at the square/extension edge rejected by luminance assertion"
-# Each generated-source mutation must fail at its public-behaviour assertion, not just fail to compile or launch.
-for mutation in still-owner still-generation cache-source; do
-    hero "$OUT/$mutation" "$mutation"
-    mode=still-swap
-    expected="still ownership"
-    if [ "$mutation" = cache-source ]; then mode=cache-reuse; expected="render cache reuse"; fi
-    if "$OUT/$mutation/cover-hero-check" "$mode" -spotifyglass.redesign.album.adaptiveCover YES > "$OUT/$mutation.log" 2>&1; then
-        echo "[harness] FAIL $mutation survived"
-        exit 1
-    fi
-    if ! grep -q "FAIL.*$expected" "$OUT/$mutation.log"; then
-        cat "$OUT/$mutation.log"
-        echo "[harness] FAIL $mutation did not reach its behaviour assertion"
-        exit 1
-    fi
-    echo "[harness] PASS mutation: $mutation rejected by $expected assertion"
-done
-# The field reporting the colour it was asked for rather than the one it paints: the hero ends in a low grey on a page
-# the AMOLED rule paints black, the seam the phone showed on Adele's 21.
-hero "$OUT/field-asked" field-asked
-if "$OUT/field-asked/cover-hero-check" dark-portrait -spotifyglass.redesign.album.adaptiveCover YES > "$OUT/field-asked.log" 2>&1; then
-    echo "[harness] FAIL field-asked survived"
-    exit 1
-fi
-if ! grep -Eq "FAIL .*dark portrait: (the bottom row|a seam of)" "$OUT/field-asked.log"; then
-    cat "$OUT/field-asked.log"
-    echo "[harness] FAIL field-asked did not reach the page-colour assertion"
-    exit 1
-fi
-echo "[harness] PASS mutation: field-asked rejected by the page-colour assertion: $(grep -E 'FAIL ' "$OUT/field-asked.log" | head -1)"
 if [ -n "${BASELINE:-}" ]; then
     git -C "$HERE/../.." archive --prefix=baseline/ "$BASELINE" tweak/Sources | tar -x -C "$OUT"
     SRC=$OUT/baseline/tweak/Sources

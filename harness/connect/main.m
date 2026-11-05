@@ -282,8 +282,11 @@ static void checkRelay(int family) {
     SGConnectSetReceiver(@"Kitchen", @[[NSData dataWithBytes:&receiverAddress length:sizeof receiverAddress]]);
 
     sg_fakeErrno = EHOSTUNREACH;
-    Packet q = query();
-    q.bytes[0] = 0x12; q.bytes[1] = 0x34;
+    // The gate checks have already asked for the base service; their repeat throttle must not
+    // suppress this independent receiver fixture (transaction IDs do not distinguish questions).
+    Packet q;
+    header(&q, 0x1234, 0, 1, 0, 0, 0);
+    question(&q, "_relay._sub|_spotify-connect|_tcp|local");
     struct sockaddr_in group = {.sin_len = sizeof group, .sin_family = AF_INET, .sin_port = htons(5353), .sin_addr.s_addr = inet_addr("224.0.0.251")};
     struct sockaddr_in6 group6 = {.sin6_len = sizeof group6, .sin6_family = AF_INET6, .sin6_port = htons(5353)};
     inet_pton(AF_INET6, "ff02::fb", &group6.sin6_addr);
@@ -358,7 +361,7 @@ int main(void) {
     @autoreleasepool {
         checkQueries();
         checkReplies();
-        checkMutations();
+        if ([NSProcessInfo.processInfo.arguments containsObject:@"--fuzz"]) checkMutations();
         checkGate();
         checkRelay(AF_INET);
         checkRelay(AF_INET6);

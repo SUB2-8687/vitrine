@@ -207,7 +207,6 @@ attempt makes a new request rather than replaying an incomplete provider memo.
 
 ```sh
 harness/lyrics-translation/build.sh --ai-gaps-only
-python3 harness/lyrics-translation/gap-mutation-check.py
 ```
 
 `check-ai-gaps.m` reproduces the screenshot-shaped case: one translated row followed by blank or
@@ -221,8 +220,7 @@ source lines, empty/instrumental rows, CRLF, JSON fences, ambiguous off-by-one n
 split rows, and malformed indexed fences. Ambiguous formats fail rather than guessing timing
 positions; short JSON arrays fail because they carry no reliable row IDs. Successful repairs reach
 Complete through the real automatic chain and saved store. Partial disk maps retain only completed
-rows, and old whitespace-only saved values no longer mark a row complete. The mutation disables
-recovery in a temporary source copy and must fail on the screenshot-shaped assertion.
+rows, and old whitespace-only saved values no longer mark a row complete.
 
 Observed: both cases pass, using six scripted HTTP responses total; the integrated default harness
 also passes. A temporary negative-control copy under `build/retry-negative-control/` replaced only

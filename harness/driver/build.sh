@@ -6,7 +6,7 @@ set -e
 SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
 OUT=$(dirname "$0")/build
 mkdir -p "$OUT/gen" "$OUT/DriverHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Diagnostics/Diagnostics.x" > "$OUT/gen/Diagnostics.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Diagnostics/Diagnostics.x" > "$OUT/gen/Diagnostics.m"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.4-simulator -fobjc-arc -g -O0 -DSG_DRIVER=1 -DSG_TREE_PORT=${PORT:-8095} \

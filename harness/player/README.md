@@ -105,7 +105,13 @@ come late, out of order, or not at all.
   cancel and when the slider leaves the window, and a pan that was off already left off. The log ends
   with `scrub checks: ... -- PASS` or `FAIL`.
 - `controls` checks the shared ordinary/DJ glyph helpers: owner/key identity, centering and the DJ offset,
-  autoresizing, front ordering and reparenting. It exits with the result, as does `scroll`.
+  autoresizing, front ordering and reparenting. Then, with shuffle and repeat both hidden (switched on at launch and
+  off again before it exits), a mock of the controls row (five holders, Spotify's identifiers, a 366 pt stack): previous
+  and next 122 pt either side of play, still there after repeat is taken out and the controls lay out, after a new
+  repeat is put in (hidden at once), and with repeat's end swapped for a bare placeholder and then a new holder; the
+  emptied ends take no touches, so a touch on next where it lies over repeat's end is next's; right to left mirrored; in
+  landscape and for a podcast's row in the same holders, Spotify's places and the ends' touches back. The log ends with
+  `controls checks: n of 18 right -- PASS` or `FAIL`; it exits with the result, as does `scroll`.
 - `cover` is issue #77. The cover is checked untouched first, then given Spotify's layout for a track with
   lyrics, a smaller cover over the lyric preview, and must take its room back as a centered square the
   Kit also reports. The log ends with `cover checks: n of 4 right -- PASS` or `FAIL`.
@@ -190,10 +196,16 @@ come late, out of order, or not at all.
   `PlayerSettings.m`, `SGRFluid.m`, `SGRFluidGPU.m`). It builds a mock of the AI DJ's header and footer units too (their
   mangled `Endless_DJMusicImpl` names) and the queue's `SPTEncoreIconView`, starts with Fluid drawn Smooth and every
   switch at its standard, and leaves layout to UIKit (no once-a-second pass), so a switch has to reach the open player
-  by itself. It checks the glass circles in both headers and the Music app's Connect and queue glyphs over Spotify's;
-  then, with the Player page over the player, flips Header glass and Music app icons off through their switches and
-  checks the circles gone with the buttons' touches, grabber and accessibility kept, Spotify's own Connect glyphs and
-  the queue's own colors back, and a new device glyph Spotify draws while off left alone; then both on again. Grain's
+  by itself. It checks the glass circles in both headers, the Music app's Connect and queue glyphs over Spotify's, the
+  quote bubble on Lyrics in both footers, the list on the AI DJ's Queue and the DJ button as a waveform over its masked
+  disc; then, with the Player page over the player, flips Header glass and Music app icons off through their switches
+  and checks the circles gone with the buttons' touches, grabber and accessibility kept, Spotify's own Connect glyphs and
+  the queue's own colors back, Spotify's Encore microphone and queue glyphs (a mock `SPTEncoreIcon`, drawn by symbols of its
+  own) on Lyrics and the AI DJ's Queue in their symbols' colors, the disc unmasked and no waveform, and a new device
+  glyph Spotify draws while off left alone; then both on again. In both states, with the share button and its holder
+  given their alpha and touches back as Spotify does (the holder over the DJ button in the mock), a touch on each of the
+  AI DJ's four glyphs lands on its own control and nothing of the share button is drawn; a tap on Queue asks for
+  spotify:now-playing:queue, and, off, two taps on Lyrics open and close the lyrics. Grain's
   row shows only while Smooth draws. Then what Spotify sets while the stand-ins show comes back exactly when they go:
   Connect cleared to nil and handed an image with no bitmap, the queue's two colors reset to nil, and a value set while
   they were out is not replaced by the record from the time before. With the song paused it reads the field's top band
@@ -201,7 +213,7 @@ come late, out of order, or not at all.
   the switch from Smooth, then 0 and 200 (all three the same pixels). The steps run one after another, each its delay
   after the last one ran: scheduled all at once from launch, `dispatch_after`'s leeway let two fire together with no
   layout pass between. Each state a screenshot is asked for (`options: screenshot <name> now`) holds two seconds or
-  more. The log ends with `options checks: n of 16 right -- PASS` or `FAIL`, and the app exits with it.
+  more. The log ends with `options checks: n of 25 right -- PASS` or `FAIL`, and the app exits with it.
 - `renderer` is the switch from Smooth to Light on its own, five times with the song paused: the field read about 0.2,
   0.5, 1 and 2 s after it (each read's own time logged, with whether Smooth shows, the Metal layers in the field and
   the Light copies hidden), compared with the band read about 4 s after; the read a second after must match it. It
@@ -228,7 +240,8 @@ come late, out of order, or not at all.
   the player off screen, Reduce Motion, the AI DJ and unknown times, and no stage kept once the player is gone).
   `automix-check.sh` runs it in a simulator of its own (`SHOTS=<dir>` keeps the states it names); the log ends with
   `automix checks: n of n right -- PASS` or `FAIL`. `automix-mutation-check.py` breaks a rule of each area (two for
-  the stage) in a copy of the sources and expects the check that guards it to say WRONG.
+  the stage) in a copy of the sources and expects the check that guards it to say WRONG; it runs by hand when the
+  check or the rule it guards changes, not in CI.
 
 `stubs-tickets.m` stands in for `MotionSources.m`'s `SGMotionRequestClip` and is compiled only where the sources have
 `Shared/AnimatedArtwork/SGMotionTicket.m`.

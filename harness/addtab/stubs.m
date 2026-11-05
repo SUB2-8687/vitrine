@@ -21,13 +21,7 @@ void SGRStyleBarFade(CAGradientLayer *layer) {}
 void SGRRefreshBarFade(void) {}
 // The page's preview: the Kit's accent color, and the placeholder art Shared/Player/SGLastTrack.m draws.
 UIColor *SGRAccentColor(void) { return nil; }
-UIImage *SGPlaceholderArtwork(UIColor *tint) {
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(64, 64)];
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [tint setFill];
-        UIRectFill(CGRectMake(0, 0, 64, 64));
-    }];
-}
+#import "../shared/placeholder-artwork.m"
 
 // Spotify's own tabs by the English label under them; a tab of the mod's own by its icon, as on the bar.
 UIImage *SGRNavbarGlyph(NSDictionary *entry, BOOL active) {

@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "Shared/LockScreenLyrics/LockScreenLyrics.h"
 @class SPTPlayerState, SGKaraokeLine;
 void check(BOOL ok, NSString *what);
 void runFor(NSTimeInterval seconds);
@@ -15,3 +16,5 @@ extern NSDictionary *harnessTranslations;
 extern BOOL harnessHoldTranslation;
 extern NSUInteger harnessAutomaticTranslations;
 void harnessDeliverTranslations(void);
+void harnessReading(SGRLyricsReading reading, BOOL leads);
+extern NSString *harnessSongLanguage;

@@ -466,8 +466,7 @@ Shared:
                   next line is coming, never its words, sides swapped right to left, the current bubble at most 4
                   lines and the previous 2 after shrinking to 0.6; Vinyl on #0E0E0E, a still record of 45 to 60% of the
                   visible width with the cover as its round label, a lighter rim and a soft glow, the current line in
-                  New York italic under it, the next line at 55% white; harness/lyrics-clip/ `scenes`, `regression.sh`
-                  and `mutations.py`). Over the artwork (last choice; default unchanged) keeps the cover sharp and
+                  New York italic under it, the next line at 55% white; harness/lyrics-clip/ `scenes` and `regression.sh`). Over the artwork (last choice; default unchanged) keeps the cover sharp and
                   centre-filled, with the previous line, current line and translation over a broad side-anchored
                   Gaussian gradient with no flat box or cutoff, plus a subtle text shadow. On white, the current
                   line keeps at least 4.5:1 contrast and the dimmed lines 3:1. Still holds it, Animated gently
@@ -1587,8 +1586,8 @@ under a "Recent colors" caption; choosing a color already listed moves it to the
 9th drops the oldest, and Spotify's green is never kept, nor the redesign's own green, nor an entry that is not a
 whole number in #000000–#FFFFFF. Each look keeps its own list under its own key (SGKeyAccentRecent for the native
 look, SGRKeyAccentRecent for the redesign), its swatches labelled with the color's name or hex and marked selected
-when it is the one in effect. The two lists' rules are checked on the Mac against
-harness/ui-refinements/. The custom color is
+when it is the one in effect. The two lists' rules are checked against
+harness/appearance-page/ (rows). The custom color is
 kept aside while a preset is in place, so Custom brings it back. The redesign's page leads with Accent source
 (spotifyglass.redesign.accent.auto, Picked unless switched): Picked is the color above; Automatic takes the color of the
 page in front (SGRAccentPublishPageColor), else the playing cover's, else the pick, and moves only when a navigation
@@ -1826,7 +1825,8 @@ the drag handle, a tap on a tab of the mod's own opening the Add a Tab sheet as 
 Tab; Add a tab and Use Spotify's tabs; and Split tabs. The redesign's split-list migration
 (`SGRMigrateNavbarSplit` in `Redesigned/Navbar/NavbarLayout.m`) is one-way: downgrading to a build before
 it loses split placement and custom split tabs. Spotify's own tabs keep their names and icons. Checked
-in the simulator against harness/addtab/ (`navbar`, `icons`, `off`, `hide`, `edit`, `remove`, `links`).
+in the simulator against harness/addtab/ (`navbar`, `edit`, `remove`, `links`) and the bar's icon, off and
+hide switches against harness/tabbar/ (`navsettings`).
 
 ## Localization
 

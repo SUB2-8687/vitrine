@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds and runs the clear-artwork check on the Mac: the production store, catalog and settings row against a
 # sandboxed Caches folder, an offline catalog and fake clip transfers. OUT=<directory> isolates the binary;
-# STORE, CATALOG and SETTINGS name replacement copies of those three files (mutate.py).
+# STORE, CATALOG and SETTINGS name replacement copies of those three files.
 set -e
 cd "$(dirname "$0")"
 OUT=${OUT:-build}

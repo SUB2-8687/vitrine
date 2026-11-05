@@ -33,3 +33,4 @@ void SGRPressWatch(UIView *view, SGRPressKind kind, BOOL (^begins)(UITouch *touc
 BOOL SGRPressOnSmallControl(UITouch *touch, UIView *container) { return NO; }
 void SGRPressAnimateLayer(CALayer *layer, NSString *keyPath, id value, BOOL animated) {}
 CGRect SGRTabBarInlineSlot(UIView *host, CGFloat height) { return CGRectNull; }
+CGRect SGRTabBarGlassRow(UIView *view) { return CGRectNull; }

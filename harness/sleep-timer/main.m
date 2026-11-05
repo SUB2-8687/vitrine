@@ -9,6 +9,7 @@
 #import "Shared/Player/SleepTimer.h"
 #import "Shared/Player/PlayerState.h"
 #import "Core/SGPrefs.h"
+#import "clock.h"
 
 @interface SPTPlayerTrack ()
 @property (nonatomic, readwrite) id URI;
@@ -132,7 +133,8 @@ static SPTSleepTimer *spotifyTimer(NSUInteger type, NSTimeInterval seconds) {
 // The core reports a new state with every change, the timer's too: told to the observer before the wait.
 static void runFor(NSTimeInterval seconds) {
     [sg_observer playerStateDidReport:sg_player.state];
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
+    if (HarnessClockControlled()) HarnessClockAdvance(seconds);
+    else [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
 static BOOL near(float a, float b) {
@@ -202,6 +204,7 @@ int main(void) {
         runFor(1.2);
         CHECK(sg_gain == 1, "a second after the pause the gain is back");
 
+        HarnessClockStart();
         sg_player.state = state(a, @[b, c], @[], NO);
         SGSetSleepTimer(SGSleepTimerAtTime, 30);
         CHECK(near(sg_gain, SGSleepTimerGainAt(30)), "30 s to go: 30 dB down");

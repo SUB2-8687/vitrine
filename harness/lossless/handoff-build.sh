@@ -5,7 +5,7 @@ SRC="$HERE/../../tweak/Sources"
 OUT=${OUT:-"$HERE/build/handoff"}
 APP="$OUT/LosslessHandoff.app"
 mkdir -p "$APP" "$OUT/gen"
-"${THEOS:?Set THEOS}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitch.x" > "$OUT/gen/SpeedPitch.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -O1 -g \
   -isysroot "$SDK" -I"$SRC" -I"$SRC/Shared/Player" -Wno-deprecated-declarations \

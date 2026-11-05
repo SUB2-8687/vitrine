@@ -21,6 +21,15 @@ bool nw_path_is_expensive(nw_path_t path) { return false; }
 
 int main(void) {
     @autoreleasepool {
+        // Each blocker wins over the lower-priority blockers, without copying the decision rule.
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(YES, NSProcessInfoThermalStateCritical, NO, YES, YES, NO) == SGOptionalWorkLowPower);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateSerious, NO, YES, YES, NO) == SGOptionalWorkHeat);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateCritical, YES, NO, NO, YES) == SGOptionalWorkHeat);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateNominal, NO, YES, YES, NO) == SGOptionalWorkNoPath);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateNominal, YES, YES, YES, NO) == SGOptionalWorkConstrained);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateNominal, YES, NO, YES, NO) == SGOptionalWorkExpensive);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateFair, YES, NO, YES, YES) == SGOptionalWorkAllowed);
+        HARNESS_CHECK(SGOptionalWorkReasonForInputs(NO, NSProcessInfoThermalStateNominal, YES, NO, NO, NO) == SGOptionalWorkAllowed);
         method_setImplementation(class_getInstanceMethod(NSProcessInfo.class, @selector(isLowPowerModeEnabled)), (IMP)lowPowerOff);
         method_setImplementation(class_getInstanceMethod(NSProcessInfo.class, @selector(thermalState)), (IMP)cool);
         NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
@@ -29,10 +38,13 @@ int main(void) {
         // Catch an exception so a reader that sends boolValue to a container fails the check instead of crashing.
         @try {
             HARNESS_CHECK(SGOptionalWorkMayRun(YES));   // unset: on
+            HARNESS_CHECK(SGOptionalWorkMayRun(NO));
             [store setBool:NO forKey:SGKeyLoadAhead];
             HARNESS_CHECK(!SGOptionalWorkMayRun(YES));
+            HARNESS_CHECK(!SGOptionalWorkMayRun(NO));
             [store setBool:YES forKey:SGKeyLoadAhead];
             HARNESS_CHECK(SGOptionalWorkMayRun(YES));
+            HARNESS_CHECK(SGOptionalWorkMayRun(NO));
             [store removeObjectForKey:SGKeyLoadAhead];
             // A backup can store any kind under a key that was unset: it reads as unset, not as a crash.
             for (id invalid in @[@[], @{}, [NSData data], [NSDate dateWithTimeIntervalSince1970:0]]) {

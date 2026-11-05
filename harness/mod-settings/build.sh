@@ -5,7 +5,7 @@ set -e
 SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
 OUT=${OUT:-$(dirname "$0")/build}
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/ModSettingsHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/App/ModSettings.x" > "$OUT/gen/ModSettings.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/App/ModSettings.x" > "$OUT/gen/ModSettings.m"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \

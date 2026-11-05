@@ -1,6 +1,6 @@
 // The Library page of Mod Settings (Redesigned/Library/LibrarySettings.m) as its builder makes it, on real UIKit: its
 // preview card reads the filter chips while Compact library is off and the menu once it is on, the switch on the page
-// stores the key, and the card grows with the text. Each state's card is written to LIBRARY_PNG.
+// stores the key, and the card grows with the text.
 #import <UIKit/UIKit.h>
 #import "../harness-fail.h"
 #import "Core/SGCore.h"
@@ -34,20 +34,6 @@ static UISwitch *switchBeside(UIView *root, NSString *title) {
         });
     }
     return found;
-}
-
-static void save(UIView *view, NSString *name) {
-    NSString *dir = [NSString stringWithUTF8String:getenv("LIBRARY_PNG") ?: "png"];
-    NSString *tag = [NSUserDefaults.standardUserDefaults stringForKey:@"tag"];
-    if (tag.length) name = [NSString stringWithFormat:@"%@-%@", name, tag];
-    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:view.bounds];
-    UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
-    }];
-    NSString *path = [dir stringByAppendingPathComponent:[name stringByAppendingString:@".png"]];
-    if (![UIImagePNGRepresentation(image) writeToFile:path atomically:YES]) HARNESS_FAIL(@"could not write %@", path);
-    printf("wrote %s\n", path.UTF8String);
 }
 
 static void expectReads(SGRPagePreview *card, BOOL compact, NSString *moment) {
@@ -99,8 +85,6 @@ void SGRRunSettingsChecks(UIWindow *window) {
     SGRPagePreview *card = cardIn(table.tableHeaderView);
     if (!card || card.bounds.size.height < 1) HARNESS_FAIL(@"no preview card on the Library page");
     expectReads(card, NO, @"off");
-    save(card, @"settings-off");
-    save(nav.view, @"settings-page");
 
     UISwitch *toggle = switchBeside(table, @"Compact library");
     if (!toggle || toggle.on) HARNESS_FAIL(@"the Compact library switch %@", toggle ? @"is on by default" : @"is missing");
@@ -110,7 +94,6 @@ void SGRRunSettingsChecks(UIWindow *window) {
     if (![NSUserDefaults.standardUserDefaults boolForKey:SGRKeyLibraryHideChips]) HARNESS_FAIL(@"the switch did not store %@", SGRKeyLibraryHideChips);
     expectReads(card, YES, @"on");
     expectReadingOrder(card);
-    save(card, @"settings-on");
 
     CGFloat height = card.bounds.size.height;
     window.traitOverrides.preferredContentSizeCategory = UIContentSizeCategoryAccessibilityExtraLarge;
@@ -119,7 +102,6 @@ void SGRRunSettingsChecks(UIWindow *window) {
     settle(0.3);
     if (card.bounds.size.height <= height) HARNESS_FAIL(@"the card did not grow with the text (%.0f to %.0f)", height, card.bounds.size.height);
     printf("PASS the card grows with the text (%.0f to %.0f pt)\n", height, card.bounds.size.height);
-    save(card, @"settings-on-large-text");
     printf("PASS all settings\n");
     exit(0);
 }

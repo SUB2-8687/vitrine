@@ -4,8 +4,6 @@ Run from the Project root:
 
 ```sh
 HARNESS_BUILD_DIR=$(mktemp -d /tmp/fix-offline-lyrics.XXXXXX) sh harness/lyrics-store/build.sh
-python3 -B harness/lyrics-store/mutation-check.py
-python3 -B harness/lyrics-store/keeper-mutation-check.py
 VITRINE_STORE_ONLY=1 sh harness/lyrics-sources/state-build.sh
 ```
 
@@ -31,8 +29,4 @@ The raw Decode codec does not apply preferences.
 The focused keeper integration uses the actual TTML parser and its regional-language
 matching, verifies that an English saved answer permits a Korean community lookup,
 and checks Musixmatch copies stamped with the captured request language.
-The mutation check compiles isolated store copies with translation or credit-link
-persistence removed, save-time relabeling restored, language filtering removed, or premature credit registration restored; each must fail at
-its corresponding behavior assertion.
-The keeper mutation separately removes Musixmatch's provenance stamping.
 Spotify's actual offline presentation and link opening remain device checks.

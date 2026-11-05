@@ -22,6 +22,7 @@ xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-ar
     "$SRC"/Redesigned/Lyrics/AutoTranslatorName.m \
     $( [ -f "$SRC"/Redesigned/Lyrics/AutoTranslation.m ] && echo "$SRC"/Redesigned/Lyrics/AutoTranslation.m ) $( [ -f "$SRC"/Redesigned/Lyrics/TranslationStatusView.m ] && echo "$SRC"/Redesigned/Lyrics/TranslationStatusView.m ) "$SRC"/Redesigned/Lyrics/SGRKaraokeView.m $( [ -f "$SRC"/Redesigned/Lyrics/LyricsText.m ] && echo "$SRC"/Redesigned/Lyrics/LyricsText.m ) $( [ -f "$SRC"/Redesigned/Lyrics/LyricsLook.m ] && echo "$SRC"/Redesigned/Lyrics/LyricsLook.m ) $( [ -f "$SRC"/Redesigned/Lyrics/LyricsStyle.m ] && echo "$SRC"/Redesigned/Lyrics/LyricsStyle.m ) "$SRC"/Shared/Lyrics/KaraokeTiming.m $( [ -f "$SRC"/Shared/Lyrics/Romanise.m ] && echo "$SRC"/Shared/Lyrics/Romanise.m ) "$SRC"/Shared/AdBlock/Protobuf.m \
     "$SRC"/Shared/LyricsSources/SGTTML.m "$SRC"/Redesigned/Kit/SGRTokens.m "$SRC"/Redesigned/Kit/SGRDownload.m "$SRC"/Redesigned/Kit/SGRRestyle.m \
+    "$SRC"/Redesigned/Kit/SGRRollingDigits.m "$SRC"/Redesigned/Kit/SGRRefinements.m \
     "$SRC"/Shared/LyricsSources/SongMatch.m "$HERE/../page-style-with-presenter-stubs.m" "$SRC"/Core/SGViewTree.m \
     $( [ -f "$SRC"/Shared/Lyrics/LyricsLanguage.m ] && echo "$SRC"/Shared/Lyrics/LyricsLanguage.m "$SRC"/Redesigned/Lyrics/SongLanguage.m ) \
     $( [ -f "$SRC"/Shared/LyricsMeanings/Meanings.m ] && echo "$SRC"/Shared/LyricsMeanings/Meanings.m "$SRC"/Redesigned/Lyrics/MeaningSheet.m ) \

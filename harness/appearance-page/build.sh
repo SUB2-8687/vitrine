@@ -9,11 +9,11 @@ rm -rf "$OUT"; mkdir -p "$OUT/AppearancePageHarness.app"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     -I"$SRC" -isysroot "$SDK" -Wall -Werror -Wno-deprecated-declarations \
-    "$(dirname "$0")/main.m" "$(dirname "$0")/font-selection.m" "$(dirname "$0")/../scene.m" "$(dirname "$0")/stubs.m" \
+    "$(dirname "$0")/main.m" "$(dirname "$0")/../scene.m" "$(dirname "$0")/stubs.m" \
     "$SRC"/Native/Appearance/AppearanceSettings.m "$SRC"/Redesigned/Kit/SGRAppearanceSettings.m "$SRC"/Shared/Fonts/FontImport.m \
     "$SRC"/Native/Appearance/AccentHistory.m "$SRC"/Native/Appearance/AccentSheet.m \
     "$SRC"/Redesigned/Kit/SGRAccentHistory.m "$SRC"/Redesigned/Kit/SGRAccentSheet.m \
-    "$(dirname "$0")/font-library-source.m" "$SRC"/Shared/Fonts/FontLibraryPage.m "$SRC"/Shared/Fonts/FontSelection.m "$SRC"/Core/SGFileHash.m \
+    "$SRC"/Shared/Fonts/FontLibrary.m "$SRC"/Shared/Fonts/FontLibraryPage.m "$SRC"/Shared/Fonts/FontSelection.m "$SRC"/Core/SGFileHash.m \
     "$SRC"/Settings/SGPage.m "$SRC"/Settings/SGPageStyle.m "$SRC"/Settings/SGModPage.m "$SRC"/Settings/SGSettingsSearch.m "$SRC"/Settings/SGSettingsIndex.m "$SRC"/Settings/SGGlowSwitch.m \
     "$SRC"/Core/SGLog.m "$SRC"/Core/SGPrefs.m "$SRC"/Core/SGLocalize.m "$SRC"/Core/SGGlass.m "$SRC"/Core/SGViewTree.m "$SRC"/Core/SGFlagForce.m "$SRC"/Core/SGUIMode.m \
     -framework UIKit -framework QuartzCore -framework CoreGraphics -framework Foundation -framework CoreText -framework UniformTypeIdentifiers \

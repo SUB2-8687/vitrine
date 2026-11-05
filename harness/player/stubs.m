@@ -382,8 +382,10 @@ void SGAudioSetOutputReader(SGAudioOutputReader reader) {
 
 // Sing (the mic on the lyrics, SGRSingButton.m): never available, as on a phone that cannot run it.
 #import "Shared/Sing/Sing.h"
+#import "Core/SGPrefs.h"
 NSString *const SGSingChangedNotification = @"harness.singChanged";
 NSString *const SGSingButtonDidChangeNotification = @"harness.singButtonDidChange";
+BOOL SGSingButtonShown(void) { return SGFlag(SGKeySingButton, NO); }
 SGSingState SGSingCurrentState(void) { return SGSingStateUnavailable; }
 NSString *SGSingStatusText(void) { return @"Unavailable"; }
 NSString *SGSingStatusDetail(void) { return nil; }
@@ -437,8 +439,14 @@ BOOL SGMotionAppleMusicOn(void) { return YES; }
 void SGRSetTabBarMinimized(BOOL minimized, BOOL animated) {}
 void SGRRefreshTabBar(void) {}
 
-// Spotify's link dispatcher, which the AI DJ's Queue glyph opens the queue through (DJPlayer.x): none here.
-BOOL SGOpenSpotifyURI(NSURL *uri) { NSLog(@"[harness] open %@", uri); return NO; }
+// Spotify's link dispatcher, which the AI DJ's Queue glyph opens the queue through (DJPlayer.x): none here. The last URI
+// asked for is kept for the options scenario.
+NSURL *SGRHarnessLastOpened;
+BOOL SGOpenSpotifyURI(NSURL *uri) {
+    NSLog(@"[harness] open %@", uri);
+    SGRHarnessLastOpened = uri;
+    return NO;
+}
 
 // PlayerMorph.x's Music-like close switch, which the Player page lists, and PlayerLyricLine.x's line under the cover,
 // which the Visualizer keeps clear of: neither file is built here, and no line is up.
@@ -449,6 +457,12 @@ CGRect SGRPlayerLyricLineIn(UIView *view) { return CGRectNull; }
 // the ⋯, and with no button of the mod's over it the ⋯'s own touches press its circle.
 void SGRPlayerMenuWatch(UIView *button) {}
 UIControl *SGRSystemMenuFront(UIView *button) { return nil; }
+
+// LyricCardPicker.m and ShareCards.m are not built: holding a lyric line opens no card picker here.
+#import "Redesigned/Lyrics/LyricCardPicker.h"
+@implementation SGRLyricCardLine
+@end
+void SGRPresentLyricCardPicker(NSArray<SGRLyricCardLine *> *lines, NSUInteger picked, BOOL pronunciation, NSString *trackID) {}
 
 // Cydia Substrate's hook (substrate.h here), as the runtime does it: the class gets its own copy of an inherited
 // method, so its superclass is left alone.

@@ -2,7 +2,7 @@
 # The redesign's Player page (main.m's settings scenario) in a simulator of its own, made for the run and deleted after
 # it. Exits nonzero unless the scenario ends with "settings checks: n of n right -- PASS".
 #     THEOS=$HOME/theos sh harness/player/settings-check.sh
-# SRC=<tweak/Sources> builds other sources (settings-mutation-check.py). APPEARANCE=light|dark and CONTENT_SIZE (a
+# SRC=<tweak/Sources> builds other sources. APPEARANCE=light|dark and CONTENT_SIZE (a
 # `simctl ui content_size` value, accessibility-extra-extra-extra-large for the largest text) are set on the simulator
 # before the run, and SHOTS=<dir> keeps a screenshot of each state the scenario names (settings: screenshot <name> now).
 set -eu

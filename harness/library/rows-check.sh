@@ -7,7 +7,7 @@ HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SRC=${SRC:-$(cd "$HERE/../../tweak/Sources" && pwd)}
 OUT=${HARNESS_BUILD_DIR:-$HERE/build-rows}
 rm -rf "$OUT"; mkdir -p "$OUT/gen"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Library/LibraryRows.x" > "$OUT/gen/LibraryRows.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Redesigned/Library/LibraryRows.x" > "$OUT/gen/LibraryRows.m"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \

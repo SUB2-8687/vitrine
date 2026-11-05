@@ -271,11 +271,7 @@ static UILabel *label(NSString *text, CGRect frame, CGFloat size, UIColor *color
 
 - (void)cycle {
     [self transition:YES done:^{
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [self transition:NO done:^{
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [self cycle]; });
-            }];
-        });
+        [self transition:NO done:^{ exit(0); }];
     }];
 }
 @end

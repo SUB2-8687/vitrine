@@ -8,6 +8,7 @@
 #import "Core/SGPrefs.h"
 #import "Settings/SGModPage.h"
 #import "Settings/SGSettingsIndex.h"
+#import "Settings/SGSettingsSearch.h"
 
 static NSUInteger checks, failures;
 
@@ -433,6 +434,25 @@ static void runChecks(void) {
 
 int main(int argc, char **argv) {
     @autoreleasepool {
+        check([SGSearchInitials(@"번역") isEqual:@"ㅂㅇ"], @"syllable initials");
+        check([SGSearchInitials(@"가사 설정") isEqual:@"ㄱㅅ ㅅㅈ"], @"initials retain spaces");
+        check([SGSearchInitials(@"Font 번역") isEqual:@"font ㅂㅇ"], @"Latin folds around initials");
+        check(SGSearchWordMatches(@"ㅂㅇ", @"번역", @"ㅂㅇ"), @"initials match");
+        check(!SGSearchWordMatches(@"ㅂㅇ", @"가사 설정", @"ㄱㅅ ㅅㅈ"), @"different initials miss");
+        check([SGSearchInitials(@"꿀") isEqual:@"ㄲ"], @"double consonant");
+        check(SGSearchWordMatches(@"ㄲ", @"꿀", @"ㄲ"), @"double consonant matches");
+        check(!SGSearchWordMatches(@"ㄱ", @"꿀", @"ㄲ"), @"single consonant does not match double");
+        check(SGSearchWordMatches(@"ㄱㅅ", @"가사 font", @"ㄱㅅ font") &&
+              SGSearchWordMatches(@"font", @"가사 font", @"ㄱㅅ font"), @"mixed query");
+        check(!SGSearchWordMatches(@"ㄱㅅ", @"가사 font", @"가사 font"), @"initials do not read plain text");
+        check(!SGSearchIsInitialsWord(@"font"), @"Latin query is not initials");
+        check(!SGSearchStartsTitle(@"font", @"번역", @"ㅂㅇ"), @"unrelated Latin prefix misses");
+        check(!SGSearchIsInitialsWord(@"ㅏ"), @"vowel is not an initial");
+        check(SGSearchWordMatches(@"ㅏ", @"ㅏ", SGSearchInitials(@"ㅏ")), @"vowel matches literal text");
+        check(SGSearchStartsTitle(@"ㅂㅇ", @"번역", @"ㅂㅇ"), @"initial title prefix");
+        check(SGSearchStartsTitle(@"ㄱㅅ ㅅㅈ", @"가사 설정", @"ㄱㅅ ㅅㅈ"), @"spaced initial title prefix");
+        check(SGSearchStartsTitle(@"번", @"번역", @"ㅂㅇ"), @"plain title prefix");
+        check(!SGSearchStartsTitle(@"ㅂㅇ", @"가사 설정", @"ㄱㅅ ㅅㅈ"), @"unrelated initial prefix misses");
         // UIKit is only linked for FGModPage's own types; nothing here draws.
         runChecks();
     }

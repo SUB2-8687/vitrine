@@ -8,7 +8,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/NativePlayerHarness.app"
 for f in Native/Player/PlayerScrub.x Native/Player/PlayerDeclutter.x Native/Player/Player.x Native/Player/PlayerGestures.x; do
     [ -f "$SRC/$f" ] || continue
     name=$(basename "$f" .x)
-    "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
+    "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

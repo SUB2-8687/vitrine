@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds and runs the hold-speed helper check on the Mac. SRC may point at a copy of tweak/Sources (mutate.sh).
+# Builds and runs the hold-speed helper check on the Mac. SRC may point at a copy of tweak/Sources.
 set -eu
 cd "$(dirname "$0")"
 SRC=${SRC:-../../tweak/Sources}

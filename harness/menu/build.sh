@@ -5,8 +5,8 @@ set -e
 SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
 OUT=${OUT:-$(dirname "$0")/build}
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/MenuHarness.app"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitchMenu.x" > "$OUT/gen/SpeedPitchMenu.m"
-"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/MinuteLabel.x" > "$OUT/gen/MinuteLabel.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/SpeedPitchMenu.x" > "$OUT/gen/SpeedPitchMenu.m"
+"${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/Player/MinuteLabel.x" > "$OUT/gen/MinuteLabel.m"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \

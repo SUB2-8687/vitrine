@@ -1,20 +1,20 @@
 #!/bin/sh
 # Builds the onboarding harness for the simulator: the welcome tour (Tour.m) and the What's new sheet
-# (WhatsNew.m, with App/About/Update.m's parser). The sheet needs notes, so this writes CHANGELOG.md's
-# section for VERSION into the generated header first, upstream's sections included; the tweak's next
-# make writes its own version's back.
+# (WhatsNew.m, with App/About/Update.m's parser), with generated notes isolated in OUT.
 set -e
 cd "$(dirname "$0")"
 SRC=$(cd ../../tweak/Sources && pwd)
-OUT=build
+OUT=${OUT:-build}
 VERSION=${1:-0.20.0}
 rm -rf "$OUT"; mkdir -p "$OUT/OnboardingHarness.app"
-ALLOW_UPSTREAM=1 ../../scripts/whats-new.sh "$VERSION" ../../CHANGELOG.md "$SRC/App/Onboarding/SGWhatsNewNotes.h"
+mkdir -p "$OUT/onboarding"
+cp "$SRC/App/Onboarding/WhatsNew.m" "$OUT/onboarding/WhatsNew.m"
+ALLOW_UPSTREAM=1 ../../scripts/whats-new.sh "$VERSION" ../../CHANGELOG.md "$OUT/onboarding/SGWhatsNewNotes.h"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
-    -I"$SRC" -isysroot "$SDK" -Wno-deprecated-declarations -DSG_VERSION="\"$VERSION\"" \
-    main.m "$SRC"/App/Onboarding/Tour.m "$SRC"/App/Onboarding/WhatsNew.m "$SRC"/App/Onboarding/Environment.m \
+    -I"$SRC" -I"$SRC/App/Onboarding" -isysroot "$SDK" -Wno-deprecated-declarations -DSG_VERSION="\"$VERSION\"" \
+    main.m "$SRC"/App/Onboarding/Tour.m "$OUT"/onboarding/WhatsNew.m "$SRC"/App/Onboarding/Environment.m \
     "$SRC"/App/About/Update.m \
     "$SRC"/Settings/SGPage.m "$SRC"/Settings/SGPageStyle.m \
     "$SRC"/Core/SGLog.m "$SRC"/Core/SGPrefs.m "$SRC"/Core/SGLocalize.m "$SRC"/Core/SGViewTree.m "$SRC"/Core/SGGlass.m \

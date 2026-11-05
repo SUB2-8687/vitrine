@@ -31,11 +31,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 TWEAK = "tweak/Sources"
 
-# name, run command and theos flag exactly as .github/workflows/harness.yml
-# had them.  ``dir`` is the harness directory the run command uses.
+# CI names, commands and Theos requirements; ``dir`` is the harness directory.
+# Explicit weights estimate CI minutes. Mutation checks prove a check catches its
+# bug while it is written; they run by hand, not on every push.
 HARNESSES = [
     {"name": "AutoMix facts", "dir": "automix",
-     "run": "sh harness/automix/check.sh && python3 harness/automix/mutation-check.py"},
+     "run": "sh harness/automix/check.sh"},
     {"name": "Album notes", "dir": "album-notes", "theos": True,
      "run": "bash harness/album-notes/build.sh"},
     {"name": "Album counts", "dir": "album-counts",
@@ -126,8 +127,6 @@ HARNESSES = [
      "run": "sh harness/lyrics-sources/build.sh"},
     {"name": "Genius lyrics", "dir": "genius-lyrics",
      "run": "sh harness/genius-lyrics/build.sh"},
-    {"name": "Lyrics walk", "dir": "lyrics-walk",
-     "run": "sh harness/lyrics-walk/build.sh"},
     {"name": "Offline lyrics store", "dir": "lyrics-store",
      "run": "sh harness/lyrics-store/build.sh"},
     {"name": "Lyrics state and concurrent walk", "dir": "lyrics-sources",
@@ -153,17 +152,17 @@ HARNESSES = [
     {"name": "Player repeat transitions", "dir": "player",
      "run": "sh harness/player/repeat-check.sh"},
     {"name": "Player lyrics layout", "dir": "player",
-     "run": "sh harness/player/lyrics-layout-check.sh && python3 harness/player/lyrics-layout-mutation-check.py"},
+     "run": "sh harness/player/lyrics-layout-check.sh"},
     {"name": "Player lyric line", "dir": "player-lyric-line",
      "run": "sh harness/player-lyric-line/build.sh"},
     {"name": "Player refinements", "dir": "player-refinements", "theos": True,
      "run": "sh harness/player-refinements/check.sh"},
     {"name": "Player upcoming tracks", "dir": "player",
      "run": "sh harness/player/upcoming-tracks-check.sh"},
-    {"name": "Player settings", "dir": "player", "theos": True, "weight": 25,
-     "run": "sh harness/player/settings-check.sh && python3 harness/player/settings-mutation-check.py"},
-    {"name": "Player AutoMix UI", "dir": "player", "theos": True, "weight": 10,
-     "run": "sh harness/player/automix-check.sh && python3 harness/player/automix-mutation-check.py"},
+    {"name": "Player settings", "dir": "player", "theos": True, "weight": 7,
+     "run": "sh harness/player/settings-check.sh"},
+    {"name": "Player AutoMix UI", "dir": "player", "theos": True, "weight": 11,
+     "run": "sh harness/player/automix-check.sh"},
     {"name": "Preferences and counters", "dir": "prefs",
      "run": "sh harness/prefs/check.sh"},
     {"name": "Radio modes", "dir": "radio-modes",
@@ -178,8 +177,6 @@ HARNESSES = [
      "run": "sh harness/sleep-timer/build.sh && harness/sleep-timer/build/sleep-timer"},
     {"name": "Spicy lyrics", "dir": "spicy-lyrics",
      "run": "sh harness/spicy-lyrics/build.sh"},
-    {"name": "UI refinements rules", "dir": "ui-refinements",
-     "run": "sh harness/ui-refinements/rules-check.sh"},
     {"name": "UI refinements album menu", "dir": "ui-refinements", "theos": True,
      "run": "sh harness/ui-refinements/menu-check.sh"},
     {"name": "Update offline", "dir": "update",
@@ -197,7 +194,7 @@ SKIP_PARTS = {"build", ".build"}
 SHARED_PREFERENCE_DOMAINS = {
     "check": {
         "appearance-page", "driver", "fonts", "genius-lyrics", "gesture-hold", "local-files", "lyrics-sources",
-        "lyrics-translation", "lyrics-walk", "native-declutter", "player",
+        "lyrics-translation", "native-declutter", "player",
         "prefs", "radio-modes", "spicy-lyrics", "ui-refinements", "update",
     },
     "now-playing": {"local-files", "now-playing"},

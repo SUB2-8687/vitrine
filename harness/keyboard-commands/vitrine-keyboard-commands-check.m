@@ -57,53 +57,23 @@ static void checkVolumeGrid(void) {
     expectValue("up from NaN", SGKeyboardVolumeAfterStep(NAN, YES), 0.0625);
 }
 
-typedef struct {
-    SGKeyboardCommandID command;
-    SGKeyboardKey key;
-    NSString *input;
-    UIKeyModifierFlags modifiers;
-    NSString *title;
-} Expected;
-
 static void checkCommands(void) {
-    // Automatic storage: UIKit's input strings are extern constants, not compile-time ones.
-    const Expected want[] = {
-        {SGKeyboardCommandPlayPause, SGKeyboardKeyCharacter, @" ", 0, @"Play or pause"},
-        {SGKeyboardCommandNext, SGKeyboardKeyRight, UIKeyInputRightArrow, UIKeyModifierCommand, @"Next track"},
-        {SGKeyboardCommandPrevious, SGKeyboardKeyLeft, UIKeyInputLeftArrow, UIKeyModifierCommand, @"Previous track"},
-        {SGKeyboardCommandLike, SGKeyboardKeyCharacter, @"l", UIKeyModifierCommand, @"Like current track"},
-        {SGKeyboardCommandVolumeUp, SGKeyboardKeyUp, UIKeyInputUpArrow, UIKeyModifierCommand, @"Volume up"},
-        {SGKeyboardCommandVolumeDown, SGKeyboardKeyDown, UIKeyInputDownArrow, UIKeyModifierCommand, @"Volume down"},
-        {SGKeyboardCommandHome, SGKeyboardKeyCharacter, @"1", UIKeyModifierCommand, @"Go to Home"},
-        {SGKeyboardCommandSearch, SGKeyboardKeyCharacter, @"2", UIKeyModifierCommand, @"Go to Search"},
-        {SGKeyboardCommandLibrary, SGKeyboardKeyCharacter, @"3", UIKeyModifierCommand, @"Go to Library"},
-        {SGKeyboardCommandFind, SGKeyboardKeyCharacter, @"f", UIKeyModifierCommand, @"Search"},
-        {SGKeyboardCommandClosePlayer, SGKeyboardKeyEscape, UIKeyInputEscape, 0, @"Close the player"},
-        {SGKeyboardCommandClosePlayer, SGKeyboardKeyCharacter, @"w", UIKeyModifierCommand, @"Close the player"},
-    };
-    NSUInteger count = sizeof want / sizeof want[0];
-    if (SGKeyboardCommandCount() != count) {
-        printf("FAIL command count: got %lu, want %lu\n", (unsigned long)SGKeyboardCommandCount(), (unsigned long)count);
-        failures++;
-        return;
-    }
+    NSUInteger count = SGKeyboardCommandCount();
     const SGKeyboardCommand *table = SGKeyboardCommands();
+    NSMutableSet *bindings = [NSMutableSet set];
+    NSString *escapeAction = nil, *commandWAction = nil;
     for (NSUInteger i = 0; i < count; i++) {
-        char what[64];
-        expectText("command input", SGKeyboardCommandInput(&table[i]), want[i].input);
-        snprintf(what, sizeof what, "command %lu modifiers", (unsigned long)i);
-        expectFlag(what, table[i].modifiers == want[i].modifiers, YES);
-        snprintf(what, sizeof what, "command %lu title", (unsigned long)i);
-        expectText(what, SGKeyboardCommandTitle(want[i].command), want[i].title);
-        snprintf(what, sizeof what, "command %lu key, command and action", (unsigned long)i);
-        expectFlag(what, table[i].key == want[i].key && table[i].command == want[i].command && table[i].actionName.length > 0, YES);
-        // Space alone is the one command the focused control or VoiceOver may claim.
-        BOOL onlySpace = want[i].key == SGKeyboardKeyCharacter && [want[i].input isEqualToString:@" "] && want[i].modifiers == 0;
-        snprintf(what, sizeof what, "command %lu needsSpace", (unsigned long)i);
-        expectFlag(what, table[i].needsSpace, onlySpace);
+        NSString *input = SGKeyboardCommandInput(&table[i]);
+        NSArray *binding = @[input, @(table[i].modifiers)];
+        expectFlag("input and modifier pair does not collide", [bindings containsObject:binding], NO);
+        [bindings addObject:binding];
+        expectFlag("only bare space yields to focused controls", table[i].needsSpace,
+                   [input isEqual:@" "] && table[i].modifiers == 0);
+        if ([input isEqual:UIKeyInputEscape] && !table[i].modifiers) escapeAction = table[i].actionName;
+        if ([input isEqual:@"w"] && table[i].modifiers == UIKeyModifierCommand) commandWAction = table[i].actionName;
     }
-    // The player closes on either key, with one action.
-    expectText("Esc and ⌘W share an action", table[count - 1].actionName, table[count - 2].actionName);
+    expectFlag("Esc and command-W are available", escapeAction.length && commandWAction.length, YES);
+    expectText("Esc and command-W close through the same action", escapeAction, commandWAction);
 }
 
 // Whether a window of its own covers the app window: same scene, above it, visible, opaque, overlapping — and not

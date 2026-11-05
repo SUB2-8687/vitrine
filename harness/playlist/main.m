@@ -90,8 +90,6 @@ static void watchPinnedHold(UIView *page, BOOL freeze) {
             layer.timeOffset = [layer convertTime:CACurrentMediaTime() fromLayer:nil];
             layer.speed = 0;
             [CATransaction flush];
-            NSLog(@"[harness] first frame under the veil held 4 s for a screenshot, veil a=%.2f", layer.presentationLayer.opacity);
-            [NSThread sleepForTimeInterval:4];
             layer.speed = 1;
             layer.timeOffset = 0;
         }

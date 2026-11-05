@@ -38,13 +38,10 @@ void SGOpenModSettings(UIView *source) {}
 // nothing here: what the Tab bar page changes reaches the bar only through TabBar.x's own path (`navsettings`).
 void SGRRefreshTabBar(void) {}
 
-// Shared/Player/SGLastTrack.m, which the preview's placeholder art comes from; a plain square of the tint here.
-UIImage *SGPlaceholderArtwork(UIColor *tint) {
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(64, 64)];
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [tint setFill];
-        UIRectFill(CGRectMake(0, 0, 64, 64));
-    }];
-}
+#import "../shared/placeholder-artwork.m"
+// Shared/Player/PlayerState.x, which NowPlayingBar.x reads titles from: no player has reported a state here, so the
+// card's text is split by its line alone.
+@class SPTPlayerState;
+SPTPlayerState *SGPlayerState(void) { return nil; }
 // Shared/Player/PlayerEvents.x, which TabBarMinimize.x listens to.
 NSString *const SGPlayerTransitionNotification = @"spotifyglass.playerTransition";

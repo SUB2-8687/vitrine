@@ -513,22 +513,6 @@ static void spin(NSTimeInterval seconds) {
     [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
-// build/png unless LIBRARY_PNG names another folder; a launch's `tag` word ends each name, so the same check run in
-// another text size or direction writes files of its own.
-static void writePNG(UIView *view, NSString *name) {
-    NSString *dir = [NSString stringWithUTF8String:getenv("LIBRARY_PNG") ?: "png"];
-    [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
-    NSString *tag = [NSUserDefaults.standardUserDefaults stringForKey:@"tag"];
-    if (tag.length) name = [NSString stringWithFormat:@"%@-%@", name, tag];
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithBounds:view.bounds];
-    UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
-    }];
-    NSString *path = [dir stringByAppendingPathComponent:[name stringByAppendingString:@".png"]];
-    if (![UIImagePNGRepresentation(image) writeToFile:path atomically:YES]) HARNESS_FAIL(@"could not write %@", path);
-    printf("wrote %s\n", path.UTF8String);
-}
-
 static BOOL near(CGFloat a, CGFloat b) {
     return fabs(a - b) < 0.5;
 }
@@ -658,7 +642,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     }
     BOOL check = [args containsObject:@"check"];
     BOOL steady = check || [args containsObject:@"steady"];
-    BOOL back = [args containsObject:@"back"];
     NSArray<NSString *> *model = @[@"recents", @"search", @"plus"];
     if ([args containsObject:@"nocreate"]) model = @[@"recents", @"search"];
     if ([args containsObject:@"norecents"]) model = @[@"search", @"plus"];
@@ -731,26 +714,10 @@ void SGRRunSettingsChecks(UIWindow *window);
         return YES;
     }
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self report:@"page up"];
-        if (steady) return;
-        // The model lands, and the page lays out in the same turn -- Spotify's page states its list and header
-        // again from the same update -- before the stack's own pass has placed what the model showed.
+    if (!steady) {
         [self render:model];
         [page setNeedsLayout];
         [page layoutIfNeeded];
-        [self report:@"page pass in the model's turn"];
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self report:@"first look"];
-    });
-    if (back) {
-        // Opening a playlist and coming back: the page lays out again, nothing else changes.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [page setNeedsLayout];
-            [page layoutIfNeeded];
-            [self report:@"back from a playlist"];
-        });
     }
     return YES;
 }
@@ -841,7 +808,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     if (![args containsObject:@"compact"]) {
         if (menuButtonIn(page.header)) HARNESS_FAIL(@"Compact library off, the header has a menu button");
         [self expectChipsShown:@"off"];
-        writePNG(self.window, @"off");
         printf("PASS all off\n");
         exit(0);
     }
@@ -855,7 +821,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     if ([args containsObject:@"late"]) {
         [self expectChipsShown:@"before the list loads"];
         expectMenu(page, @"", @"before the list loads");
-        writePNG(self.window, @"compact-late");
         // Rows in, on the list's own pass only: no pass of the page's.
         self.items.loaded = YES;
         [self.page.list reloadData];
@@ -868,7 +833,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     // Spotify states the list's inset again on every pass of its page.
     [self pass];
     [self expectChipsFolded:@"after another page pass"];
-    writePNG(self.window, @"compact-folded");
 
     if ([args containsObject:@"noclear"]) [self checkFilterWithoutClearChip];
 
@@ -918,7 +882,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     pick(page, @"List");
     HARNESS_CHECK(self.items.toggleTaps == 1);
     printf("PASS picking the view already shown fires nothing\n");
-    writePNG(self.window, @"compact-list");
 
     // A filter Spotify has on (one kept from before): the chips stay folded and the menu clears it.
     [list setContentOffset:CGPointMake(0, top) animated:NO];
@@ -940,7 +903,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     spin(0.1);
     [self.page layoutIfNeeded];
     [self expectChipsShown:@"the sort row gone when fired"];
-    writePNG(self.window, @"compact-gave-up");
 
     [self checkFolder];
     printf("PASS all compact\n");
@@ -964,7 +926,6 @@ void SGRRunSettingsChecks(UIWindow *window);
     spin(0.3);
     [self expectChipsShown:@"a filter on with no clear chip, on the chips' pass"];
     HARNESS_CHECK(near(page.list.contentOffset.y, -kHeaderHeight));
-    writePNG(self.window, @"compact-noclear");
 
     [self.chips collectionView:self.chipsView didSelectItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
     spin(0.3);
