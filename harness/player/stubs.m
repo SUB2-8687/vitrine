@@ -300,13 +300,7 @@ UIViewController *SGImportedLRCPage(void) { return nil; }
 SGLyricsAsk SGImportedLRCAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) { if (done) done(nil); };
 NSDictionary<NSString *, id> *SGLocalFileInfo(NSString *uri) { return nil; }
 
-// Lyrics in picture in picture (LyricsPiP.m): off, and the tap does nothing.
-#import "Shared/LyricsPiP/LyricsPiP.h"
-NSNotificationName const SGLyricsPiPDidChangeNotification = @"harness.lyricsPiPDidChange";
-BOOL SGLyricsPiPEnabled(void) { return NO; }
-BOOL SGLyricsPiPActive(void) { return NO; }
-BOOL SGLyricsPiPStarting(void) { return NO; }
-void SGLyricsPiPToggle(UIView *from) {}
+#import "../shared/lyrics-pip-disabled.m"
 
 // The lyrics store (LyricsStore.m): empty.
 #import "Shared/Lyrics/LyricsStore.h"
@@ -416,10 +410,27 @@ NSURL *SGMotionCanvasIn(NSDictionary *metadata) {
 // lookup is out.
 static NSTimeInterval sg_lookupDelay;
 void SGRHarnessSetLookupDelay(NSTimeInterval seconds) { sg_lookupDelay = seconds; }
+static NSMutableDictionary<NSString *, NSMutableArray<dispatch_block_t> *> *sg_heldLookups;
+void SGRHarnessHoldLookups(NSString *uri) {
+    if (!sg_heldLookups) sg_heldLookups = [NSMutableDictionary dictionary];
+    sg_heldLookups[uri] = [NSMutableArray array];
+}
+BOOL SGRHarnessLookupReady(NSString *uri) { return sg_heldLookups[uri].count > 0; }
+void SGRHarnessDeliverLookups(NSString *uri) {
+    NSArray<dispatch_block_t> *answers = [sg_heldLookups[uri] copy];
+    [sg_heldLookups removeObjectForKey:uri];
+    for (dispatch_block_t answer in answers) answer();
+}
 
 void SGMotionClipFor(NSString *uri, NSURL *canvas, NSString *artist, NSString *album, CGFloat pixels,
                      void (^done)(NSURL *file, NSString *source)) {
-    if (sg_lookupDelay > 0) {
+    if (sg_heldLookups[uri]) {
+        void (^answer)(NSURL *, NSString *) = [done copy];
+        NSMutableArray *held = sg_heldLookups[uri];
+        done = ^(NSURL *file, NSString *source) {
+            [held addObject:^{ answer(file, source); }];
+        };
+    } else if (sg_lookupDelay > 0) {
         void (^answer)(NSURL *, NSString *) = [done copy];
         NSTimeInterval delay = sg_lookupDelay;
         done = ^(NSURL *file, NSString *source) {

@@ -143,7 +143,8 @@ void SGAddPlayerStateObserver(id<SGPlayerStateObserver> observer) {
     if (!observers) observers = [NSHashTable weakObjectsHashTable];
     [observers addObject:observer];
 }
-NSArray *SGMotionSourceOrder(void) { return @[@"canvas"]; }
+extern BOOL harnessMotionSourcesOff;
+NSArray *SGMotionSourceOrder(void) { return harnessMotionSourcesOff ? @[] : @[@"canvas"]; }
 NSURL *SGMotionCanvasIn(NSDictionary *metadata) { return nil; }
 NSString *SGLocalFileCoverInURL(NSString *url) { return nil; }
 BOOL SGMotionCanvasOutranks(NSArray *order, NSString *source) { return YES; }
@@ -209,9 +210,10 @@ CGSize SGLyricsClipSize(CGFloat pixels) { return CGSizeMake(24, 32); }
 CGImageRef SGLyricsClipBackdrop(CGImageRef cover, CGSize size) {
     return CGImageRetain(cover ?: blue.CGImage);
 }
+CGImageRef harnessPublicationFrame(NSString *, CGImageRef);
 CGImageRef SGLyricsClipFrameWithLayout(CGImageRef backdrop, CGImageRef cover, NSString *previous, NSString *line,
                                        NSString *translation, NSString *next, CGSize size, SGLyricsClipLayout layout) {
-    return CGImageRetain(backdrop);
+    return harnessPublicationFrame(line, backdrop);
 }
 NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout) {
     return [NSString stringWithFormat:@"style%ldl%ld%@", (long)style, (long)layout, motion ? motion.lastPathComponent : @""];
@@ -370,6 +372,8 @@ static void background(NSDictionary *values) {
     [NSUserDefaults.standardUserDefaults setVolatileDomain:domain forName:NSArgumentDomain];
     [NSNotificationCenter.defaultCenter postNotificationName:NSUserDefaultsDidChangeNotification object:nil];
 }
+
+#include "publication-check.inc"
 
 void artworkChecks(void) {
     red = image(UIColor.redColor);
@@ -986,5 +990,4 @@ void artworkChecks(void) {
         check(!cleanupGateTimedOut, @"held cleanup is explicitly released without a timeout");
     }
     choose(SGLockArtworkOff);
-    [NSFileManager.defaultManager removeItemAtURL:cacheRoot error:nil];
 }

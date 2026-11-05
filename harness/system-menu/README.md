@@ -34,9 +34,8 @@ selection or dismissal, then deliver or withhold Spotify's sheet.
   label for VoiceOver; a finger on the down arrow runs Spotify's arrow action, reaches nothing of the mod's and
   opens no menu; a finger on the ⋯ then sends the mod's button its touch down and opens the menu, and the press
   (what `PlayerHeader.x`'s circle listens to) holds while the menu is up and is let go as it ends.
-- `timing`: ten taps, each closed again; logs the time from the touch down to the menu view in the hierarchy
-  (UIKit presents it inside the touch's delivery, so 2 to 4 ms warm), and the median, best and worst of the last
-  nine (the first pays for UIKit's menu classes loading).
+- `timing`: one cold opening and one warm opening after the menu and backing sheet dismiss.
+  Checks the one-second cold and 250 ms warm limits, without repeated screenshot/timing rehearsals.
 - `rows`: More holds Go to album, the grayed-out Lyrics and Sleep timer (below the sheet's fold), not the rows
   the quick row has; picking Go to album taps Spotify's row and the sheet goes.
 - `loading`: the first menu ever, its rows 1.5 s late: More shows the system's loading row, then the rows come

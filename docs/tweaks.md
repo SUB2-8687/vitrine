@@ -930,7 +930,8 @@ Shared:
                   colors (Spotify's green; Artwork, the cover's color lightened to about the green's luminance in its
                   place; Plain, white on the system's own background), and the progress bar. Artwork off sends no
                   cover at all. The page's preview (SGLiveActivityPreview.m) is a mock of the card in UIKit, not the
-                  widget, checked in the simulator against harness/live-activity-page/. Taps are
+                  widget; its callbacks, conditional rows and restored choices are checked in the simulator against
+                  harness/live-activity-page/. Taps are
                   LiveActivityIntents run inside Spotify and take a second or two to show on the card. The widget is extension/LiveActivity; ActivityKit pairs the two
                   by the attributes' type in LiveActivityShared.swift, compiled into both. It starts only with Spotify
                   in front; its settings apply at once. It ends when Spotify is swiped away while running; killed

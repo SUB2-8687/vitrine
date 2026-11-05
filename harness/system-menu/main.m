@@ -689,31 +689,17 @@ static NSArray<NSString *> *quickTitles(void) {
     }
 
     if ([run isEqualToString:@"timing"]) {
-        // Ten taps, each closed again, and each time to the menu on screen.
-        __block int round = 0;
-        NSMutableArray<NSNumber *> *times = [NSMutableArray array];
-        // Kept by itself until the last round lets it go.
-        __block void (^next)(void);
-        next = ^{
-            if (round++ == 10) {
-                // The first tap of a launch pays for UIKit's menu classes loading; the other nine are the measure.
-                NSArray *sorted = [[times subarrayWithRange:NSMakeRange(1, times.count - 1)] sortedArrayUsingSelector:@selector(compare:)];
-                NSLog(@"[harness] tap to menu on screen over %lu taps: median %.0f ms, best %.0f ms, worst %.0f ms", (unsigned long)sorted.count,
-                      [sorted[sorted.count / 2] doubleValue] * 1000, [sorted.firstObject doubleValue] * 1000, [sorted.lastObject doubleValue] * 1000);
-                check([sorted[sorted.count / 2] doubleValue] < 0.25, @"the median tap brings the menu up within 250 ms");
-                next = nil;
-                finish();
-                return;
-            }
-            [self tap:^(CFTimeInterval took) {
-                [times addObject:@(took)];
-                after(0.5, ^{
-                    [self.front.contextMenuInteraction dismissMenu];
-                    after(1.5, ^{ next(); });
-                });
-            }];
-        };
-        next();
+        [self tap:^(CFTimeInterval cold) {
+            check(cold >= 0 && cold < 1, @"cold finger-down opens the menu within one second");
+            [self.front.contextMenuInteraction dismissMenu];
+            waitFor(^BOOL { return !openMenu() && self.sheetGone; }, 3, ^{
+                check(!openMenu() && self.sheetGone, @"cold menu and backing sheet dismissed");
+                [self tap:^(CFTimeInterval warm) {
+                    check(warm >= 0 && warm < 0.25, @"warm finger-down opens the menu within 250 ms");
+                    finish();
+                }];
+            });
+        }];
         return;
     }
 

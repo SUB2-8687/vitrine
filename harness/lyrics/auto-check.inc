@@ -39,23 +39,6 @@ static void autoSetup(BOOL enabled) {
     SGHarnessGoogle = ^(NSArray *lines, SGHarnessDone done) { googleCalls++; done(nil, @"failed"); done(nil, @"duplicate"); };
     SGHarnessBing = ^(NSArray *lines, SGHarnessDone done) { bingCalls++; done(markAll(lines, @"B: "), nil); };
 }
-static void statusSnapshot(NSString *path) {
-    CGFloat oldWidth = autoPlayer.frame.size.width;
-    CGRect frame = autoPlayer.frame; frame.size.width = 360; autoPlayer.frame = frame;
-    [autoPlayer layoutSubviews];
-    NSDate *settled = [NSDate dateWithTimeIntervalSinceNow:0.12];
-    while (settled.timeIntervalSinceNow > 0) {
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
-        autoTick(autoPlayer);
-    }
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:autoPlayer.bounds.size];
-    UIImage *image = [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [UIColor.blackColor setFill]; UIRectFill(autoPlayer.bounds);
-        [autoPlayer.layer renderInContext:context.CGContext];
-    }];
-    [UIImagePNGRepresentation(image) writeToFile:path atomically:YES];
-    frame.size.width = oldWidth; autoPlayer.frame = frame;
-}
 static void autoCheck(UIWindow *window) {
     NSUserDefaults *args = NSUserDefaults.standardUserDefaults;
     UIViewController *root = [UIViewController new]; window.rootViewController = root;
@@ -117,7 +100,6 @@ static void autoCheck(UIWindow *window) {
     check(googleCalls == 1 && bingCalls == 1 && !sg_alert && !spinning(autoPlayer), @"all-failed chain stops once without alert or retry loop");
     SGRAutoTranslationProgress *failedStatus = SGRAutoTranslationProgressFor(@"auto-all-failed", @"en");
     check(((SGRTranslationStatusView *)[autoPlayer valueForKey:@"status"]).showsNote, @"failed status remains visible with retry");
-    statusSnapshot(@"/tmp/vitrine-usability-failed.png");
     check(failedStatus.phase == SGRAutoTranslationPhaseFailed && failedStatus.failure == SGRAutoTranslationFailureResponse,
         @"unknown upstream errors become a safe failure category");
     NSArray<SGKaraokeLine *> *lateLines = [autoPlayer valueForKey:@"lines"];
@@ -143,7 +125,6 @@ static void autoCheck(UIWindow *window) {
     SGHarnessDone stale = sg_held;
     SGRTranslationStatusView *runningNote = [autoPlayer valueForKey:@"status"];
     check(runningNote.showsNote, @"real lyrics view displays the running status");
-    statusSnapshot(@"/tmp/vitrine-usability-running.png");
     check(!SGRAutoTranslationRetry(@"auto-cancel", @"en"), @"retry cannot duplicate an active request");
     [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsTranslationsDidChangeNotification object:nil]; pump();
     check(googleCalls == 1 && bingCalls == 0 && spinning(autoPlayer), @"generic display refresh keeps an in-flight chain and its token");

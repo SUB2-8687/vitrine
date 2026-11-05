@@ -62,8 +62,9 @@ A real file goes in with `-file /path/song.ttml`: the simulator reads the Mac's 
 `-perf LABEL` logs the view's per frame cost (its display link's `tick`) every 240 frames; run with
 `simctl launch --console` to read it. `-dump 1` prints the lines as read, with their pronunciations,
 translations and romanized readings, and quits. `-romanise 1` checks the romanized readings
-(`Shared/Lyrics/Romanise.m`) and logs then exits nonzero if any failed. `-openMenu 3` opens the pronunciation and translation menu three seconds in,
-`-toggleAt 3` switches both over as the menu would, and `-light 1` puts the window in light mode.
+(`Shared/Lyrics/Romanise.m`) and logs then exits nonzero if any failed. `-light 1` puts the window in light mode.
+Menu actions, AI requests and text-role toggles are owned by `translation-check.sh`, including
+`review-check.inc`, `extras-check.inc` and `round-one-check.inc`; timed screenshot rehearsals are omitted.
 
 A screen recording catches the motion: `simctl io <udid> recordVideo -f run.mp4`, then e.g.
 `ffmpeg -i run.mp4 -vf "fps=10,crop=1206:520:0:560,scale=233:-1,tile=12x1" -frames:v 1 strip.png`.
@@ -86,5 +87,5 @@ The same Catalyst check also exercises generation-guarded translation status, pe
 no-ready-service versus failed/partial results, cancellation and removal clearing stale status, and
 live word-timing changes in two views. The actual tools menu identifies all timing modes and its
 estimate toggle changes both views immediately. `TranslationStatusView.m` is linked unchanged;
-360pt-wide running/failed status images are written to `/tmp/vitrine-usability-*.png` for visual review.
+running/failed status visibility is asserted without screenshot output.
 The separate `harness/connection-test-settings/` smoke covers the connection-test row and result alerts.

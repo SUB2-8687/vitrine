@@ -3,7 +3,7 @@
 # Settings/ framework as they are in the tweak, stubs.m for the activity and the sleep timer.
 set -e
 SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
-OUT=$(dirname "$0")/build
+OUT=${OUT:-$(dirname "$0")/build}
 rm -rf "$OUT"; mkdir -p "$OUT/LiveActivityPageHarness.app"
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)

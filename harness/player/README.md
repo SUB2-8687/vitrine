@@ -41,24 +41,27 @@ The title engine, lyric sources, AI providers, credentials and network clients a
 No simulator is started. This focused check is independent of `build.sh` and its older missing
 AI/lyrics symbols; it does not repair or validate the full simulator harness.
 
-The 69 assertions cover original metadata, asynchronous current-track title and artist updates
-(including accessibility labels), no update before notification, exactly one provider read per
-matching event, irrelevant/malformed events, an old track's delayed completion after a track switch,
+The assertions cover original metadata, asynchronous current-track title and artist updates
+(including accessibility labels), no update before notification, irrelevant/malformed events,
+an old track's delayed completion after a track switch,
 NSURL and NSString track identities, settings disable/re-enable, paused playback, local/episode/invalid
-URIs, and no player state. Before and after events, snapshots compare the rest timer's identity,
-validity and deadline, shield attachment, control/title/artist/stage alpha, gesture enablement,
-lyrics extras, bare layout, playback state, play glyph/label, background motion and app idle state.
-Forwarding spies also detect calls to `restartRest`, `setControlsShown:` and `setIdleTimerDisabled:`.
-Object ivars are read directly: KVC's `rest` would invoke the production hide action, and `title`
+URIs, and no player state. Title delivery leaves visible controls visible and hidden controls hidden.
+Displayed labels are read directly: KVC's `title`
 would resolve `UIViewController.title` instead of the marquee. Finally, weak references prove the
 controller and label deallocate, the scheduled timer is invalidated, and both notifications after
-deallocation cause no refresh or crash.
+deallocation are safe.
 
-Verified 2026-10-15: **69/69 passed**, exit 0. This checks title notification behavior on Catalyst,
+This checks title notification behavior on Catalyst,
 not phone layout/rotation or translation-provider correctness; the separate translation suite is
 not rerun here.
 
 ## Simulator harness
+
+`python3 harness/player/ui-check.py settings automix` builds once and runs both assertion
+scenarios on one owned simulator, then shuts down/deletes it and removes the build.
+The individual `settings-check.sh` and `automix-check.sh` entry points select one scenario.
+Settings holds clip and image replies until the stale-track or dismissal boundary; screenshot
+rehearsals are not part of either run.
 
 Spotify's full screen player mocked under its own class names and accessibility identifiers
 (from `trees/clean/player/01.txt`), so the redesign's player can be laid out, animated and
@@ -238,7 +241,7 @@ come late, out of order, or not at all.
   whose times are no longer known or gone, another song, a pause and the player closing, back once it is still, the
   next song's cover held and given up 3 s after the window, held back by the lyrics, an inactive app, the wide layout,
   the player off screen, Reduce Motion, the AI DJ and unknown times, and no stage kept once the player is gone).
-  `automix-check.sh` runs it in a simulator of its own (`SHOTS=<dir>` keeps the states it names); the log ends with
+  `automix-check.sh` runs it in a simulator of its own; the log ends with
   `automix checks: n of n right -- PASS` or `FAIL`. `automix-mutation-check.py` breaks a rule of each area (two for
   the stage) in a copy of the sources and expects the check that guards it to say WRONG; it runs by hand when the
   check or the rule it guards changes, not in CI.

@@ -17,8 +17,7 @@
 //               and hold-back (the player hidden, faded or off screen, and facts that change under it among them), the
 //               cover never left hidden, and no stage kept once the player is gone
 //
-// Each step runs its delay after the last one ran. A state the Lead looks at is named in the log
-// (`automix: screenshot <name> now`) and held two seconds. The log ends with automix checks n of m right -- PASS or
+// Each step runs its delay after the last one ran. The log ends with automix checks n of m right -- PASS or
 // FAIL, and the app exits with it.
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -47,12 +46,18 @@ extern NSString *const SGPlayerTransitionNotification;
 
 #pragma mark - a player on the clock
 
+static BOOL sg_controlledClock;
+static CFTimeInterval sg_playbackTime;
+static CFTimeInterval playbackTime(void) {
+    return sg_controlledClock ? sg_playbackTime : CACurrentMediaTime();
+}
+
 @interface SGRHarnessLiveState : SPTPlayerState
 @property (nonatomic) CFTimeInterval sgr_at;
 @end
 @implementation SGRHarnessLiveState
 - (double)position {
-    return self.isPaused ? self.positionAsOfTimestamp : self.positionAsOfTimestamp + (CACurrentMediaTime() - self.sgr_at) * self.playbackSpeed;
+    return self.isPaused ? self.positionAsOfTimestamp : self.positionAsOfTimestamp + (playbackTime() - self.sgr_at) * self.playbackSpeed;
 }
 @end
 
@@ -86,21 +91,21 @@ static SPTPlayerTrack *song(NSString *uri, NSString *title, NSString *image) {
 static double sg_reportedAt;
 static CFTimeInterval sg_reportedWhen;
 static double playing(void) {
-    return sg_reportedAt + CACurrentMediaTime() - sg_reportedWhen;
+    return sg_reportedAt + playbackTime() - sg_reportedWhen;
 }
 
 static void report(SPTPlayerTrack *track, double position, double duration, NSArray *future, BOOL paused, NSString *context) {
     SGRHarnessLiveState *state = [SGRHarnessLiveState new];
+    state.sgr_at = playbackTime();
     [state setValue:track forKey:@"track"];
     [state setValue:@(position) forKey:@"positionAsOfTimestamp"];
-    [state setValue:[NSDate date] forKey:@"timestamp"];
+    [state setValue:[NSDate dateWithTimeIntervalSinceReferenceDate:state.sgr_at] forKey:@"timestamp"];
     [state setValue:@1 forKey:@"playbackSpeed"];
     [state setValue:@(paused) forKey:@"isPaused"];
     [state setValue:@YES forKey:@"isPlaying"];
     [state setValue:@(duration) forKey:@"duration"];
     [state setValue:future ?: @[] forKey:@"future"];
     [state setValue:context forKey:@"contextURI"];
-    state.sgr_at = CACurrentMediaTime();
     sg_reportedAt = position;
     sg_reportedWhen = state.sgr_at;
     SGRHarnessReport(state);
@@ -136,20 +141,42 @@ static void stepAfter(double (^delay)(void), dispatch_block_t block) {
     [sg_steps addObject:@[[delay copy], [block copy]]];
 }
 
+@interface SGRHarnessFrameStep : NSObject
+@property (nonatomic, copy) dispatch_block_t action;
+@property (nonatomic) NSUInteger frames;
+@end
+@implementation SGRHarnessFrameStep
+- (void)frame:(CADisplayLink *)link {
+    // The second callback follows a complete frame regardless of display-link callback order.
+    if (++self.frames < 2) return;
+    [link invalidate];
+    self.action();
+}
+@end
+
+static void stepOnFrame(dispatch_block_t block) {
+    [sg_steps addObject:@[@"frame", [block copy]]];
+}
+
 static void runSteps(void) {
     if (!sg_steps.count) return;
     NSArray *next = sg_steps.firstObject;
     [sg_steps removeObjectAtIndex:0];
+    if ([next[0] isKindOfClass:NSString.class]) {
+        SGRHarnessFrameStep *frame = [SGRHarnessFrameStep new];
+        frame.action = ^{
+            ((dispatch_block_t)next[1])();
+            runSteps();
+        };
+        CADisplayLink *link = [CADisplayLink displayLinkWithTarget:frame selector:@selector(frame:)];
+        [link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        return;
+    }
     double delay = [next[0] isKindOfClass:NSNumber.class] ? [next[0] doubleValue] : MAX(0, ((double (^)(void))next[0])());
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         ((dispatch_block_t)next[1])();
         runSteps();
     });
-}
-
-static void screenshot(NSString *name) {
-    step(0.3, ^{ NSLog(@"[harness] automix: screenshot %@ now", name); });
-    step(2, ^{});
 }
 
 static NSArray<UIView *> *viewsOf(UIView *root, NSString *className) {
@@ -434,7 +461,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
               [NSString stringWithFormat:@"%@, from the knob at 177.609 s (%.1f) to the bar's end (%.1f), behind every part of the slider %d", frames(), start, end, behind]);
         check(P, @"a flat, faint segment capped at the bar's end", band && flat(band, 1), bandLook(band));
     });
-    screenshot(@"progress-crossfade");
     step(0.2, ^{
         report(a, 150, 182.609, @[b, c], NO, kPlaylist);
         slider.value = 150 / 182.609;
@@ -536,7 +562,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
               [NSString stringWithFormat:@"%@; the player's %@, the sticky header's %@", layoutsSaid(), frames(),
                bandsIn(stickySlider, YES).count ? NSStringFromCGRect(bandsIn(stickySlider, YES).firstObject.frame) : @"none"]);
     });
-    screenshot(@"progress-two-sliders");
     step(0.2, ^{
         stickyHost.hidden = YES;
         [stickySlider setNeedsLayout];
@@ -589,7 +614,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         check(Q, @"the rows are the songs", [queue.tableView numberOfRowsInSection:0] == 2,
               [NSString stringWithFormat:@"%ld rows under the line", (long)[queue.tableView numberOfRowsInSection:0]]);
     });
-    screenshot(@"queue-annotation");
     step(0.2, ^{
         NSUInteger before = cellsMade;
         SGRHarnessSetTransition(facts(@"spotify:track:mixA", @"spotify:track:mixB", SGTransitionKindSpotifyAutomix, NO, 0, 0, 0, 0));
@@ -701,7 +725,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         check(D, @"the rows around it, on", [rowTitles(1) isEqualToArray:@[@"Transitions in the progress bar", @"Transitions in the queue", @"Artwork moves with the mix"]],
               [NSString stringWithFormat:@"%@ then %@", rowTitles(0), rowTitles(1)]);
     });
-    screenshot(@"preview-beatmatched");
     for (NSNumber *length in @[@1, @12, @5]) {
         // Away to another page, the settings changed there as Spotify's Playback page would, and back.
         step(0.3, ^{
@@ -721,7 +744,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
                   [NSString stringWithFormat:@"%@, %@, falls %.2f to %.2f s", said(), riseSaid(r), fallFrom, fallTo]);
         });
     }
-    screenshot(@"preview-crossfade");
     // Spotify's Playback page while the page shows, with facts that do not change (Spotify's AutoMix, times unknown):
     // the settings' own change reaches the card.
     step(0.2, ^{
@@ -746,7 +768,6 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         check(D, @"off again from the switch", says(@"Every song plays to its end", @"AutoMix is off") && rowTitles(1).count == 0,
               [NSString stringWithFormat:@"%@, the player's rows %@", said(), rowTitles(1)]);
     });
-    screenshot(@"preview-off");
     step(0.2, ^{
         [window.rootViewController dismissViewControllerAnimated:NO completion:nil];
         SGRHarnessSetTransition(nil);
@@ -808,22 +829,27 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
               [NSString stringWithFormat:@"at %.2f s: %@; covers %@ and %@ in %@, transforms identity %d %d, clipped %d at radius %.1f (the cover's %.1f)",
                playing(), coverState(), NSStringFromCGRect(out.frame), NSStringFromCGRect(in.frame), NSStringFromCGRect(on.bounds),
                CGAffineTransformIsIdentity(out.transform), CGAffineTransformIsIdentity(in.transform), on.clipsToBounds, on.layer.cornerRadius, cover.layer.cornerRadius]);
-        NSLog(@"[harness] automix: screenshot artwork-mix now");
+        // Keep scheduling latency from ending A's window before the B report reaches the player.
+        // Positions and report timestamps must advance together, independently of display delivery.
+        sg_playbackTime = playbackTime();
+        sg_controlledClock = YES;
     });
-    step(2, ^{});
     // B comes 0.15 s before its incoming window ends, which is when A's outgoing one does.
-    stepAfter(^double { return 19.85 - playing(); }, ^{
+    step(0, ^{
+        sg_playbackTime += 19.85 - playing();
         report(b, 5.85, 200, @[c], NO, kPlaylist);
         SGRHarnessSetTransition(nil);
     });
-    step(0.05, ^{
+    stepOnFrame(^{
         UIView *on = stage();
         check(A, @"still mixing as the window nears its end", on && on.subviews.lastObject.alpha > 0.9 && on.subviews.lastObject.alpha < 1,
               [NSString stringWithFormat:@"at %.2f s of B: %@", playing(), coverState()]);
+        sg_playbackTime = sg_reportedWhen + (6.2 - sg_reportedAt);
     });
-    step(0.3, ^{
+    stepOnFrame(^{
         check(A, @"done as the outgoing window ends", coverBack() && weakStage == nil,
               [NSString stringWithFormat:@"at %.2f s of B: %@, stage kept %d", playing(), coverState(), weakStage != nil]);
+        sg_controlledClock = NO;
     });
 
     // Each stop: the stage up inside the window, then what stops it, then the cover looked at.

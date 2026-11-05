@@ -98,20 +98,18 @@ fixture naturally occupies two English lines and one Korean line, not the previo
 `REVIEW_ONLY=1 SRC=<snapshot>` renders reference PNGs without running assertions.
 These are native Mac commands, not simulator apps.
 
-`THEOS=$HOME/theos python3 harness/lyrics-clip/publish-check.py` runs the existing Catalyst Now Playing
-harness plus a sequence captured at the actual system setter: composed ordinary artwork accompanies
+`THEOS=$HOME/theos sh harness/now-playing/build.sh` owns publication checks in
+`harness/now-playing/publication-check.inc`, captured at the actual system setter: composed ordinary artwork accompanies
 each lyric offer, Spotify's cover resend cannot replace it, and disabling restores native artwork.
-`--mutate` removes that fallback and requires the regression to fail. Rendering and the OS are doubles
+Rendering and the OS are doubles
 in that lifecycle check; `regression.sh` renders the production compositor. Phone clip transitions
 still require a device check.
 
 The publication check also switches directly from Lyrics to Every song with motion sources disabled
 and no further Spotify artwork update: both preview and clip must use the native cover, not lyrics.
-`--mutate-native` removes getter unwrapping and must fail that case. A held cold renderer proves a
+A held cold renderer proves a
 main-thread ordinary-artwork request returns without rendering or waiting, then receives the ready
-composed frame without replacing its static artwork object; `--mutate-main` restores synchronous rendering
-and must fail the thread check. Same-ID Spotify/extras resends keep that object's identity, new lyric IDs
+composed frame without replacing its static artwork object. Same-ID Spotify/extras resends keep that object's identity, new lyric IDs
 replace it, and removing native artwork cannot expose composed pixels through the getter.
-`--mutate-identity` restores per-publication wrappers and must fail the identity check.
 While a line is pending, the ordinary fallback may hold the previous lyric frame (or be absent on first
 demand), never the native cover. Paused lyric retention is unchanged.

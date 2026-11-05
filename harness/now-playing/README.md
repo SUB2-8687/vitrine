@@ -30,6 +30,8 @@ The added checks exercise:
 - plain → lyrics → plain generation changes
 - late animated-artwork capabilities without source re-downloads, polling or resend recursion
 - pending presentation cancellation when lyrics take ownership or artwork is switched off
+- cold off-main lyric publication, previous-frame fallback, same-ID static artwork reuse and
+  direct Lyrics → Every song native-cover restoration (`publication-check.inc`)
 - coalesced main-thread info notifications without blocking background setters or notifying extras resends
 - Every song waiting for a paused track's late cover and retaining it for lazy requests
 - a paused lyric line acquiring its late cover under distinct preview and disk identities, including

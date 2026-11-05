@@ -22,6 +22,8 @@ static NSDictionary *sg_system;   // what the system was last given
 static NSUInteger sg_sets;
 
 static void systemSet(id self, SEL _cmd, NSDictionary *info) {
+    extern void harnessRecordPublished(NSDictionary *);
+    harnessRecordPublished(info);
     sg_system = info;
     sg_sets++;
 }
@@ -418,6 +420,7 @@ int main(void) {
         sameTitle();
         artworkChecks();
         activityChecks();
+        publicationChecks();
         printf(failures ? "%d failed\n" : "all passed\n", failures);
         return failures ? 1 : 0;
     }

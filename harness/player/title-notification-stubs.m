@@ -16,7 +16,6 @@ static SPTPlayerState *state;
 static NSHashTable *observers;
 static NSMutableDictionary *answers;
 static BOOL translations = YES;
-static NSUInteger reads;
 
 void SGTitleHarnessState(id uri, NSString *title, NSString *artist, BOOL paused) {
     SPTPlayerTrack *track = [SPTPlayerTrack new];
@@ -45,9 +44,7 @@ void SGTitleHarnessAnswer(NSString *track, NSString *title, NSString *artist) {
     answers[track] = @[title, artist];
 }
 void SGTitleHarnessUseTranslations(BOOL enabled) { translations = enabled; }
-NSUInteger SGTitleHarnessReads(void) { return reads; }
 NSString *SGRShownTitle(NSString *track, NSString *title, NSString *artist, NSString **shownArtist) {
-    reads++;
     NSArray *answer = translations && track ? answers[track] : nil;
     if (shownArtist) *shownArtist = answer ? answer[1] : artist;
     return answer ? answer[0] : title;

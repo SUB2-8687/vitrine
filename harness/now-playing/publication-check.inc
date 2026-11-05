@@ -1,5 +1,4 @@
-// Included in the existing now-playing harness's artwork.m so this drives its actual system setter,
-// production Logos hooks, controlled lyric position and render queue, not a second publication model.
+// Included by artwork.m: publication through the real setter hooks and controlled render queue.
 static NSMutableArray<NSDictionary *> *publishedLyricFrames;
 static BOOL publicationFixture;
 static UIImage *secondFrame;
@@ -14,7 +13,7 @@ CGImageRef harnessPublicationFrame(NSString *line, CGImageRef backdrop) {
             if (holdPublicationRender) {
                 holdPublicationRender = NO;
                 publicationEntered = YES;
-                hold = !NSThread.isMainThread; // a mutant fails normally, never traps or blocks the GUI thread
+                hold = !NSThread.isMainThread;
             }
         }
     }
@@ -28,7 +27,7 @@ CGImageRef harnessPublicationFrame(NSString *line, CGImageRef backdrop) {
 void harnessRecordPublished(NSDictionary *info) {
     if (publishedLyricFrames) [publishedLyricFrames addObject:info];
 }
-static void publishSequenceChecks(void) {
+void publicationChecks(void) {
     background(@{@"mode": @0, @"darkness": @0});
     secondFrame = image(UIColor.greenColor);
     publicationFixture = YES;

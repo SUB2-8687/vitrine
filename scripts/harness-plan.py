@@ -14,6 +14,7 @@ Python 3 standard library only: the plan job runs on ubuntu with no Apple SDK.
 """
 
 import argparse
+import ast
 import fcntl
 import json
 import os
@@ -411,6 +412,7 @@ def script_refs(script_rel, hdir):
     except OSError:
         return set()
     script_dir = posixpath.dirname(script_rel)
+    text = text.replace("\\\n", " ")
     values = shell_vars(text, script_dir)
     text = substitute(text, values)
     bodies, rest = expanded_loops(text)
@@ -453,24 +455,44 @@ def derive_deps(harness):
     deps = set()
     roots = set()
 
-    # Only the scripts the run command names: build-sim.sh and other
-    # simulator scripts in the same directory are not CI inputs.
-    scripts = re.findall(r"[\w./-]+\.sh", harness["run"])
-    script_refs = set()
-    for rel in scripts:
-        script_refs |= script_refs_for(rel)
-    for path, is_dir in script_refs:
+    # Follow executed runners, not every script beside them (manual/mutation runners stay out).
+    entry_scripts = set(re.findall(r"[\w./-]+\.(?:sh|py)\b", harness["run"]))
+    scripts = list(entry_scripts)
+    seen_scripts, references, read_only, compiled = set(), set(), set(), set()
+    while scripts:
+        rel = scripts.pop()
+        if rel in seen_scripts:
+            continue
+        seen_scripts.add(rel)
+        if rel.endswith(".sh"):
+            for path, is_dir in script_refs_for(rel):
+                if not is_dir:
+                    compiled.add(path)
+                # Preserve entry-script coverage; a newly discovered include directory
+                # is a search root, not evidence that every implementation in it is built.
+                if is_dir and rel not in entry_scripts:
+                    roots.add(path)
+                else:
+                    references.add((path, is_dir))
+        inputs, invoked, reads = script_calls(rel)
+        references |= inputs
+        read_only |= reads
+        compiled |= {path for path, is_dir in inputs if not is_dir and path not in reads}
+        scripts.extend(invoked - seen_scripts)
+    for path, is_dir in references:
         if is_dir:
             if is_broad_root(path):
                 roots.add(path)
             else:
-                deps |= directory_files(path)
+                files = directory_files(path)
+                deps |= files
+                compiled |= files
         else:
             deps.add(path)
 
     # Quoted imports of the harness's own sources and of everything found above,
     # then the transitive closure.
-    queue = list(deps)
+    queue = list(deps - (read_only - compiled))
     seen = set(queue)
     for rel in own:
         if Path(rel).suffix in SOURCE_SUFFIXES:
@@ -495,6 +517,121 @@ def derive_deps(harness):
 
 def script_refs_for(script_rel):
     return script_refs(script_rel, posixpath.dirname(script_rel))
+
+
+def script_calls(script_rel):
+    """Inputs and invoked scripts, without executing a runner or following examples in comments."""
+    script_dir = posixpath.dirname(script_rel)
+    text = (REPO / script_rel).read_text(errors="replace")
+    inputs, calls, reads, compiled = set(), set(), set(), set()
+
+    def keep(value, invoked=False, read_only=False):
+        if not isinstance(value, (str, Path)):
+            return
+        resolved = resolve_path_token(str(value), script_dir)
+        if resolved and not resolved[1]:
+            inputs.add(resolved)
+            (reads if read_only else compiled).add(resolved[0])
+            if invoked and Path(resolved[0]).suffix in {".sh", ".py"}:
+                calls.add(resolved[0])
+
+    if script_rel.endswith(".py"):
+        tree = ast.parse(text, filename=script_rel)
+        values = {"__file__": str(REPO / script_rel)}
+
+        def value(node):
+            if isinstance(node, ast.Constant):
+                return node.value
+            if isinstance(node, ast.Name):
+                return values.get(node.id)
+            if isinstance(node, (ast.List, ast.Tuple)):
+                return [value(item) for item in node.elts]
+            if isinstance(node, ast.BinOp):
+                left, right = value(node.left), value(node.right)
+                if isinstance(node.op, ast.Div) and isinstance(left, Path) and isinstance(right, str):
+                    return left / right
+                if isinstance(node.op, ast.Add) and type(left) is type(right) and isinstance(left, (str, list)):
+                    return left + right
+            if isinstance(node, ast.Attribute) and node.attr == "parent":
+                base = value(node.value)
+                if isinstance(base, Path):
+                    return base.parent
+            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "parents":
+                base, index = value(node.value.value), value(node.slice)
+                if isinstance(base, Path) and isinstance(index, int) and 0 <= index < len(base.parents):
+                    return base.parents[index]
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == "str" and len(node.args) == 1:
+                    result = value(node.args[0])
+                    return str(result) if result is not None else None
+                if ((isinstance(node.func, ast.Name) and node.func.id == "Path") or
+                    (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                     and node.func.value.id == "pathlib" and node.func.attr == "Path")) and len(node.args) == 1:
+                    result = value(node.args[0])
+                    return Path(result) if isinstance(result, (str, Path)) else None
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "resolve":
+                    base = value(node.func.value)
+                    if isinstance(base, Path):
+                        return base.resolve()
+            return None
+
+        for statement in tree.body:
+            if isinstance(statement, ast.Assign):
+                for target in statement.targets:
+                    if isinstance(target, ast.Name):
+                        values[target.id] = value(statement.value)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr in {"read_text", "read_bytes"}:
+                keep(value(node.func.value), read_only=True)
+            if (isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"
+                    and node.func.attr in {"run", "Popen", "check_call", "check_output", "call"} and node.args):
+                command = value(node.args[0])
+                if isinstance(command, list):
+                    for word in command:
+                        keep(word)
+                    executable = command[0] if command else None
+                    if executable in {"sh", "bash", "python", "python3"}:
+                        for word in command[1:]:
+                            if isinstance(word, str) and word.startswith("-"):
+                                continue
+                            keep(word, invoked=True)
+                            break
+                    else:
+                        keep(executable, invoked=True)
+        return inputs, calls, reads - compiled
+
+    text = re.sub(r'\$\(\s*dirname\s+"?\$0"?\s*\)', script_dir, text)
+    text = substitute(text, shell_vars(text, script_dir)).replace("\\\n", " ")
+    delimiter = None
+    for line in text.splitlines():
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+        for index, token in enumerate(tokens):
+            if token in {"<<", "<<-"} and index + 1 < len(tokens):
+                delimiter = tokens[index + 1]
+        command_start = True
+        interpreter = False
+        for token in tokens:
+            if token in {";", "&&", "||", "|", "(", ")"}:
+                command_start, interpreter = True, False
+            elif command_start:
+                if token in {"then", "do", "else", "exec", "env"} or re.match(r"^\w+=", token):
+                    continue
+                interpreter = token in {"sh", "bash", "python", "python3", "source", "."}
+                command_start = False
+                if not interpreter:
+                    keep(token, invoked=True)
+            elif interpreter and not token.startswith("-"):
+                keep(token, invoked=True)
+                interpreter = False
+    return inputs, calls, set()
 
 
 def build_index():

@@ -11,6 +11,7 @@ NSDictionary *harnessSystem(void);
 NSUInteger harnessSets(void);
 void artworkChecks(void);
 void activityChecks(void);
+void publicationChecks(void);
 extern NSString *harnessLanguage;
 extern NSDictionary *harnessTranslations;
 extern BOOL harnessHoldTranslation;

@@ -16,12 +16,7 @@ void SGRPlayFeedback(NSInteger feedback) {}
 void SGPlayFeedback(NSInteger feedback) {}   // the name it has had since Haptics moved to Shared
 // The view is the redesign's (Core/SGUIMode.h).
 BOOL SGRedesignedUI(void) { return YES; }
-// Shared/LyricsPiP: off, as it is until switched on, so the lyrics menu offers no PiP item.
-NSNotificationName const SGLyricsPiPDidChangeNotification = @"spotifyglass.lyricsPiPDidChange";
-BOOL SGLyricsPiPEnabled(void) { return NO; }
-BOOL SGLyricsPiPActive(void) { return NO; }
-BOOL SGLyricsPiPStarting(void) { return NO; }
-void SGLyricsPiPToggle(UIView *from) {}
+#import "../shared/lyrics-pip-disabled.m"
 // -credit names the source (Show source is -spotifyglass.lyricsCredit 1); one naming Spicy Lyrics is
 // required, so it shows either way, and links to two people, as SpicyLyrics.m's community syncs do.
 NSString *SGLyricsCreditFor(NSString *trackID) { return [NSUserDefaults.standardUserDefaults stringForKey:@"credit"] ?: @"the harness"; }

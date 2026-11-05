@@ -86,6 +86,9 @@ void SGRHarnessPlayFrom(NSInteger ms);
 void SGRHarnessSetTrack(NSString *uri, NSString *imageURI, BOOL paused);
 // stubs.m: every clip lookup answers this many seconds late (0, the default, at once).
 void SGRHarnessSetLookupDelay(NSTimeInterval seconds);
+void SGRHarnessHoldLookups(NSString *uri);
+BOOL SGRHarnessLookupReady(NSString *uri);
+void SGRHarnessDeliverLookups(NSString *uri);
 void SGRHarnessClearTrack(void);
 // ../tabbar/touch.m: a finger's touches, through UIKit's own recognizers.
 extern void SGHarnessHold(UIWindow *window, CGPoint point, NSTimeInterval seconds);
@@ -111,6 +114,8 @@ static NSString *scenario(void) {
 @property (nonatomic, strong) UIImage *image;
 @property (nonatomic) NSTimeInterval delay;
 @property (nonatomic) BOOL fails;
+@property (atomic) BOOL held, finished;
+@property (nonatomic, strong) NSMutableArray<dispatch_block_t> *deliveries;
 @end
 @implementation SGRHarnessPicture
 @end
@@ -125,13 +130,30 @@ static NSMutableArray<NSURL *> *sg_catalogAsked, *sg_canvasAsked;
 static NSInteger sg_catalogStatus = 200;
 static NSData *sg_catalogBody;
 
-static void serve(NSString *imageURI, UIImage *image, NSTimeInterval delay, BOOL fails) {
+static SGRHarnessPicture *serve(NSString *imageURI, UIImage *image, NSTimeInterval delay, BOOL fails) {
     if (!sg_pictures) sg_pictures = [NSMutableDictionary dictionary];
     SGRHarnessPicture *picture = [SGRHarnessPicture new];
     picture.image = image;
     picture.delay = delay;
     picture.fails = fails;
+    picture.deliveries = [NSMutableArray array];
     sg_pictures[[imageURI substringFromIndex:imageURI.length - 24]] = picture;
+    return picture;
+}
+
+static void deliverPicture(SGRHarnessPicture *picture) {
+    NSArray<dispatch_block_t> *deliveries;
+    @synchronized (picture) {
+        picture.held = NO;
+        deliveries = [picture.deliveries copy];
+        [picture.deliveries removeAllObjects];
+    }
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        for (dispatch_block_t delivery in deliveries) delivery();
+    });
+}
+static BOOL pictureReady(SGRHarnessPicture *picture) {
+    @synchronized (picture) { return picture.deliveries.count > 0; }
 }
 
 // For the automix scenario (automix-scenario.m).
@@ -193,9 +215,18 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
     NSThread *thread = NSThread.currentThread;
     NSLog(@"[harness] picture server: %@ asked for, %@", name, picture ? (picture.fails ? @"will fail" : [NSString stringWithFormat:@"answers in %.1f s", picture.delay]) : @"unknown");
     NSData *data = picture.fails ? nil : UIImagePNGRepresentation(picture.image);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(picture.delay * NSEC_PER_SEC)), dispatch_get_global_queue(0, 0), ^{
-        [self performSelector:@selector(answer:) onThread:thread withObject:data waitUntilDone:NO];
-    });
+    dispatch_block_t delivery = ^{
+        [self performSelector:@selector(answer:) onThread:thread withObject:data waitUntilDone:YES];
+        picture.finished = YES;
+    };
+    @synchronized (picture) {
+        if (picture.held) {
+            [picture.deliveries addObject:delivery];
+            return;
+        }
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(picture.delay * NSEC_PER_SEC)),
+                        dispatch_get_global_queue(0, 0), delivery);
 }
 
 - (void)answer:(NSData *)data {
@@ -846,6 +877,21 @@ static CGFloat stopAlpha(CAGradientLayer *gradient, NSUInteger index) {
 // with dispatch_after's leeway, which grows with the delay, and two can fire together with no layout pass between.
 static void runScript(NSArray<NSArray *> *script, NSUInteger index) {
     if (index >= script.count) return;
+    if (![script[index][0] isKindOfClass:NSNumber.class]) {
+        BOOL (^ready)(void) = script[index][0];
+        NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 10;
+        [NSTimer scheduledTimerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
+            if (ready()) {
+                [timer invalidate];
+                ((dispatch_block_t)script[index][1])();
+                runScript(script, index + 1);
+            } else if (NSProcessInfo.processInfo.systemUptime >= deadline) {
+                fprintf(stderr, "FAIL player scenario condition timed out at step %lu\n", (unsigned long)index);
+                exit(1);
+            }
+        }];
+        return;
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([script[index][0] doubleValue] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         ((dispatch_block_t)script[index][1])();
         runScript(script, index + 1);
@@ -1764,7 +1810,7 @@ static void installSettingsWorkProbes(void) {
 // the two switches, and each choice leaving the other off at every write; the pinned card, its demo, and that neither
 // sends the player anything; the card refreshed for another track with late answers dropped, paused while the page
 // is covered, stopped once it is closed; the Buttons chips; and the card and the chips laid out whole at narrow widths
-// and the largest text. Each state a screenshot is asked for (`settings: screenshot <name> now`) holds two seconds.
+// and the largest text.
 - (void)runSettingsChecks {
     installSettingsWorkProbes();
     __block UINavigationController *nav;
@@ -1878,8 +1924,6 @@ static void installSettingsWorkProbes(void) {
         nav.modalPresentationStyle = UIModalPresentationOverFullScreen;
         [self.window.rootViewController presentViewController:nav animated:NO completion:nil];
     };
-    // Asked for once the state's crossfades are over.
-    void (^shot)(NSString *) = ^(NSString *name) { after(1, ^{ NSLog(@"[harness] settings: screenshot %@ now", name); }); };
     // The card's height in the window, and its top against the navigation bar's foot.
     NSString *(^pinned)(void) = ^{
         CGRect frame = [card() convertRect:card().bounds toView:self.window];
@@ -1891,6 +1935,8 @@ static void installSettingsWorkProbes(void) {
     __block NSString *playerBefore;
     __block NSDictionary *settingsBefore;
     __block NSURL *fileC;
+    __block SGRHarnessPicture *lateImageB, *lateImageE;
+    __block BOOL settingsDismissed = NO;
 
     [NSNotificationCenter.defaultCenter addObserverForName:NSUserDefaultsDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
         if (stored(SGRKeyPlayerAnimatedStill) && stored(SGRKeyPlayerAnimatedVisualiser)) sg_bothOn++;
@@ -1899,9 +1945,11 @@ static void installSettingsWorkProbes(void) {
     NSMutableArray<NSArray *> *script = [NSMutableArray array];
     void (^step)(NSTimeInterval, dispatch_block_t) = ^(NSTimeInterval delay, dispatch_block_t block) { [script addObject:@[@(delay), block]]; };
 
-    // The clip is in by 3 s (the motion scenario's first step), and the page opens over the player then.
-    step(3, ^{ open(); });
-    step(1.5, ^{
+    void (^when)(BOOL (^)(void), dispatch_block_t) = ^(BOOL (^ready)(void), dispatch_block_t block) {
+        [script addObject:@[[ready copy], [block copy]]];
+    };
+    when(^BOOL { return SGRPlayerMotionShowing(); }, ^{ open(); });
+    when(^BOOL { return motionOn() != nil && card().window != nil; }, ^{
         playerBefore = playerNow();
         CGFloat height = card().frame.size.height;
         BOOL inTable = card().window && card().superview.superview == table() && fabs(cardTop() - barFoot() - 8) < 1;
@@ -1923,10 +1971,9 @@ static void installSettingsWorkProbes(void) {
                 step:@"VoiceOver: the card one element, the demo a button" detail:[NSString stringWithFormat:@"button \"%@\" traits %llu", toggle.accessibilityLabel, toggle.accessibilityTraits]];
         [self expect:[noClip().value() isEqualToString:@"Cover art"] && noClip().menu.count == 3 && pathOf(noClip()) && !rowTitled(@"Full-screen cover without a clip") && !rowTitled(@"Visualizer when there's no clip")
                 step:@"one Song without a clip choice, Cover art with both switches unset" detail:[NSString stringWithFormat:@"reads %@ of %@; %@", noClip().value(), noClip().menu, switches()]];
-        shot(@"expanded");
     });
     // Covered by another page, the card does nothing; the background's switches changed meanwhile, as elsewhere.
-    step(2.5, ^{
+    step(0, ^{
         closedDecoder = motionOn();
         [nav pushViewController:[UIViewController new] animated:NO];
         [NSUserDefaults.standardUserDefaults setBool:YES forKey:SGRKeyPlayerAnimatedStill];
@@ -1959,15 +2006,13 @@ static void installSettingsWorkProbes(void) {
         [self expect:stored(SGRKeyPlayerAnimatedStill) && !stored(SGRKeyPlayerAnimatedVisualiser) && demo() && stillShown() && !motionOn() && !hillsOn()
                      && [playerNow() isEqualToString:playerBefore] && SGRHarnessPlayerCommands() == 0
                 step:@"Full-screen cover chosen: its switch alone on, the card shows it" detail:[NSString stringWithFormat:@"%@; %@", switches(), cardState()]];
-        shot(@"demo-on");
     });
-    step(2.5, ^{
+    step(0, ^{
         choose(2);
         [self expect:!stored(SGRKeyPlayerAnimatedStill) && stored(SGRKeyPlayerAnimatedVisualiser) && demo() && hillsOn() && !stillShown() && !motionOn()
                 step:@"Visualizer chosen: its switch alone on, the hills on the card" detail:[NSString stringWithFormat:@"%@; %@", switches(), cardState()]];
-        shot(@"demo-visualizer");
     });
-    step(2.5, ^{
+    step(0, ^{
         choose(1);
         BOOL fullScreen = stored(SGRKeyPlayerAnimatedStill) && !stored(SGRKeyPlayerAnimatedVisualiser);
         choose(0);
@@ -1984,9 +2029,8 @@ static void installSettingsWorkProbes(void) {
     step(0.8, ^{
         [self expect:!demo() && motionOn() && !hillsOn() && [playerNow() isEqualToString:playerBefore] && SGRHarnessPlayerCommands() == 0
                 step:@"a tap on the card: the clip again, the player untouched" detail:cardState()];
-        shot(@"demo-off");
     });
-    step(2.5, ^{
+    step(0, ^{
         UIView *toggle = [card() valueForKey:@"_demoButton"];
         CGRect frame = [toggle convertRect:toggle.bounds toView:self.window];
         SGHarnessTap(self.window, CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame)));
@@ -2055,21 +2099,9 @@ static void installSettingsWorkProbes(void) {
         [marker removeFromSuperview];
         [table() setContentOffset:savedOffset animated:NO];
         [table() layoutIfNeeded];
-        shot(@"compact");
-    });
-    // Song without a clip's menu opened by a finger, for the screenshot, and closed by a tap on the bar.
-    step(2.5, ^{
-        UIView *menu = cellOf(noClip()).accessoryView;
-        CGRect frame = [menu convertRect:menu.bounds toView:self.window];
-        SGHarnessTap(self.window, CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame)));
-    });
-    step(1, ^{ shot(@"no-clip"); });
-    step(2.5, ^{
-        CGRect bar = [nav.navigationBar convertRect:nav.navigationBar.bounds toView:self.window];
-        SGHarnessTap(self.window, CGPointMake(CGRectGetMidX(bar), CGRectGetMaxY(bar) - 10));
     });
     // The Buttons chips: each one its key alone, the card at once, kept when the page opens again.
-    step(2.5, ^{
+    step(0, ^{
         NSArray<UIButton *> *found = chips();
         BOOL whole = found.count == 3;
         for (UIButton *chip in found) {
@@ -2079,9 +2111,8 @@ static void installSettingsWorkProbes(void) {
         NSArray *labels = [found valueForKey:@"accessibilityLabel"];
         [self expect:whole && [labels isEqualToArray:@[@"Shuffle", @"Repeat", @"Video"]] && !rowTitled(@"Switch to video") && !rowTitled(@"Shuffle")
                 step:@"three chips in the Buttons card, all selected, 44 pt, buttons" detail:[NSString stringWithFormat:@"%@ %@", labels, [found valueForKey:@"frame"]]];
-        shot(@"chips");
     });
-    step(2.5, ^{
+    step(0, ^{
         NSArray<NSString *> *keys = @[SGRKeyPlayerHideShuffle, SGRKeyPlayerHideRepeat, SGKeyHideVideoSwitch];
         BOOL alone = YES;
         NSMutableArray<NSString *> *seen = [NSMutableArray array];
@@ -2105,9 +2136,8 @@ static void installSettingsWorkProbes(void) {
                      && play - previous > slot + 1;
         [self expect:alone && drawn step:@"each chip its key alone, the card without the three, previous and next spread"
               detail:[NSString stringWithFormat:@"changed %@; previous %.0f pt from play, a slot %.0f", seen, play - previous, slot]];
-        shot(@"chips-off");
     });
-    step(2.5, ^{
+    step(0, ^{
         [self.window.rootViewController dismissViewControllerAnimated:NO completion:nil];
         open();
     });
@@ -2122,33 +2152,38 @@ static void installSettingsWorkProbes(void) {
         [table() setContentOffset:CGPointMake(0, -table().adjustedContentInset.top) animated:NO];
         [table() layoutIfNeeded];
     });
-    // Another track whose clip comes 1 s late, and before it comes a third whose clip comes 3 s late: the card drops the
-    // first one's clip at once, never shows the second's, and shows the third's once it is in.
+    // Deliver B only after C owns the card, then deliver C. No scheduler race decides their order.
     step(1, ^{
-        SGRHarnessSetLookupDelay(1);
+        SGRHarnessHoldLookups(@"spotify:track:harnessB");
         setenv("HARNESS_CANVAS", [NSString stringWithFormat:@"https://canvas.harness/b-%d.mp4", getpid()].UTF8String, 1);
-        serve(imageURI(@"bbbb"), solid(UIColor.blueColor), 2, NO);
+        lateImageB = serve(imageURI(@"bbbb"), solid(UIColor.blueColor), 0, NO);
+        lateImageB.held = YES;
         [self playTrack:@"spotify:track:harnessB" image:imageURI(@"bbbb")];
     });
-    step(0.3, ^{
+    when(^BOOL { return SGRHarnessLookupReady(@"spotify:track:harnessB") && pictureReady(lateImageB); }, ^{
         [self expect:!motionOn() && SGRPlayerMotionShowing() && [[card() valueForKey:@"_track"] isEqualToString:@"spotify:track:harnessB"]
                 step:@"handover: no old preview clip while the real player keeps its clip" detail:cardState()];
-        SGRHarnessSetLookupDelay(3);
+        SGRHarnessHoldLookups(@"spotify:track:harnessC");
         setenv("HARNESS_CANVAS", [NSString stringWithFormat:@"https://canvas.harness/c-%d.mp4", getpid()].UTF8String, 1);
         serve(imageURI(@"cccc"), solid(UIColor.greenColor), 0.2, NO);
         [self playTrack:@"spotify:track:harnessC" image:imageURI(@"cccc")];
     });
-    step(1.5, ^{
+    when(^BOOL { return SGRHarnessLookupReady(@"spotify:track:harnessC"); }, ^{
+        SGRHarnessDeliverLookups(@"spotify:track:harnessB");
         [self expect:!motionOn() && [[card() valueForKey:@"_track"] isEqualToString:@"spotify:track:harnessC"] step:@"the track before's clip, come after the next track, not shown" detail:cardState()];
         SGMotionFile([NSURL URLWithString:@(getenv("HARNESS_CANVAS"))], ^(NSURL *file) { fileC = file; });
+        SGRHarnessDeliverLookups(@"spotify:track:harnessC");
     });
-    step(3, ^{
+    when(^BOOL { return motionOn() != nil && fileC != nil &&
+        [colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]) isEqualToString:@"green"]; }, ^{
+        deliverPicture(lateImageB);
+    });
+    when(^BOOL { return lateImageB.finished; }, ^{
         NSURL *playing = [motionOn() valueForKey:@"_file"];
         [self expect:playing && fileC && [playing isEqual:fileC] step:@"the track's own clip on the card once it is in"
               detail:[NSString stringWithFormat:@"card plays %@, the track's is %@", playing.lastPathComponent, fileC.lastPathComponent]];
         NSString *color = colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]);
         [self expect:[color isEqualToString:@"green"] step:@"the current song's cover, not the preceding song's late blue image" detail:color];
-        SGRHarnessSetLookupDelay(0);
     });
     step(0.5, ^{
         checkScrollWork();
@@ -2238,24 +2273,26 @@ static void installSettingsWorkProbes(void) {
         NSString *color = colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]);
         [self expect:[color isEqualToString:@"magenta"] && [[[card() valueForKey:@"_title"] text] isEqualToString:@"Last song D"]
                 step:@"no playback: the last song's title and delayed cover" detail:color];
-        serve(imageURI(@"eeee"), solid(UIColor.blueColor), 1, NO);
+        lateImageE = serve(imageURI(@"eeee"), solid(UIColor.blueColor), 0, NO);
+        lateImageE.held = YES;
         NSString *url = [@"https://i.scdn.co/image/" stringByAppendingString:[imageURI(@"eeee") substringFromIndex:14]];
         [NSUserDefaults.standardUserDefaults setObject:@{@"uri": @"spotify:track:lastE", @"title": @"Last song E", @"artwork": url}
                                                forKey:SGKeyLastTrack];
         SGRHarnessClearTrack();
     });
-    step(0.1, ^{
+    when(^BOOL { return pictureReady(lateImageE); }, ^{
         NSString *url = [@"https://i.scdn.co/image/" stringByAppendingString:[imageURI(@"dddd") substringFromIndex:14]];
         [NSUserDefaults.standardUserDefaults setObject:@{@"uri": @"spotify:track:lastF", @"title": @"Last song F", @"artwork": url}
                                                forKey:SGKeyLastTrack];
         SGRHarnessClearTrack();
+        deliverPicture(lateImageE);
     });
-    step(1.5, ^{
+    when(^BOOL { return lateImageE.finished; }, ^{
         NSString *color = colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]);
         [self expect:[color isEqualToString:@"magenta"] && [[[card() valueForKey:@"_title"] text] isEqualToString:@"Last song F"]
                 step:@"a late last-song image cannot replace the song now shown" detail:color];
         // A last-song lookup belongs only to the preview, not the real player.
-        SGRHarnessSetLookupDelay(1);
+        SGRHarnessHoldLookups(@"spotify:track:lastG");
         NSString *canvas = [NSString stringWithFormat:@"https://canvas.harness/closed-%d.mp4", getpid()];
         [NSUserDefaults.standardUserDefaults setObject:@{@"uri": @"spotify:track:lastG", @"title": @"Last song G", @"canvas": canvas}
                                                forKey:SGKeyLastTrack];
@@ -2264,12 +2301,13 @@ static void installSettingsWorkProbes(void) {
         SGRPlayerMotionPreview(^{ latePreviewCallbacks++; });
     });
     // Closed: the card does nothing more, whatever the player does.
-    step(0.5, ^{
+    when(^BOOL { return SGRHarnessLookupReady(@"spotify:track:lastG"); }, ^{
         closedCard = card();
-        [self.window.rootViewController dismissViewControllerAnimated:NO completion:nil];
+        [self.window.rootViewController dismissViewControllerAnimated:NO completion:^{ settingsDismissed = YES; }];
         nav = nil;
     });
-    step(1.5, ^{
+    when(^BOOL { return settingsDismissed; }, ^{
+        SGRHarnessDeliverLookups(@"spotify:track:lastG");
         UIView *left = closedCard;
         BOOL stopped = !left || (![[left valueForKey:@"_active"] boolValue] && !firstOfClass(left, @"SGRPlayerMotionView") && !firstOfClass(left, @"SGRVisualiserView")
                                  && ![[left valueForKey:@"_track"] isEqualToString:@"spotify:track:harnessD"]);

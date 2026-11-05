@@ -17,10 +17,6 @@
 //   -dump 1        prints the lines as read, with their pronunciations and translations, and quits
 //   -romanise 1    asserts romanized lyrics' readings (Shared/Lyrics/Romanise.m), prints PASS and FAIL
 //                  lines and exits nonzero if any failed
-//   -openMenu S    opens the pronunciation and translation menu S seconds in, as a tap on its button would
-//   -toggleAt S    switches the pronunciation and the translation over S seconds in, as the menu would
-//   -askAI S       asks the AI service for the pronunciation and the cultural notes S seconds in, as the menu would
-//                  (with -ai 1, stubs.m answers both at once)
 //   -translateIn S keeps copies of the lines S seconds in with every other one translated, as
 //                  Musixmatch's community translations come in after the lines on the phone
 //   -gemini 1      a Gemini key is set, so the menu offers Translate with Gemini (stubs.m answers it)
@@ -604,26 +600,6 @@ static void runChecks(SGRKaraokeView *karaoke, UIView *host) {
     self.window.rootViewController = root;
     [self.window makeKeyAndVisible];
     if ([args boolForKey:@"check"]) after(2, ^{ runChecks(karaoke, host); });
-    if ([args objectForKey:@"openMenu"]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([args doubleForKey:@"openMenu"] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            // The button sits in a box with its glass, as the mic does.
-            for (UIView *view in [karaoke.subviews valueForKeyPath:@"@unionOfArrays.subviews"]) {
-                if (![view isKindOfClass:UIButton.class]) continue;
-                UIContextMenuInteraction *menu = ((UIButton *)view).contextMenuInteraction;
-                SEL present = NSSelectorFromString(@"_presentMenuAtLocation:");
-                if ([menu respondsToSelector:present]) ((void (*)(id, SEL, CGPoint))objc_msgSend)(menu, present, CGPointMake(22, 22));
-            }
-        });
-    }
-    if ([args objectForKey:@"askAI"]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([args doubleForKey:@"askAI"] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            SEL ask = NSSelectorFromString(@"askAI:notes:track:language:");
-            if (![karaoke respondsToSelector:ask]) return;
-            NSString *track = SGKaraokePlayingTrack(), *language = SGLyricsGeminiLanguage();
-            ((void (*)(id, SEL, NSInteger, BOOL, id, id))objc_msgSend)(karaoke, ask, 0, NO, track, language);
-            ((void (*)(id, SEL, NSInteger, BOOL, id, id))objc_msgSend)(karaoke, ask, 0, YES, track, language);
-        });
-    }
     if ([args objectForKey:@"translateIn"]) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([args doubleForKey:@"translateIn"] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSMutableArray<SGKaraokeLine *> *translated = [SGKaraokeLinesForTrack(@"harness") mutableCopy];
@@ -657,14 +633,6 @@ static void runChecks(SGRKaraokeView *karaoke, UIView *host) {
             }
         });
     }
-#ifdef SGRKeyLyricsTextOrder
-    if ([args objectForKey:@"toggleAt"]) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)([args doubleForKey:@"toggleAt"] * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            SGRSetLyricsTextShown(SGRLyricsTextPronunciation, ![args boolForKey:SGRKeyLyricsPronunciation]);
-            SGRSetLyricsTextShown(SGRLyricsTextTranslation, ![args boolForKey:SGRKeyLyricsTranslation]);
-        });
-    }
-#endif
     return YES;
 }
 @end

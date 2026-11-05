@@ -85,7 +85,6 @@ def main():
                 text = text.replace(original, broken)
             target.write_text(text)
             env = dict(os.environ, SRC=str(sources))
-            env.pop("SHOTS", None)  # Never overwrite deliverable screenshots with a deliberately broken build.
             run = subprocess.run(["sh", str(HERE / "automix-check.sh")], env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             caught = run.returncode != 0 and any(guard in line and line.endswith("-- WRONG") for line in run.stdout.splitlines())
