@@ -8,6 +8,7 @@
 // previews leave their siblings alone.
 #import <UIKit/UIKit.h>
 #import "Shared/Lyrics/Lyrics.h"
+#import "LyricsLook.h"
 
 @interface SGRKaraokeView : UIView
 // The Lyrics page's preview: `lines` played on a clock of its own, round and round every `length` ms, in
@@ -26,6 +27,9 @@
 // The mic stays when the extras go, for a host that lets it take its own touches while its controls are
 // hidden (the player's lines on their own, Redesigned/Player/PlayerLyrics.x), so Sing is always in reach.
 @property (nonatomic) BOOL keepsSing;
+// The place it shows in: its words take the size chosen for that place (LyricsLook.h), and follow a change of it at
+// once. SGRLyricsPlaceNone, the look's size, until set.
+@property (nonatomic) SGRLyricsPlace sizePlace;
 @end
 
 // What sharing a held line says: the line, then "— <title> · <artist>" on the next line, and the song's public

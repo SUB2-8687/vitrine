@@ -240,6 +240,7 @@ static BOOL keepsTitle(void) {
 - (SGRKaraokeView *)lyrics {
     if (!_lyrics) {
         _lyrics = [[SGRKaraokeView alloc] initWithFrame:_stage.bounds];
+        _lyrics.sizePlace = SGRLyricsPlacePlayer;
         _lyrics.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         // Sing's mic stays while the lines are on their own, moving down with them (setAlone).
         _lyrics.keepsSing = YES;

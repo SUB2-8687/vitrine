@@ -29,6 +29,54 @@ static dispatch_source_t sg_timer;
 static CFAbsoluteTime sg_due;
 static void tick(BOOL force);
 
+// Main-thread publication cache, separate from Romanise's worker-only preparation cache.
+static SGKaraokeLine *preparedReading(NSString *track, NSArray<SGKaraokeLine *> *lines, NSInteger index) {
+    static NSArray *source, *choices;
+    static NSArray<SGLyricsPreparedExtras *> *prepared;
+    static NSUInteger generation;
+    NSString *language = SGLyricsTrackLanguage(track) ?: SGLyricsDetectedLanguage(lines);
+    BOOL hangul = SGFlag(SGKeyLyricsPronunciationHangul, NO), hiragana = SGFlag(SGKeyLyricsJapaneseKana, NO);
+    NSArray *key = @[track ?: @"", language ?: @"", @(hangul), @(hiragana)];
+    if (source != lines || ![choices isEqual:key]) {
+        source = lines;
+        choices = key;
+        prepared = nil;
+        NSUInteger job = ++generation;
+        SGLyricsPrepareReadingsAsync(lines, [language isEqual:@"ja"], hangul, hiragana,
+                                    ^(NSArray<SGLyricsPreparedExtras *> *result) {
+            if (job != generation) return;
+            prepared = result;
+            [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsReadingsDidChangeNotification object:track];
+        });
+    }
+    return prepared ? prepared[index].pronunciation : nil;
+}
+
+SGKaraokeLine *SGLyricsShownLine(NSString *track, NSArray<SGKaraokeLine *> *lines, NSInteger index, SGKaraokeLine **under) {
+    if (under) *under = nil;
+    if (index < 0 || index >= (NSInteger)lines.count) return nil;
+    SGKaraokeLine *line = lines[index];
+    BOOL leads = NO;
+    SGRLyricsReading shown = SGRLyricsReadingShown(&leads);
+    if (shown == SGRLyricsReadingNone) return line;
+    SGKaraokeLine *reading = line.pronunciation;
+    // Use the same preparation as the lyrics view, without entering its worker cache on main.
+    if (!reading && shown == SGRLyricsReadingRomanised) {
+        reading = preparedReading(track, lines, index);
+    }
+    if (!SGKaraokeLineText(reading).length) return line;
+    if (under) *under = leads ? line : reading;
+    return leads ? reading : line;
+}
+
+NSString *SGLyricsShownLineTag(void) {
+    BOOL leads = NO;
+    SGRLyricsReading shown = SGRLyricsReadingShown(&leads);
+    if (shown == SGRLyricsReadingNone) return @"";
+    return [NSString stringWithFormat:@"p%ld%d%d%d", (long)shown, leads, SGFlag(SGKeyLyricsPronunciationHangul, NO),
+            SGFlag(SGKeyLyricsJapaneseKana, NO)];
+}
+
 static NSString *textOf(NSArray<SGKaraokeWord *> *words) {
     SGKaraokeLine *line = [SGKaraokeLine new];
     line.words = words;
@@ -171,8 +219,9 @@ static NSString *lineFor(NSDictionary *info, double elapsed, NSTimeInterval *wai
         }
         return pieces[shownIndex];
     }
+    // The larger of the line and its pronunciation, as the lyrics show them; the artist row has room for one.
     NSString *shown = nil;
-    for (NSArray<SGKaraokeWord *> *piece in piecesOf(current)) {
+    for (NSArray<SGKaraokeWord *> *piece in piecesOf(SGLyricsShownLine(trackID, lines, index, NULL))) {
         if (!shown || piece.firstObject.start <= position) shown = textOf(piece);
     }
     return shown;
@@ -336,19 +385,32 @@ static void lookNow(void) {
     }];
     }
     // Lines kept for a track, or replaced by better timed ones, can change the line at once.
-    [NSNotificationCenter.defaultCenter addObserverForName:SGKaraokeLinesKeptNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+    for (NSNotificationName name in @[SGKaraokeLinesKeptNotification, SGLyricsReadingsDidChangeNotification,
+                                      SGLyricsLanguageDidChangeNotification]) {
+    [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
         if (!note.object || [note.object isEqual:SGKaraokePlayingTrack()]) tick(NO);
     }];
+    }
     // The lyrics' delay applies at once, and moves the next change. Every write in the app posts this, so it is
     // compared on the writing thread and handed to main without waiting only when it moved (AGENTS.md).
     static _Atomic NSInteger delay;
     atomic_store(&delay, SGKaraokeDelayMs());
+    // So does the lyrics' choice of pronunciation (SGLyricsShownLine), paused or not.
+    static NSString *shownTag;
+    shownTag = SGLyricsShownLineTag();
     [NSNotificationCenter.defaultCenter addObserverForName:NSUserDefaultsDidChangeNotification object:nil queue:nil
                                                 usingBlock:^(NSNotification *note) {
         SGPrefsChanged();
+        NSString *tag = SGLyricsShownLineTag();
+        BOOL retagged;
+        @synchronized (sg_lock) {
+            retagged = ![tag isEqualToString:shownTag];
+            shownTag = tag;
+        }
         NSInteger now = SGKaraokeDelayMs();
-        if (atomic_exchange(&delay, now) == now) return;
-        dispatch_async(dispatch_get_main_queue(), ^{ lookNow(); });
+        BOOL moved = atomic_exchange(&delay, now) != now;
+        if (retagged) dispatch_async(dispatch_get_main_queue(), ^{ tick(NO); });
+        else if (moved) dispatch_async(dispatch_get_main_queue(), ^{ lookNow(); });
     }];
     // The timer waits for Spotify to report a playing track; nothing before that has a line to show.
     SGLog(@"lock screen lyrics: on");

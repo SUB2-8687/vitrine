@@ -161,3 +161,73 @@ typedef NS_ENUM(NSInteger, SGArtistSection) {
 UIViewController *SGArtistBlockSettingsPage(void) {
     return [SGArtistBlockPage new];
 }
+
+@interface SGSongBlockPage : SGPage
+@end
+
+@implementation SGSongBlockPage {
+    NSDictionary<NSString *, NSArray<NSString *> *> *_songs;
+    NSArray<NSString *> *_uris;
+}
+
+- (instancetype)init {
+    if (!(self = [super initWithStyle:UITableViewStyleInsetGrouped])) return nil;
+    self.title = SGL(@"settings.songblock.title", @"Blocked Songs");
+    return self;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self reload];
+}
+
+- (void)reload {
+    _songs = SGBlockedSongs();
+    _uris = [_songs.allKeys sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+        return [self->_songs[a].firstObject localizedCaseInsensitiveCompare:self->_songs[b].firstObject];
+    }];
+    [self.tableView reloadData];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    SGInsetForBars(self.tableView);
+}
+
+- (NSInteger)tableView:(UITableView *)table numberOfRowsInSection:(NSInteger)section {
+    return MAX((NSInteger)_uris.count, 1);
+}
+
+- (NSString *)tableView:(UITableView *)table titleForFooterInSection:(NSInteger)section {
+    return SGL(@"settings.songblock.footer", @"Block a song from the player's ⋯ menu. Blocked songs are skipped wherever they come up. Swipe to unblock. After five skips in ten seconds, a blocked track is left playing to prevent an endless skip loop.");
+}
+
+- (UITableViewCell *)tableView:(UITableView *)table cellForRowAtIndexPath:(NSIndexPath *)path {
+    UITableViewCell *cell = SGDequeueCell(table, @"song");
+    if (!_uris.count) {
+        SGFillCell(cell, SGL(@"settings.songblock.empty", @"No blocked songs"), nil, SGGrey(), nil);
+    } else {
+        NSArray<NSString *> *song = _songs[_uris[(NSUInteger)path.row]];
+        SGFillCell(cell, song.firstObject, song.lastObject, nil, nil);
+    }
+    return cell;
+}
+
+- (BOOL)tableView:(UITableView *)table canEditRowAtIndexPath:(NSIndexPath *)path {
+    return _uris.count > 0;
+}
+
+- (NSString *)tableView:(UITableView *)table titleForDeleteConfirmationButtonForRowAtIndexPath:(NSIndexPath *)path {
+    return SGL(@"settings.artistblock.action.unblock", @"Unblock");
+}
+
+- (void)tableView:(UITableView *)table commitEditingStyle:(UITableViewCellEditingStyle)style forRowAtIndexPath:(NSIndexPath *)path {
+    if (style != UITableViewCellEditingStyleDelete) return;
+    SGSetSongBlocked(_uris[(NSUInteger)path.row], nil, nil, NO);
+    [self reload];
+}
+@end
+
+UIViewController *SGSongBlockSettingsPage(void) {
+    return [SGSongBlockPage new];
+}

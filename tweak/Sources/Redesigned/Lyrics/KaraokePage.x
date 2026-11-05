@@ -15,6 +15,7 @@ static char kKaraokeKey;
     if (!view) {
         SGLog(@"karaoke: page opened, playing %@", SGKaraokePlayingTrack());
         view = [[SGRKaraokeView alloc] initWithFrame:host.bounds];
+        view.sizePlace = SGRLyricsPlaceFullScreen;
         objc_setAssociatedObject(host, &kKaraokeKey, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if (view.superview == host) [host bringSubviewToFront:view];

@@ -4,6 +4,26 @@
 
 NSString *const SGArtistURI = @"uri";
 NSString *const SGArtistName = @"name";
+NSString *const SGBlockedSongsDidChangeNotification = @"SGBlockedSongsDidChange";
+static NSString *const kSongListKey = @"spotifyglass.blockedSongs";
+
+NSDictionary<NSString *, NSArray<NSString *> *> *SGBlockedSongs(void) {
+    return [NSUserDefaults.standardUserDefaults dictionaryForKey:kSongListKey] ?: @{};
+}
+
+BOOL SGSongBlocked(NSString *uri) {
+    return uri.length && SGBlockedSongs()[uri] != nil;
+}
+
+void SGSetSongBlocked(NSString *uri, NSString *title, NSString *artist, BOOL blocked) {
+    if (![uri hasPrefix:@"spotify:track:"] || uri.length <= @"spotify:track:".length) return;
+    if (SGSongBlocked(uri) == blocked) return;
+    NSMutableDictionary *songs = [SGBlockedSongs() mutableCopy];
+    if (blocked) songs[uri] = @[title.length ? title : uri, artist ?: @""];
+    else [songs removeObjectForKey:uri];
+    [NSUserDefaults.standardUserDefaults setObject:songs forKey:kSongListKey];
+    [NSNotificationCenter.defaultCenter postNotificationName:SGBlockedSongsDidChangeNotification object:uri];
+}
 
 static const NSInteger kMaxCredits = 32;
 

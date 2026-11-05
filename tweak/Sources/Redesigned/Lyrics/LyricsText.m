@@ -1,6 +1,8 @@
 // What a line shows besides its words, as stored: the two switches of the lyrics menu and the order of
 // sizes of the Lyrics page (LyricsText.h). The page itself is LyricsTextSettings.m.
 #import "Core/SGCore.h"
+#import "Shared/Lyrics/Lyrics.h"
+#import "Shared/LockScreenLyrics/LockScreenLyrics.h"
 #import "LyricsText.h"
 
 NSNotificationName const SGRLyricsTextDidChangeNotification = @"spotifyglass.redesign.lyricsTextDidChange";
@@ -35,6 +37,18 @@ NSArray<NSNumber *> *SGRLyricsTextOrder(void) {
         }
     }
     return order.count == fallback.count ? order : fallback;
+}
+
+// As the lyrics view's style takes them (SGRKaraokeView.m, styleNow): the pronunciation's place shows with the menu's
+// switch or with Romanized on, and the first of the order is set largest.
+SGRLyricsReading SGRLyricsReadingShown(BOOL *leads) {
+    if (leads) *leads = NO;
+    if (!SGRedesignedUI()) return SGRLyricsReadingNone;
+    BOOL romanised = SGFlag(SGKeyLyricsRomanised, NO);
+    if (!romanised && !SGFlag(SGRKeyLyricsPronunciation, NO)) return SGRLyricsReadingNone;
+    NSArray<NSNumber *> *order = SGRLyricsTextOrder();
+    if (leads) *leads = [order indexOfObject:@(SGRLyricsTextPronunciation)] < [order indexOfObject:@(SGRLyricsTextLyrics)];
+    return romanised ? SGRLyricsReadingRomanised : SGRLyricsReadingSource;
 }
 
 void SGRSetLyricsTextOrder(NSArray<NSNumber *> *order) {

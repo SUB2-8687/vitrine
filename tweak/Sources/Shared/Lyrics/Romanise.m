@@ -396,6 +396,24 @@ NSArray<SGLyricsRuby *> *SGLyricsFurigana(NSString *text) {
 }
 @end
 
+NSNotificationName const SGLyricsReadingsDidChangeNotification = @"spotifyglass.lyrics.readingsDidChange";
+
+void SGLyricsPrepareReadingsAsync(NSArray<SGKaraokeLine *> *lines, BOOL japanese, BOOL hangul, BOOL hiragana,
+                                 void (^completion)(NSArray<SGLyricsPreparedExtras *> *extras)) {
+    NSMutableArray *snapshot = [NSMutableArray arrayWithCapacity:lines.count];
+    for (SGKaraokeLine *line in lines) [snapshot addObject:[line copy]];
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("spotifyglass.lyrics.readings", DISPATCH_QUEUE_SERIAL); });
+    dispatch_async(queue, ^{
+        NSMutableArray *prepared = [NSMutableArray arrayWithCapacity:snapshot.count];
+        for (SGKaraokeLine *line in snapshot)
+            [prepared addObject:SGLyricsPrepareExtras(line, japanese, hangul, hiragana, YES, NO)];
+        NSArray *result = [prepared copy];
+        dispatch_async(dispatch_get_main_queue(), ^{ completion(result); });
+    });
+}
+
 SGLyricsPreparedExtras *SGLyricsPrepareExtras(SGKaraokeLine *line, BOOL japanese, BOOL hangul,
                                              BOOL hiragana, BOOL pronunciation, BOOL ruby) {
     static NSCache *kept;

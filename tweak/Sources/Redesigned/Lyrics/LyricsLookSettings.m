@@ -80,6 +80,12 @@ static SGModRow *lookSlider(NSString *title, double least, double most, double s
     }, format);
 }
 
+// One place's size (LyricsLook.h), picked from a menu on the row.
+static SGModRow *placeRow(NSString *title, SGRLyricsPlace place) {
+    return SGMenuRow(title, SGRLyricsSizeNames(), ^NSString * { return SGRLyricsSizeNames()[(NSUInteger)SGRLyricsSizeChoice(place)]; },
+                     ^(NSInteger index) { SGRSetLyricsSizeChoice(place, index); });
+}
+
 static void presentStyleSheet(UIViewController *owner) {
     static __weak id sheetPage;
     NSArray<SGModRow *> *rows = @[
@@ -96,8 +102,18 @@ static void presentStyleSheet(UIViewController *owner) {
     ];
     NSString *footer = SGL(@"settings.lyricslook.footer", @"Blur is how much the lines away from the one sung soften. Glow and Wave are how strongly a held "
                        @"word glows and its letters rise. 100% is Apple Music's.");
+    NSArray<SGModRow *> *places = @[
+        placeRow(SGL(@"settings.lyricslook.place.under_cover", @"Under the cover"), SGRLyricsPlaceUnderCover),
+        placeRow(SGL(@"settings.lyricslook.place.player", @"In the player"), SGRLyricsPlacePlayer),
+        placeRow(SGL(@"settings.lyricslook.place.full_screen", @"Landscape and full screen"), SGRLyricsPlaceFullScreen),
+    ];
+    NSString *placesFooter = SGL(@"settings.lyricslook.place.footer", @"Default keeps each place at Text size, and the line under the cover at "
+                                 @"your iPhone's text size. A percentage sets that place larger or smaller.");
     SGRLyricsStyleSheet *page = [[SGRLyricsStyleSheet alloc] initWithTitle:SGL(@"settings.lyricslook.title", @"Lyrics Style") intro:nil
-                                                                 sections:@[SGNotedSection(nil, rows, footer)] footer:nil];
+                                                                 sections:@[SGNotedSection(nil, rows, footer),
+                                                                            SGNotedSection(SGL(@"settings.lyricslook.place.header", @"Size in each place"),
+                                                                                           places, placesFooter)]
+                                                                   footer:nil];
     sheetPage = page;
     page.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
                                                                                           target:page action:@selector(close)];

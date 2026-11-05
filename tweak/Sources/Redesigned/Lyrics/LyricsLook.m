@@ -136,3 +136,45 @@ NSArray<SGKaraokeLine *> *SGRLyricsSampleLinesWithExtras(void) {
 NSInteger SGRLyricsSampleLength(void) {
     return 13500;   // a pause after the last line, then the first again
 }
+
+#pragma mark - the size in each place
+
+// The place's own size first, then smaller and larger shares of it.
+static const CGFloat kPlaceShares[] = {1, 0.75, 0.85, 1.15, 1.3};
+static const NSInteger kPlaceShareCount = sizeof(kPlaceShares) / sizeof(*kPlaceShares);
+
+static NSString *placeKey(SGRLyricsPlace place) {
+    switch (place) {
+        case SGRLyricsPlaceUnderCover: return SGRKeyLyricsSizeUnderCover;
+        case SGRLyricsPlacePlayer: return SGRKeyLyricsSizePlayer;
+        case SGRLyricsPlaceFullScreen: return SGRKeyLyricsSizeFullScreen;
+        case SGRLyricsPlaceNone: return nil;
+    }
+    return nil;
+}
+
+NSInteger SGRLyricsSizeChoice(SGRLyricsPlace place) {
+    NSString *key = placeKey(place);
+    NSInteger choice = key ? [NSUserDefaults.standardUserDefaults integerForKey:key] : 0;
+    return choice >= 0 && choice < kPlaceShareCount ? choice : 0;
+}
+
+CGFloat SGRLyricsSizeShare(SGRLyricsPlace place) {
+    return kPlaceShares[SGRLyricsSizeChoice(place)];
+}
+
+void SGRSetLyricsSizeChoice(SGRLyricsPlace place, NSInteger choice) {
+    NSString *key = placeKey(place);
+    if (!key) return;
+    // The place's own size is stored as no choice at all.
+    if (choice > 0 && choice < kPlaceShareCount) [NSUserDefaults.standardUserDefaults setInteger:choice forKey:key];
+    else [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+    [NSNotificationCenter.defaultCenter postNotificationName:SGRLyricsLookDidChangeNotification object:nil];
+}
+
+NSArray<NSString *> *SGRLyricsSizeNames(void) {
+    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithObject:SGL(@"settings.lyricslook.place.default", @"Default")];
+    for (NSInteger i = 1; i < kPlaceShareCount; i++)
+        [names addObject:[NSString stringWithFormat:SGL(@"settings.lyricslook.format.percent", @"%.0f%%"), kPlaceShares[i] * 100]];
+    return names;
+}

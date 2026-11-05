@@ -20,3 +20,10 @@ NSArray<NSDictionary *> *SGArtistsOfTrack(id track);
 NSArray<NSDictionary *> *SGPlayingArtists(void);
 
 UIViewController *SGArtistBlockSettingsPage(void);
+
+// Song blocks are always active, independently of the artist-block switch.
+NSDictionary<NSString *, NSArray<NSString *> *> *SGBlockedSongs(void);
+BOOL SGSongBlocked(NSString *uri);
+void SGSetSongBlocked(NSString *uri, NSString *title, NSString *artist, BOOL blocked);
+extern NSString *const SGBlockedSongsDidChangeNotification;
+UIViewController *SGSongBlockSettingsPage(void);

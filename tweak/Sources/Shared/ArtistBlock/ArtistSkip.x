@@ -1,10 +1,11 @@
-// Skips a track by a blocked artist the moment the player moves onto it, whatever started it: the
+// Skips a blocked song or a track by a blocked artist as the player moves onto it, whatever started it: the
 // queue, autoplay, a radio or a tap. The track is read off SPTEsperantoPlayer, the app's player,
 // which the now playing bar asks for its state from launch on; the full screen player's playback
 // controller only exists while that player does, so it is the skip's first choice, not the source. A
 // track change is heard from the lock screen's now playing info, which Spotify sets on every track.
 // A track is looked at once, so an update within it does not skip twice.
 #import <MediaPlayer/MediaPlayer.h>
+#import <stdatomic.h>
 #import "Core/SGCore.h"
 #import "ArtistBlock.h"
 #import "Headers/SPTPlayer.h"
@@ -13,6 +14,12 @@
 static __weak id sg_player;
 static __weak SPTNowPlayingPlaybackControllerImplementation *sg_controller;
 static NSString *sg_seenTrack;
+static BOOL sg_skipRequested;
+// Now-playing updates can arrive off main; only list changes refresh this gate.
+static atomic_bool sg_hasBlockedSongs;
+static NSMutableArray<NSNumber *> *sg_skipTimes;
+static const NSUInteger kMaxSkips = 5;
+static const NSTimeInterval kSkipWindowSeconds = 10;
 
 static SPTPlayerTrack *playingTrack(BOOL explain) {
     id player = sg_player;
@@ -51,11 +58,23 @@ static NSDictionary *blockedArtistOf(SPTPlayerTrack *track) {
 }
 
 static void skip(SPTPlayerTrack *track, NSDictionary *artist) {
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (!sg_skipTimes) sg_skipTimes = [NSMutableArray array];
+    while (sg_skipTimes.count && now - sg_skipTimes.firstObject.doubleValue >= kSkipWindowSeconds)
+        [sg_skipTimes removeObjectAtIndex:0];
+    if (sg_skipTimes.count >= kMaxSkips) {
+        SGLog(@"artist/song block: %@ left to play after five skips in ten seconds", track.trackTitle);
+        return;
+    }
     SPTNowPlayingPlaybackControllerImplementation *controller = sg_controller;
     id player = sg_player;
     if (controller.canSkipNext) {
+        [sg_skipTimes addObject:@(now)];
+        sg_skipRequested = YES;
         [controller skipToNextWhileDragging:NO];
     } else if ([player respondsToSelector:@selector(skipToNextTrack)]) {
+        [sg_skipTimes addObject:@(now)];
+        sg_skipRequested = YES;
         [(id<SPTPlayer>)player skipToNextTrack];
     } else {
         SGLog(@"artist block: %@ by %@ cannot be skipped", track.trackTitle, artist[SGArtistName]);
@@ -64,14 +83,17 @@ static void skip(SPTPlayerTrack *track, NSDictionary *artist) {
     SGLog(@"artist block: skipped %@ by %@", track.trackTitle, artist[SGArtistName]);
 }
 
-static void trackMayHaveChanged(void) {
+static void trackMayHaveChanged(BOOL reconsider) {
     SPTPlayerTrack *track = playingTrack(NO);
     NSString *key = trackKey(track);
-    if (!key || [key isEqualToString:sg_seenTrack]) return;
-    sg_seenTrack = key;
+    if (![key isEqualToString:sg_seenTrack]) {
+        sg_seenTrack = key;
+        sg_skipRequested = NO;
+    } else if (!reconsider || sg_skipRequested) return;
+    if (!key) return;
 
-    NSDictionary *artist = blockedArtistOf(track);
-    if (artist) skip(track, artist);
+    NSDictionary *artist = SGFlag(SGKeyArtistBlock, NO) ? blockedArtistOf(track) : nil;
+    if (artist || SGSongBlocked(key)) skip(track, artist);
 }
 
 %hook SPTEsperantoPlayer
@@ -95,12 +117,22 @@ static void trackMayHaveChanged(void) {
 %hook MPNowPlayingInfoCenter
 - (void)setNowPlayingInfo:(NSDictionary *)info {
     %orig;
-    if (!SGFlag(SGKeyArtistBlock, NO)) return;
-    dispatch_async(dispatch_get_main_queue(), ^{ trackMayHaveChanged(); });
+    if (!atomic_load(&sg_hasBlockedSongs) && !SGFlag(SGKeyArtistBlock, NO)) return;
+    dispatch_async(dispatch_get_main_queue(), ^{ trackMayHaveChanged(NO); });
 }
 %end
 
 %ctor {
+    atomic_store(&sg_hasBlockedSongs, SGBlockedSongs().count > 0);
     %init;
+    [NSNotificationCenter.defaultCenter addObserverForName:SGBlockedSongsDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        atomic_store(&sg_hasBlockedSongs, SGBlockedSongs().count > 0);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Reconsider a newly blocked current song through the same skip budget.
+            if ([note.object isEqual:trackKey(playingTrack(NO))] && SGSongBlocked(note.object)) {
+                trackMayHaveChanged(YES);
+            }
+        });
+    }];
     SGRequireClasses(@[@"SPTEsperantoPlayer", @"SPTNowPlayingPlaybackControllerImplementation", @"MPNowPlayingInfoCenter"]);
 }

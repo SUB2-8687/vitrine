@@ -1183,6 +1183,11 @@
 "settings.lyrics.break.outro" = "Outro";
 "settings.lyrics.break_labels.subtitle" = "Intro, Interlude or Outro beside the dots";
 "settings.lyrics.break_labels.title" = "Name the breaks";
+"settings.lyrics.card.most" = "Choose up to %lu lines.";
+"settings.lyrics.card.pronunciation" = "Show Pronunciation";
+"settings.lyrics.card.share" = "Share";
+"settings.lyrics.card.share.label" = "Share lyric card";
+"settings.lyrics.card.title" = "Lyric Card";
 "settings.lyrics.delay.format" = "%ld ms";
 "settings.lyrics.delay.title" = "Delay";
 "settings.lyrics.display.header" = "Display";
@@ -1195,6 +1200,8 @@
 "settings.lyrics.hide_controls.room" = "A few seconds after the last touch, the lyrics take the room";
 "settings.lyrics.hide_controls.title" = "Hide the controls";
 "settings.lyrics.hide_controls.title_note" = "The cover, the title and the top row stay; in landscape, the title";
+"settings.lyrics.hold.card" = "Share as Card";
+"settings.lyrics.hold.card.line" = "Share as card";
 "settings.lyrics.hold.copy" = "Copy";
 "settings.lyrics.hold.copy.line" = "Copy line";
 "settings.lyrics.hold.meaning" = "Meaning";
@@ -1331,6 +1338,12 @@
 "settings.lyricslook.format.percent" = "%.0f%%";
 "settings.lyricslook.format.pt" = "%.0f pt";
 "settings.lyricslook.glow.title" = "Glow";
+"settings.lyricslook.place.default" = "Default";
+"settings.lyricslook.place.footer" = "Default keeps each place at Text size, and the line under the cover at your iPhone's text size. A percentage sets that place larger or smaller.";
+"settings.lyricslook.place.full_screen" = "Landscape and full screen";
+"settings.lyricslook.place.header" = "Size in each place";
+"settings.lyricslook.place.player" = "In the player";
+"settings.lyricslook.place.under_cover" = "Under the cover";
 "settings.lyricslook.preview.a11y" = "Preview of the lyrics";
 "settings.lyricslook.size.title" = "Text size";
 "settings.lyricslook.spacing.title" = "Line spacing";
@@ -1936,6 +1949,8 @@
 "settings.player.hide_on_player.header" = "Hide on the player";
 "settings.player.hide_video_switch.subtitle" = "The chip over the title of a song with a music video";
 "settings.player.hide_video_switch.title" = "Switch to video";
+"settings.player.landscape.subtitle" = "Turn your iPhone while the player is open, even with the lyrics closed.";
+"settings.player.landscape.title" = "Landscape player";
 "settings.player.like_dislike.subtitle" = "Off and locked while Switch with the star is on: the star takes their place";
 "settings.player.like_dislike.title" = "Like and dislike buttons";
 "settings.player.lockscreen.title" = "Lock screen";
@@ -1984,6 +1999,7 @@
 "settings.player.rolling_digits.title" = "Rolling time digits";
 "settings.player.sheet_style.title" = "Sheet style player";
 "settings.player.sleep_fade.subtitle" = "While Labs' Fade out is forced on, Spotify's own timer fades its own way.";
+"settings.player.song_card.menu" = "Share Song Card";
 "settings.player.sound_menu" = "Speed, Pitch & Reverb";
 "settings.player.star_add.subtitle" = "The add button as a star, filled in the accent once the song is saved. In the player it takes the place of Plain checkmark.";
 "settings.player.star_add.title" = "Star add button";
@@ -2192,6 +2208,12 @@
 "settings.sleep_timer.fade.1m" = "1 minute";
 "settings.sleep_timer.fade.2m" = "2 minutes";
 "settings.sleep_timer.fade.30s" = "30 s";
+
+"settings.songblock.block" = "Block This Song";
+"settings.songblock.empty" = "No blocked songs";
+"settings.songblock.footer" = "Block a song from the player's ⋯ menu. Blocked songs are skipped wherever they come up. Swipe to unblock. After five skips in ten seconds, a blocked track is left playing to prevent an endless skip loop.";
+"settings.songblock.title" = "Blocked Songs";
+"settings.songblock.unblock" = "Unblock This Song";
 
 "settings.songlanguage.automatic" = "Automatic";
 "settings.songlanguage.choose" = "Song Language";

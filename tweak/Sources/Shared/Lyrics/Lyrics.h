@@ -57,6 +57,11 @@ NSArray<SGLyricsRuby *> *SGLyricsFurigana(NSString *text);
 @end
 SGLyricsPreparedExtras *SGLyricsPrepareExtras(SGKaraokeLine *line, BOOL japanese, BOOL hangul,
                                              BOOL hiragana, BOOL pronunciation, BOOL ruby);
+// Main-thread entry/completion; snapshots the source lines before worker-only preparation.
+void SGLyricsPrepareReadingsAsync(NSArray<SGKaraokeLine *> *lines, BOOL japanese, BOOL hangul, BOOL hiragana,
+                                 void (^completion)(NSArray<SGLyricsPreparedExtras *> *extras));
+// Completed readings published on main; object is the track whose surfaces should refresh.
+extern NSNotificationName const SGLyricsReadingsDidChangeNotification;
 #define SGKeyLyricsFurigana @"spotifyglass.lyricsFurigana"
 SGModRow *SGLyricsFuriganaRow(void);
 

@@ -37,6 +37,7 @@
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
 #import "Shared/Player/PlayerState.h"
 #import "Redesigned/Lyrics/AutoTranslation.h"
+#import "Redesigned/Lyrics/LyricsLook.h"
 #import "Redesigned/Lyrics/LyricsText.h"
 #import <math.h>
 #import "Player.h"
@@ -133,6 +134,8 @@ BOOL SGRPlayerLyricLineOn(void) {
     }
     // The menu's translation switch, or the Text sizes page's translation look.
     [center addObserver:self selector:@selector(lyricsTextChanged) name:SGRLyricsTextDidChangeNotification object:nil];
+    // The size chosen for the line under the cover (LyricsLook.h).
+    [center addObserver:self selector:@selector(sizeChanged) name:SGRLyricsLookDidChangeNotification object:nil];
     SGAddPlayerStateObserver(self);
     return self;
 }
@@ -217,8 +220,11 @@ BOOL SGRPlayerLyricLineOn(void) {
     _translationLabel.frame = CGRectMake(SGRGrid, top + lineHeight, [self textWidth], translationHeight);
 }
 
+// The phone's text size, times the share the Lyrics page sets for the line under the cover.
 + (UIFont *)font {
-    return SGCategoryCappedFont(UIFontTextStyleSubheadline, UIFontWeightSemibold, UIContentSizeCategoryExtraExtraExtraLarge);
+    UIFont *font = SGCategoryCappedFont(UIFontTextStyleSubheadline, UIFontWeightSemibold, UIContentSizeCategoryExtraExtraExtraLarge);
+    CGFloat share = SGRLyricsSizeShare(SGRLyricsPlaceUnderCover);
+    return share == 1 ? font : [font fontWithSize:round(font.pointSize * share)];
 }
 
 - (CGFloat)lineHeight {
@@ -227,11 +233,22 @@ BOOL SGRPlayerLyricLineOn(void) {
 
 - (void)traitCollectionDidChange:(UITraitCollection *)previous {
     [super traitCollectionDidChange:previous];
+    [self restyle];
+}
+
+// The text size changed: the line is measured again for the room, and its portions for the new font.
+- (void)restyle {
     _label.font = [SGRLyricLineView font];
     _label.textColor = SGRSecondary();
     [self styleTranslation];
     _portions = nil;
     [self.superview setNeedsLayout];
+}
+
+// A size chosen on the Lyrics page shows at once, rather than at the line's next portion.
+- (void)sizeChanged {
+    [self restyle];
+    if (_running) [self tick];
 }
 
 // Touches only over the words, a tap's height tall, so a swipe across the rest of the gap still reaches the covers.

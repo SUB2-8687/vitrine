@@ -12,6 +12,7 @@
 #import "LyricsText.h"
 #import "LyricsLook.h"
 #import "MeaningSheet.h"
+#import "LyricCardPicker.h"
 #import "LyricsTools.h"
 #import "SongLanguage.h"
 #import "SGRSingButton.h"
@@ -1163,10 +1164,11 @@ static double secant(SGSweepKnot *knots, NSUInteger i) {
 @property (nonatomic, readonly) BOOL right;
 @property (nonatomic) BOOL active;
 @property (nonatomic, copy) BOOL (^activate)(void);
-// What holding the line offers, as VoiceOver's own actions: Copy line and Share line, and Meaning where the page
-// found one. Nil until the page hands them over; a backing row, and a preview, get none.
+// What holding the line offers, as VoiceOver's own actions: Copy line, Share line and Share as card, and Meaning
+// where the page found one. Nil until the page hands them over; a backing row, and a preview, get none.
 @property (nonatomic, copy) BOOL (^copyText)(void);
 @property (nonatomic, copy) BOOL (^shareText)(void);
+@property (nonatomic, copy) BOOL (^shareCard)(void);
 @property (nonatomic) CGFloat blur;
 // under: the line a backing row hangs under, nil for a line of its own. sweepsEstimates: the words of a
 // line timed only by the line are swept on their estimated times, rather than lit whole.
@@ -1196,8 +1198,8 @@ static double secant(SGSweepKnot *knots, NSUInteger i) {
     CGFloat _translationDim, _translationLit, _spokenDim, _spokenLit, _noteDim, _noteLit;
 }
 
-// VoiceOver's actions on the line: Meaning first where it has one, then Copy line and Share line, each the
-// menu's own item. A line with nothing to copy, and a backing row, offer none.
+// VoiceOver's actions on the line: Meaning first where it has one, then Copy line, Share line and Share as card,
+// each the menu's own item. A line with nothing to copy, and a backing row, offer none.
 - (void)buildActions {
     NSString *text = heldLineText(self.line);
     if (!text.length || !self.copyText || !self.isAccessibilityElement) {
@@ -1216,6 +1218,11 @@ static double secant(SGSweepKnot *knots, NSUInteger i) {
         initWithName:SGL(@"settings.lyrics.hold.share.line", @"Share line") actionHandler:^BOOL(UIAccessibilityCustomAction *action) {
             SGRKaraokeLineView *line = weakSelf;
             return line.shareText ? line.shareText() : NO;
+        }]];
+    [actions addObject:[[UIAccessibilityCustomAction alloc]
+        initWithName:SGL(@"settings.lyrics.hold.card.line", @"Share as card") actionHandler:^BOOL(UIAccessibilityCustomAction *action) {
+            SGRKaraokeLineView *line = weakSelf;
+            return line.shareCard ? line.shareCard() : NO;
         }]];
     self.accessibilityCustomActions = actions;
 }
@@ -1999,12 +2006,22 @@ typedef struct {
 // and the wave every held word's, so a change is the song measured again in it and crossfaded over.
 - (void)takeLook {
     SGRLyricsLook look = SGRLyricsLookNow();
-    _fontSize = look.size;
+    // The size chosen for the place the view shows in, the look's own until one is.
+    CGFloat share = SGRLyricsSizeShare(_sizePlace);
+    _fontSize = share == 1 ? look.size : round(look.size * share);
     _lineGap = look.spacing;
     _blurPerLine = kBlurPerLine * look.blur;
     _maxBlur = kMaxBlur * look.blur;
     sgr_glowScale = look.glow;
     sgr_waveScale = look.wave;
+}
+
+// A view without lines yet takes the place's size into the font its first build makes.
+- (void)setSizePlace:(SGRLyricsPlace)sizePlace {
+    if (_sizePlace == sizePlace) return;
+    _sizePlace = sizePlace;
+    if (_lines) [self lookChanged];
+    else [self takeLook];
 }
 
 - (void)lookChanged {
@@ -2136,8 +2153,8 @@ NSString *SGRLyricsShareText(NSString *line, NSString *title, NSString *artist, 
     return [lines componentsJoinedByString:@"\n"];
 }
 
-// Copy, Share and, where the line has one already, Meaning: the system's edit menu on the held line, and the
-// same three as VoiceOver's actions on the line (markMeaning:). Nothing here asks any source for anything.
+// Copy, Share, Share as Card and, where the line has one already, Meaning: the system's edit menu on the held line,
+// and the same as VoiceOver's actions on the line (markMeaning:). Nothing here asks any source for anything.
 - (UIMenu *)editMenuInteraction:(UIEditMenuInteraction *)interaction menuForConfiguration:(UIEditMenuConfiguration *)configuration
                 suggestedActions:(NSArray<UIMenuElement *> *)suggestedActions {
     SGRKaraokeLineView *view = [self lineOfConfiguration:configuration];
@@ -2154,6 +2171,9 @@ NSString *SGRLyricsShareText(NSString *line, NSString *title, NSString *artist, 
     __weak SGRKaraokeView *weakSelf = self;
     [items addObject:[UIAction actionWithTitle:SGL(@"settings.lyrics.hold.share", @"Share") image:nil identifier:nil
                                        handler:^(UIAction *action) { [weakSelf shareLine:text from:view]; }]];
+    SGKaraokeLine *line = view.line;
+    [items addObject:[UIAction actionWithTitle:SGL(@"settings.lyrics.hold.card", @"Share as Card") image:nil identifier:nil
+                                       handler:^(UIAction *action) { [weakSelf shareCardFrom:line]; }]];
     return [UIMenu menuWithChildren:items];
 }
 
@@ -2210,6 +2230,39 @@ NSString *SGRLyricsShareText(NSString *line, NSString *title, NSString *artist, 
     SGPresentDark(sheet);
     [top presentViewController:sheet animated:YES completion:nil];
     SGLog(@"lyrics: shared the held line");
+}
+
+// A lyric card, the held line picked already: every line with something to say goes to the picker
+// (LyricCardPicker.h) with the side it reads from and its pronunciation, the source's or else the reading in the
+// alphabet the Lyrics page chose, whether or not the page shows it now. Readings are made off the main thread, as
+// the layout's are; the card starts with them shown while the page shows them.
+- (void)shareCardFrom:(SGKaraokeLine *)held {
+    NSArray<SGKaraokeLine *> *lines = _lines;
+    NSString *track = _track;
+    if (!lines.count || !heldLineText(held).length) return;
+    BOOL japanese = [[self songLanguage] isEqual:@"ja"];
+    BOOL hangul = SGFlag(SGKeyLyricsPronunciationHangul, NO), hiragana = SGFlag(SGKeyLyricsJapaneseKana, NO);
+    BOOL shown = _style.pronunciation != nil;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSMutableArray<SGRLyricCardLine *> *cards = [NSMutableArray array];
+        NSUInteger picked = NSNotFound;
+        for (SGKaraokeLine *line in lines) {
+            NSString *text = heldLineText(line);
+            if (!text.length) continue;
+            if (line == held) picked = cards.count;
+            SGKaraokeLine *spoken = line.pronunciation ?: SGLyricsPrepareExtras(line, japanese, hangul, hiragana, YES, NO).pronunciation;
+            NSString *reading = spoken ? SGKaraokeLineText(spoken) : nil;
+            SGRLyricCardLine *card = [SGRLyricCardLine new];
+            card.text = text;
+            card.pronunciation = reading.length && ![SGLyricsBareText(reading) isEqualToString:SGLyricsBareText(text)] ? reading : nil;
+            card.rightToLeft = readsRightToLeft(text);
+            [cards addObject:card];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SGLog(@"lyrics: a lyric card of %lu lines to pick from", (unsigned long)cards.count);
+            SGRPresentLyricCardPicker(cards, picked, shown, track);
+        });
+    });
 }
 
 // Genius is asked once the song's lines are in; lines that change under it are matched again.
@@ -3291,6 +3344,12 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
                 NSString *text = heldLineText(line);
                 if (!owner || !text.length) return NO;
                 [owner shareLine:text from:owner->_shown[@(index)]];
+                return YES;
+            };
+            view.shareCard = ^BOOL {
+                SGRKaraokeView *owner = page;
+                if (!owner || !heldLineText(line).length) return NO;
+                [owner shareCardFrom:line];
                 return YES;
             };
         }

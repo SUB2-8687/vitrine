@@ -1224,6 +1224,11 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
                                               SGL(@"settings.player.star_add.subtitle", @"The add button as a star, filled in the accent once the song is saved. In the player it takes the place of Plain checkmark."),
                                               SGRKeyPlayerStarAdd), @"playerStarAdd");
     starAdd.changed = ^(BOOL on) { [weakPlayerPage.preview reloadLook]; };
+    // iPad turns Spotify's own player.
+    SGModRow *landscape = SGWithNew(SGOptionRow(SGL(@"settings.player.landscape.title", @"Landscape player"),
+                                                SGL(@"settings.player.landscape.subtitle", @"Turn your iPhone while the player is open, even with the lyrics closed."),
+                                                SGRKeyPlayerLandscape), @"playerLandscape");
+    landscape.visible = ^BOOL { return UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone; };
 
     NSMutableArray<SGModSection *> *sections = [NSMutableArray arrayWithObjects:
         SGSection(nil, @[behind, choosePhoto]),
@@ -1241,7 +1246,7 @@ UIViewController *SGRPlayerSettingsPage(NSArray *more) {
                                       SGWithNew(SGSwitchRow(SGL(@"settings.player.rolling_digits.title", @"Rolling time digits"),
                                                   SGL(@"settings.player.rolling_digits.subtitle", @"The digits that change under the progress bar roll into place."),
                                                   SGRKeyPlayerRollingDigits), @"playerRollingDigits"),
-                                      starAdd, musicIcons,
+                                      starAdd, musicIcons, landscape,
                                       SGOptionRow(SGL(@"settings.player.music_close.title", @"Music-like player close"),
                                                   SGL(@"settings.player.music_close.subtitle", @"Close into the mini player in stages. Applies after restarting Spotify."),
                                                   SGRKeyPlayerMusicClose)],

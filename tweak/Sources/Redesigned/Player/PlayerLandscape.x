@@ -1,7 +1,8 @@
 // Player redesign: the lyrics turn sideways with the phone onto a landscape screen of their own. The cover
 // is on the left with the title, the artist and the controls under it, and the lines are on the right.
 // A track without lines keeps the screen: the cover grows to the screen's height with the title and the
-// controls beside it, until a track with lines comes on.
+// controls beside it, until a track with lines comes on. With Landscape player on, the player turns too while
+// its lyrics are closed, onto the same screen laid out as for a track without lines.
 // The controls fade after a few seconds without a touch and come back at a tap, as in the player: the
 // tap that brings them back lands on a clear shield over the screen, so it never seeks. The button beside
 // the title turns the screen back to portrait, as VoiceOver's escape does, for a phone held flat or on its
@@ -17,6 +18,7 @@
 #import "Redesigned/Lyrics/SGRKaraokeView.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
+#import "Shared/Player/PlayerEvents.h"
 #import "Shared/Player/PlayerState.h"
 #import "Player.h"
 
@@ -28,6 +30,9 @@ static const NSTimeInterval kLandscapeRest = 4;
 static UIWindow *sg_window;
 // Shut from the screen: turning the phone again does not reopen it until it has stood upright.
 static BOOL sg_shut;
+// Spotify's player (NowPlayingViewController) once laid out in a window, until it goes: the screen goes up in its
+// scene, and only while it is on screen.
+static __weak UIViewController *sg_player;
 
 #pragma mark - the screen
 
@@ -132,6 +137,7 @@ static UIButton *controlButton(NSString *symbol, CGFloat size, NSString *label, 
     _stage = [UIView new];
     [self.view addSubview:_stage];
     _lyrics = [[SGRKaraokeView alloc] initWithFrame:CGRectZero];
+    _lyrics.sizePlace = SGRLyricsPlaceFullScreen;
     _lyrics.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_stage addSubview:_lyrics];
     __weak SGRLandscapeLyricsController *weakSelf = self;
@@ -227,9 +233,11 @@ static UIButton *controlButton(NSString *symbol, CGFloat size, NSString *label, 
 // Lines in: the lines' layout at once. None (the player's own verdict, after its grace): the cover's.
 // Otherwise the layout stays, so a track change does not flash between the two. A track change alone never
 // takes the lines away: the player may not have heard of it yet, and would still count the last one's grace.
+// The player turned with its lyrics closed (Landscape player) has the cover's layout whatever the track has.
 - (void)updateBare:(BOOL)mayGoBare {
     BOOL bare = _bare;
-    if (SGRPlayerLyricsAvailable()) bare = NO;
+    if (!SGRPlayerLyricsOpen()) bare = YES;
+    else if (SGRPlayerLyricsAvailable()) bare = NO;
     else if (mayGoBare && SGRPlayerLyricsNone()) bare = YES;
     if (bare == _bare) return;
     _bare = bare;
@@ -408,12 +416,21 @@ void SGRPlayerLandscapeLinesChanged(void) {
     if ([screen isKindOfClass:SGRLandscapeLyricsController.class]) [screen updateBare:YES];
 }
 
+// The scene of the player on screen; nil while it is closed, or opening or closing.
+static UIWindowScene *playerScene(void) {
+    UIWindow *window = sg_player.viewIfLoaded.window;
+    // An interactive gesture can outlive the shared animation-duration estimate.
+    return window && !sg_player.transitionCoordinator && !SGRPlayerIsTransitioning() ? window.windowScene : nil;
+}
+
 void SGRPlayerShowLandscape(BOOL show) {
     // iPad rotates Spotify's own player; never replace it with the portrait-only iPhone workaround.
     if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return;
-    UIWindowScene *scene = (UIWindowScene *)UIApplication.sharedApplication.connectedScenes.anyObject;
-    if (![scene isKindOfClass:UIWindowScene.class]) return;
+    // The scene the screen went up in, or for a new one the player's, in front.
+    UIWindowScene *scene = sg_window.windowScene ?: (show ? playerScene() : nil);
+    if (!scene) return;
     if (show && !sg_window) {
+        if (scene.activationState != UISceneActivationStateForegroundActive) return;
         answerForOrientations();
         sg_window = [[UIWindow alloc] initWithWindowScene:scene];
         sg_window.windowLevel = UIWindowLevelNormal + 1;
@@ -449,22 +466,43 @@ void SGRPlayerShowLandscape(BOOL show) {
     }
 }
 
+// The lyrics open as Landscape lyrics has it, or the player with them closed as Landscape player has it.
 static void orientationChanged(void) {
     UIDeviceOrientation orientation = UIDevice.currentDevice.orientation;
     if (UIDeviceOrientationIsLandscape(orientation)) {
-        if (!sg_shut && SGEnabled(SGRKeyLyricsLandscape) && SGRPlayerLyricsOpen()) SGRPlayerShowLandscape(YES);
+        BOOL wanted = SGFlag(SGRKeyPlayerLandscape, NO) || (SGRPlayerLyricsOpen() && SGEnabled(SGRKeyLyricsLandscape));
+        if (!sg_shut && wanted) SGRPlayerShowLandscape(YES);
     } else if (orientation == UIDeviceOrientationPortrait) {
         sg_shut = NO;
         SGRPlayerShowLandscape(NO);
     }
 }
 
+%hook _TtC19NowPlaying_ViewImpl24NowPlayingViewController
+- (void)viewDidLayoutSubviews {
+    %orig;
+    if (((UIViewController *)self).viewIfLoaded.window) sg_player = (UIViewController *)self;
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    if (sg_player == (UIViewController *)self) sg_player = nil;
+    %orig;
+}
+%end
+
 %ctor {
     if (!SGRedesignedUI()) return;
     if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return;
+    %init;
     dispatch_async(dispatch_get_main_queue(), ^{
         [UIDevice.currentDevice beginGeneratingDeviceOrientationNotifications];
         [NSNotificationCenter.defaultCenter addObserverForName:UIDeviceOrientationDidChangeNotification object:nil queue:nil
                                                     usingBlock:^(NSNotification *note) { orientationChanged(); }];
+        // A player opened on a phone already on its side turns once it is up.
+        [NSNotificationCenter.defaultCenter addObserverForName:SGPlayerTransitionEndedNotification object:nil queue:nil
+                                                    usingBlock:^(NSNotification *note) {
+            dispatch_async(dispatch_get_main_queue(), ^{ orientationChanged(); });
+        }];
     });
+    SGRequireClasses(@[@"_TtC19NowPlaying_ViewImpl24NowPlayingViewController"]);
 }

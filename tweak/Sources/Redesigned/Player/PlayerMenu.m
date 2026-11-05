@@ -4,6 +4,7 @@
 //
 //     Speed, Pitch & Reverb   opens the sliders in a popover from the ⋯ (SGPlayerShowSpeedPitchPanel): speed,
 //                             pitch, reverb and Pitch follows speed, as on Spotify's sheet (issue #14)
+//     Share Song Card         a song's cover, title and artist as a picture, through the share sheet (ShareCards.h)
 //     Search Lyrics           LRCLIB searched by hand for the song, its pick pinned to it (Redesigned/Lyrics/LyricsTools.h)
 //     Show Fluid Artwork, Show Animated Artwork, Show Visualizer
 //                             a button for each of the two the background is not, while it is one of the
@@ -25,6 +26,8 @@
 #import "Core/SGLocalize.h"
 #import "Shared/LyricsPiP/LyricsPiP.h"
 #import "PlayerQueue.h"
+#import "ShareCards.h"
+#import "Shared/ArtistBlock/ArtistBlock.h"
 
 static __weak UIView *sg_moreButton;   // the ⋯ the panels come from
 
@@ -210,6 +213,21 @@ static UIAction *lyricsSourceItem(void) {
 
 static NSArray<UIMenuElement *> *playerItems(void) {
     NSMutableArray<UIMenuElement *> *items = [NSMutableArray arrayWithObject:soundMenu()];
+    SPTPlayerTrack *track = SGPlayerState().track;
+    NSString *uri = SGURIString(track.URI);
+    if ([uri hasPrefix:@"spotify:track:"]) {
+        // The song as a picture to share: its cover, title and artist (ShareCards.h).
+        [items addObject:[UIAction actionWithTitle:SGL(@"settings.player.song_card.menu", @"Share Song Card") image:symbol(@"photo.on.rectangle")
+                                        identifier:nil handler:^(UIAction *action) { SGRShareSongCard(sg_moreButton); }]];
+        BOOL blocked = SGSongBlocked(uri);
+        NSString *title = track.trackTitle;
+        NSString *artist = track.artistName;
+        UIAction *block = [UIAction actionWithTitle:blocked ? SGL(@"settings.songblock.unblock", @"Unblock This Song") : SGL(@"settings.songblock.block", @"Block This Song")
+                                              image:symbol(blocked ? @"hand.raised.slash" : @"hand.raised") identifier:nil
+                                            handler:^(UIAction *action) { SGSetSongBlocked(uri, title, artist, !blocked); }];
+        if (!blocked) block.attributes = UIMenuElementAttributesDestructive;
+        [items addObject:block];
+    }
     [items addObject:[UIAction actionWithTitle:SGLyricsPiPMenuTitle() image:symbol(@"pip") identifier:nil
         handler:^(UIAction *action) { SGLyricsPiPToggle(sg_moreButton); }]];
     // What plays after this, a song's or an episode's (PlayerQueue.m).

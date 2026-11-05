@@ -234,11 +234,14 @@ UIViewController *SGPlayerSettingsPage(void) {
     blocked.value = ^NSString *{
         return SGFlag(SGKeyArtistBlock, NO) ? @(SGBlockedArtists().count).stringValue : SGL(@"common.off", @"Off");
     };
+    SGModRow *songs = named(SGPageRow(SGL(@"settings.songblock.title", @"Blocked Songs"), ^UIViewController *{ return SGSongBlockSettingsPage(); }), @"player.blockedsongs");
+    songs.value = ^NSString *{ return @(SGBlockedSongs().count).stringValue; };
 
     // AirPods gestures, the lock screen widget and Vibrations have rows of their own on Mod Settings' main page.
     NSMutableArray<SGModSection *> *sections = [NSMutableArray arrayWithObject:SGSection(nil, @[
         SGWithTile(named(SGPageRow(SGL(@"settings.player.gestures.title", @"Gestures"), ^UIViewController *{ return SGGesturesSettingsPage(); }), @"player.gestures"), @"hand.tap", UIColor.systemBlueColor),
         SGWithTile(blocked, @"person.crop.circle.badge.xmark", UIColor.systemRedColor),
+        SGWithTile(songs, @"hand.raised", UIColor.systemRedColor),
     ])];
     [sections addObject:SGSleepTimerSettingsSection()];
     if (native) {

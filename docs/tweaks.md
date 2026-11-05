@@ -117,7 +117,12 @@ Shared:
                   Spotify 9.1.90 simulator evidence and the remaining device checks are in its README.
     Privacy/      telemetry blocking and its counters, and the tracking taken off shared open.spotify.com links
                   (CleanLinks.x over the cleaner in CleanLinks.m)
-    ArtistBlock/  tracks by blocked artists skipped as they start (ArtistSkip.x), the list and the Blocked artists page under Player
+    ArtistBlock/  tracks by blocked artists skipped as they start (ArtistSkip.x), the list and the Blocked artists page under Player;
+                  single songs blocked from the redesigned player's ⋯ menu (Block This Song, kept by URI on the phone and
+                  active whatever the artist switch says) are skipped the same way and unblocked by a swipe on Player ›
+                  Blocked Songs. Artist and song skips share one budget: after five skips in ten seconds the track is left to
+                  play, so a queue that is all blocked cannot spin. With nothing blocked the now playing hook returns at once
+                  (a flag kept in step with the list)
     Flags/        Spotify's remote-config flags: the provider hook, the generated table, the All flags page and the Labs page;
                   the provider pins 9.1.88's ios-reprise-liquid-glass-override.mode to default in both looks (after an All flags
                   override) and logs the server's own value once, as a force_disabled would take the glass off the redesign.
@@ -442,7 +447,11 @@ Shared:
                   track, lines, level and referents in a cache of 40, and goes to main only if the level and the lines are still
                   the ones asked for; the redesign's lyrics view also drops an answer for another track or song language
     LockScreenLyrics/ the line being sung in the system's now playing, and on iOS 26 the lyrics as the lock screen's
-                  full-screen artwork (LyricsArtwork.x): a new artwork ID per line, its 3:4 H.264 clip (the line in bold
+                  full-screen artwork (LyricsArtwork.x). With pronunciation or romanization shown in the lyrics, both and
+                  the Live Activity follow the lyrics' own order: the larger of the words and the pronunciation leads (the
+                  now playing artist row has room for that one line) and the other goes under it in the artwork and the
+                  Live Activity; a translation chosen for those places keeps its place, the native look shows no
+                  pronunciation, and a change redraws at once, even paused, the clips dropped for new IDs. The artwork: a new artwork ID per line, its 3:4 H.264 clip (the line in bold
                   and the next one smaller, in the regular weight at 0.6 of its size and half white, over the selected
                   background, SGLyricsClip.m; left-aligned 8% of the screen's width in, wrapping at 84% of it, the block
                   centred 40% down and its top no higher than 17%, clear of the clock and the media controls;
@@ -1135,7 +1144,12 @@ Redesigned:
                   glyphs come back in the colors and state Spotify gives them (Encore's microphone on Lyrics and queue on the
                   DJ's Queue, as 9.1.90 has no lyrics glyph) and the blue disc shows again. The hidden share button and its
                   holder take no touches in either state. The open player follows both at once (SGRPlayerLookChanged lays the watched unit views out
-                  again). Animated artwork (PlayerMotion.x)
+                  again). Landscape player (Player › Controls, off, iPhone only) turns the open player sideways with its
+                  lyrics closed, as the layout for a track without lines (cover, title and controls), in the scene of the
+                  player on screen, never while the player is closed, opening or closing; a player opened sideways turns
+                  once it has opened, and Landscape lyrics still decides for open lyrics (PlayerLandscape.x). Share Song Card
+                  in the ⋯ menu shares a 1080×1350 image of the cover, large and rounded over itself blurred, with the title
+                  and artist, drawn on the phone off the main thread (ShareCards.m). Animated artwork (PlayerMotion.x)
                   plays a square clip (Apple Music's square animated cover, no taller than 1.05:1) inside the cover
                   itself, a subview of the cover on screen that takes its corners, paused shrink and swipe, over the
                   field as it is; any taller clip
@@ -1265,11 +1279,17 @@ Redesigned:
                   dismissal or when that line's view goes, and a press that offers nothing takes the last one away.
                   Nothing there asks a source for anything, a light tap confirms the press where Vibrations' Controls
                   are on, and VoiceOver
-                  gets the same three as custom actions (Meaning, Copy line, Share line). The items, what Copy and
+                  gets the same as custom actions (Meaning, Copy line, Share line, Share as card). Share as Card opens a sheet
+                  of the song's lines with the held one picked; up to six can be picked, and Show Pronunciation (where a
+                  line has one: the source's, else the Lyrics page's romanization) puts each line's reading under it; the
+                  card draws them over the blurred cover with the small cover, title and artist on top, off the main thread
+                  (LyricCardPicker.m, ShareCards.m), and nothing is fetched. The items, what Copy and
                   Share say (SGRLyricsShareText), the anchor and the dismissals are checked in the simulator against
                   harness/lyrics-hold/, the press itself on the phone. The size, the room between lines, the blur, the glow and the wave are the Lyrics page's look
                   (LyricsLook.h): five presets and a sheet of sliders, applied at once to every view, under a live
-                  preview of the view playing a song of its own (LyricsLookSettings.m). Laid out on the Mac against
+                  preview of the view playing a song of its own (LyricsLookSettings.m); its Size in each place sets the
+                  line under the cover, the player's lyrics and landscape/full-screen lyrics to 75–130% of their own size,
+                  Default changing nothing, the line under the cover keeping the iPhone's text size and its fitting. Laid out on the Mac against
                   harness/lyrics/; the page against harness/lyrics-page/
     Home/         Home decluttered to music on black (an allow list of its sections: shortcuts, the DJ without its heading and
                   transcript, the shelves of cards, each with a switch on the Home page of Mod Settings; the previews and the

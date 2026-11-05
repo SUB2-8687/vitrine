@@ -211,6 +211,10 @@ void SGRPlayerLookChanged(void);
 // The lyrics turn sideways with the phone onto a landscape screen of their own (PlayerLandscape.x). On
 // until switched off. Shown or put away by hand for the harness.
 #define SGRKeyLyricsLandscape @"spotifyglass.redesign.lyrics.landscape"
+// The player turns onto it too with its lyrics closed, laid out as for a track without lines. Off until switched on
+// (PlayerSettings.m), read at each turn. Either switch on turns a player whose lyrics are open.
+#define SGRKeyPlayerLandscape @"spotifyglass.redesign.player.landscape"
+// Goes up only over the player on screen, in its scene.
 void SGRPlayerShowLandscape(BOOL show);
 // The playing track's lines came in, or turned out to be none: the landscape screen lays out for it.
 void SGRPlayerLandscapeLinesChanged(void);

@@ -18,6 +18,7 @@
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
 #import "Shared/LyricsPiP/LyricsPiP.h"
+#import "Shared/LockScreenLyrics/LockScreenLyrics.h"
 #import "Shared/HeadGestures/HeadGestures.h"
 #import "Shared/Sing/Sing.h"
 #import "LiveActivity.h"
@@ -199,13 +200,18 @@ static NSString *lyricsLine(NSString *trackID, NSString **next, NSString **trans
     if (position >= 0) position -= SGKaraokeDelayMs();
     // With two voices at once, the one that came in first, and the one singing over it as the next.
     NSInteger index = SGKaraokeLeadLine(lines, position);
-    *next = index + 1 < (NSInteger)lines.count ? SGKaraokeLineText(lines[index + 1]) : @"";
+    // Each line as the lyrics show it: the larger of the words and their pronunciation (SGLyricsShownLine).
+    *next = index + 1 < (NSInteger)lines.count ? SGKaraokeLineText(SGLyricsShownLine(trackID, lines, index + 1, NULL)) : @"";
     if (index < 0) return @"♪";
     SGKaraokeLine *current = lines[index];
     BOOL nextFarOff = index + 1 == (NSInteger)lines.count || lines[index + 1].start - position > kBreakMs;
     if (position > current.end + kBreakMs && nextFarOff) return @"♪";
-    *translation = SGLyricsShownTranslation(current);
-    return SGKaraokeLineText(current);
+    // Under it the translation, when the card is set to show one and the line has it; else the other of the two.
+    SGKaraokeLine *under = nil;
+    SGKaraokeLine *shown = SGLyricsShownLine(trackID, lines, index, &under);
+    NSString *translated = SGFlag(SGKeyLiveActivityTranslation, NO) ? SGLyricsShownTranslation(current) : nil;
+    *translation = translated.length || !under ? translated : SGKaraokeLineText(under);
+    return SGKaraokeLineText(shown);
 }
 
 // The cover for the card, read once a track from Spotify's now playing artwork: its color, darkened so
@@ -314,7 +320,6 @@ static void tick(void) API_AVAILABLE(ios(17.0)) {
     NSString *line = @"", *next = @"", *translation = nil;
     BOOL noLyrics = NO;
     if (view == SGLiveActivityLyrics) line = lyricsLine(trackID, &next, &translation, &noLyrics);
-    if (!SGFlag(SGKeyLiveActivityTranslation, NO)) translation = nil;
     NSInteger textSize = view == SGLiveActivityLyrics ? SGInt(SGKeyLiveActivityTextSize, SGLiveActivityTextMedium) : SGLiveActivityTextMedium;
     NSInteger alignment = SGInt(SGKeyLiveActivityAlignment, SGLiveActivityAlignCenter);
     NSInteger withoutLyrics = SGInt(SGKeyLiveActivityWithoutLyrics, SGLiveActivityWithoutLyricsNote);
@@ -563,6 +568,12 @@ void SGSetLiveActivityEnabled(BOOL on) {
         [NSNotificationCenter.defaultCenter addObserverForName:SGKaraokeLinesKeptNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             if ([note.object isKindOfClass:NSString.class]) [sg_lookEnded addObject:note.object];
         }];
+        for (NSNotificationName name in @[SGLyricsReadingsDidChangeNotification, SGLyricsLanguageDidChangeNotification,
+                                          SGKaraokeLinesKeptNotification]) {
+            [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:nil usingBlock:^(NSNotification *note) {
+                if (sg_timer && (!note.object || [note.object isEqual:SGKaraokePlayingTrack()])) tick();
+            }];
+        }
         // Answered inside the post, which the intent makes on the main thread, so the reply is there when it returns.
         [NSNotificationCenter.defaultCenter addObserverForName:@"SGShortcut" object:nil queue:nil usingBlock:^(NSNotification *note) {
             NSMutableDictionary *reply = note.userInfo[@"reply"];
