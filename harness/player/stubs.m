@@ -469,12 +469,6 @@ CGRect SGRPlayerLyricLineIn(UIView *view) { return CGRectNull; }
 void SGRPlayerMenuWatch(UIView *button) {}
 UIControl *SGRSystemMenuFront(UIView *button) { return nil; }
 
-// LyricCardPicker.m and ShareCards.m are not built: holding a lyric line opens no card picker here.
-#import "Redesigned/Lyrics/LyricCardPicker.h"
-@implementation SGRLyricCardLine
-@end
-void SGRPresentLyricCardPicker(NSArray<SGRLyricCardLine *> *lines, NSUInteger picked, BOOL pronunciation, NSString *trackID) {}
-
 // Cydia Substrate's hook (substrate.h here), as the runtime does it: the class gets its own copy of an inherited
 // method, so its superclass is left alone.
 void MSHookMessageEx(Class _class, SEL message, IMP hook, IMP *old) {

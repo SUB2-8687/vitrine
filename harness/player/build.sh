@@ -81,7 +81,8 @@ compile -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     -include "$SRC/Core/SGLocalize.h" \
     -Wno-deprecated-declarations \
     "$(dirname "$0")/main.m" "$(dirname "$0")/../scene.m" "$(dirname "$0")/stubs.m" "$(dirname "$0")/../tabbar/touch.m" \
-    "$(dirname "$0")/stubs-automix.m" "$(dirname "$0")/automix-scenario.m" \
+    "$(dirname "$0")/stubs-automix.m" "$(dirname "$0")/automix-scenario.m" "$(dirname "$0")/share-check.m" \
+    "$SRC"/Redesigned/Player/ShareCards.m "$SRC"/Redesigned/Lyrics/LyricCardPicker.m \
     "$SRC"/Redesigned/Player/PlayerQueue.m "$SRC"/Shared/AutoMix/AutoMixSettings.m "$SRC"/Shared/AutoMix/AutoMixPreview.m \
     "$OUT"/gen/*.m \
     "$SRC"/Core/SGLog.m "$SRC"/Core/SGPrefs.m "$SRC"/Core/SGViewTree.m "$SRC"/Core/SGGlass.m "$SRC"/Core/SGLocalize.m \

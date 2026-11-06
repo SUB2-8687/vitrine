@@ -62,6 +62,18 @@ scenarios on one owned simulator, then shuts down/deletes it and removes the bui
 The individual `settings-check.sh` and `automix-check.sh` entry points select one scenario.
 Settings holds clip and image replies until the stale-track or dismissal boundary; screenshot
 rehearsals are not part of either run.
+Presentation and dismissal advance from UIKit completions, and delayed last-song artwork
+advances from a held reply and the displayed image, not a one-second download allowance.
+Chip text is laid out before checking its bounds.
+
+`python3 harness/player/ui-check.py share share-system` links the real `ShareCards.m` and
+`LyricCardPicker.m`. It shares a song card, shares a lyric card through the picker's action,
+and launches a fresh process for a plain UIKit text share. It checks card pixel dimensions
+and off-main drawing, and logs renderer time, UIKit initialization, synchronous presentation,
+presentation completion and main-run-loop heartbeat gaps. Presentation latency is measured,
+not asserted against a machine-dependent threshold. The runner owns and removes its simulator
+and temporary build; no existing simulator is used. This is a manual scenario, not a separately
+registered `harness-plan.py` entry.
 
 Spotify's full screen player mocked under its own class names and accessibility identifiers
 (from `trees/clean/player/01.txt`), so the redesign's player can be laid out, animated and

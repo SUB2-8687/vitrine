@@ -159,6 +159,7 @@ static BOOL pictureReady(SGRHarnessPicture *picture) {
 // For the automix scenario (automix-scenario.m).
 void SGRHarnessServe(NSString *imageURI, UIImage *image) { serve(imageURI, image, 0, NO); }
 void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIView *tilt);
+void SGRHarnessRunShare(UIWindow *window, BOOL systemOnly);
 
 @interface SGRHarnessPictureServer : NSURLProtocol
 @end
@@ -829,6 +830,7 @@ static void loadLyrics(void) {
     else if ([scenario() isEqualToString:@"cover"]) [self runCoverChecks];
     else if ([scenario() isEqualToString:@"immersive"]) [self runImmersiveChecks];
     else if ([scenario() isEqualToString:@"settings"]) [self runSettingsChecks];
+    else if ([scenario() hasPrefix:@"share"]) SGRHarnessRunShare(self.window, [scenario() isEqualToString:@"share-system"]);
     else if ([scenario() isEqualToString:@"preview"]) [self runPreviewChecks];
     else if ([scenario() isEqualToString:@"seek"]) [self runSeekChecks];
     else if ([scenario() isEqualToString:@"visualiser"]) [self runVisualiserChecks];
@@ -1918,11 +1920,16 @@ static void installSettingsWorkProbes(void) {
         [page() viewWillAppear:NO];
         [table() layoutIfNeeded];
     };
+    __block BOOL settingsPresented = NO;
     void (^open)(void) = ^{
+        settingsPresented = NO;
         nav = [[UINavigationController alloc] initWithRootViewController:SGRPlayerSettingsPage(@[SGRPlayerButtonsSection()])];
         // Keep the real player in its window: its intentional old-clip handover must not reach the preview.
         nav.modalPresentationStyle = UIModalPresentationOverFullScreen;
-        [self.window.rootViewController presentViewController:nav animated:NO completion:nil];
+        [self.window.rootViewController presentViewController:nav animated:NO completion:^{
+            [nav.view layoutIfNeeded];
+            settingsPresented = YES;
+        }];
     };
     // The card's height in the window, and its top against the navigation bar's foot.
     NSString *(^pinned)(void) = ^{
@@ -1935,7 +1942,7 @@ static void installSettingsWorkProbes(void) {
     __block NSString *playerBefore;
     __block NSDictionary *settingsBefore;
     __block NSURL *fileC;
-    __block SGRHarnessPicture *lateImageB, *lateImageE;
+    __block SGRHarnessPicture *lateImageB, *lateImageD, *lateImageE;
     __block BOOL settingsDismissed = NO;
 
     [NSNotificationCenter.defaultCenter addObserverForName:NSUserDefaultsDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
@@ -1949,7 +1956,7 @@ static void installSettingsWorkProbes(void) {
         [script addObject:@[[ready copy], [block copy]]];
     };
     when(^BOOL { return SGRPlayerMotionShowing(); }, ^{ open(); });
-    when(^BOOL { return motionOn() != nil && card().window != nil; }, ^{
+    when(^BOOL { return settingsPresented && motionOn() != nil && card().window != nil; }, ^{
         playerBefore = playerNow();
         CGFloat height = card().frame.size.height;
         BOOL inTable = card().window && card().superview.superview == table() && fabs(cardTop() - barFoot() - 8) < 1;
@@ -1978,12 +1985,12 @@ static void installSettingsWorkProbes(void) {
         [nav pushViewController:[UIViewController new] animated:NO];
         [NSUserDefaults.standardUserDefaults setBool:YES forKey:SGRKeyPlayerAnimatedStill];
     });
-    step(0.5, ^{
+    when(^BOOL { return nav.topViewController != page() && !nav.transitionCoordinator; }, ^{
         [self expect:![[card() valueForKey:@"_active"] boolValue] && !motionOn() && !hillsOn() step:@"covered: no clip or hills on the card" detail:cardState()];
         [self expect:!closedDecoder step:@"covered: the preview decoder is released" detail:closedDecoder ? @"still retained" : @"released"];
         [nav popViewControllerAnimated:NO];
     });
-    step(0.5, ^{
+    when(^BOOL { return nav.topViewController == page() && !nav.transitionCoordinator && motionOn() != nil; }, ^{
         UIButton *menu = (UIButton *)cellOf(noClip()).accessoryView;
         [self expect:[noClip().value() isEqualToString:@"Full-screen cover"] && [menu.accessibilityValue isEqualToString:@"Full-screen cover"] && motionOn()
                 step:@"back on the page: Full-screen cover from the switch stored meanwhile, the clip back" detail:[NSString stringWithFormat:@"row \"%@\", menu \"%@\"; %@", noClip().value(), menu.accessibilityValue, cardState()]];
@@ -2026,7 +2033,7 @@ static void installSettingsWorkProbes(void) {
         CGRect frame = [card() convertRect:card().bounds toView:self.window];
         SGHarnessTap(self.window, CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame)));
     });
-    step(0.8, ^{
+    when(^BOOL { return !demo() && motionOn() != nil; }, ^{
         [self expect:!demo() && motionOn() && !hillsOn() && [playerNow() isEqualToString:playerBefore] && SGRHarnessPlayerCommands() == 0
                 step:@"a tap on the card: the clip again, the player untouched" detail:cardState()];
     });
@@ -2035,7 +2042,7 @@ static void installSettingsWorkProbes(void) {
         CGRect frame = [toggle convertRect:toggle.bounds toView:self.window];
         SGHarnessTap(self.window, CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame)));
     });
-    step(0.8, ^{
+    when(^BOOL { return demo() && hillsOn() != nil; }, ^{
         UIButton *toggle = [card() valueForKey:@"_demoButton"];
         [self expect:demo() && hillsOn() && !motionOn() && (toggle.accessibilityTraits & UIAccessibilityTraitSelected)
                      && [[[card() valueForKey:@"_canvas"] accessibilityValue] isEqualToString:@"Animated background, without a clip: Visualizer"]
@@ -2125,6 +2132,7 @@ static void installSettingsWorkProbes(void) {
         }
         // Each chip's name whole once it is drawn unselected, its glyph changed.
         for (UIButton *chip in chips()) {
+            [chip layoutIfNeeded];
             if (chip.titleLabel.intrinsicContentSize.width > chip.titleLabel.bounds.size.width + 0.5 || chip.frame.size.height < 44) alone = NO;
             [seen addObject:[NSString stringWithFormat:@"%@ %@", chip.accessibilityLabel, NSStringFromCGRect(chip.frame)]];
         }
@@ -2138,10 +2146,10 @@ static void installSettingsWorkProbes(void) {
               detail:[NSString stringWithFormat:@"changed %@; previous %.0f pt from play, a slot %.0f", seen, play - previous, slot]];
     });
     step(0, ^{
-        [self.window.rootViewController dismissViewControllerAnimated:NO completion:nil];
-        open();
+        settingsPresented = NO;
+        [self.window.rootViewController dismissViewControllerAnimated:NO completion:open];
     });
-    step(1, ^{
+    when(^BOOL { return settingsPresented && card().window != nil; }, ^{
         NSArray<UIButton *> *found = chips();
         BOOL kept = found.count == 3;
         for (UIButton *chip in found) kept = kept && !chip.selected && !(chip.accessibilityTraits & UIAccessibilityTraitSelected);
@@ -2197,10 +2205,13 @@ static void installSettingsWorkProbes(void) {
     step(0.8, ^{
         closedVisualiser = hillsOn();
         [self expect:closedVisualiser != nil step:@"the visualizer preview is present before dismissal" detail:cardState()];
-        [self.window.rootViewController dismissViewControllerAnimated:NO completion:nil];
-        nav = nil;
+        settingsDismissed = NO;
+        [self.window.rootViewController dismissViewControllerAnimated:NO completion:^{
+            nav = nil;
+            settingsDismissed = YES;
+        }];
     });
-    step(0.8, ^{
+    when(^BOOL { return settingsDismissed; }, ^{
         sg_previewPaletteRequests = 0;
         sg_watchPreviewPalette = YES;
         [NSNotificationCenter.defaultCenter postNotificationName:SGRNowPlayingArtworkDidChangeNotification object:nil];
@@ -2211,7 +2222,7 @@ static void installSettingsWorkProbes(void) {
         open();
     });
     // The card and the chips at an iPhone SE's width and this one's, at the default text size and the largest.
-    step(0.5, ^{
+    when(^BOOL { return settingsPresented && card().window != nil; }, ^{
         NSMutableArray<NSString *> *wrong = [NSMutableArray array];
         for (NSNumber *width in @[@288, @370]) {
             for (UIContentSizeCategory category in @[UIContentSizeCategoryLarge, UIContentSizeCategoryAccessibilityExtraExtraExtraLarge]) {
@@ -2263,13 +2274,19 @@ static void installSettingsWorkProbes(void) {
     // No playback: the actual last song, including its asynchronous image, still belongs in the preview.
     step(0.5, ^{
         pick(SGRPlayerBackgroundStill);
-        serve(imageURI(@"dddd"), solid(UIColor.magentaColor), 0.4, NO);
+        lateImageD = serve(imageURI(@"dddd"), solid(UIColor.magentaColor), 0, NO);
+        lateImageD.held = YES;
         NSString *url = [@"https://i.scdn.co/image/" stringByAppendingString:[imageURI(@"dddd") substringFromIndex:14]];
         [NSUserDefaults.standardUserDefaults setObject:@{@"uri": @"spotify:track:lastD", @"title": @"Last song D", @"artwork": url}
                                                forKey:SGKeyLastTrack];
         SGRHarnessClearTrack();
     });
-    step(1, ^{
+    when(^BOOL { return pictureReady(lateImageD); }, ^{
+        [self expect:![colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]) isEqualToString:@"magenta"]
+                step:@"last-song cover waits for the held image reply" detail:@"request pending, main run loop responsive"];
+        deliverPicture(lateImageD);
+    });
+    when(^BOOL { return [colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]) isEqualToString:@"magenta"]; }, ^{
         NSString *color = colorName([(UIImageView *)[card() valueForKey:@"_cover"] image]);
         [self expect:[color isEqualToString:@"magenta"] && [[[card() valueForKey:@"_title"] text] isEqualToString:@"Last song D"]
                 step:@"no playback: the last song's title and delayed cover" detail:color];
@@ -2303,6 +2320,7 @@ static void installSettingsWorkProbes(void) {
     // Closed: the card does nothing more, whatever the player does.
     when(^BOOL { return SGRHarnessLookupReady(@"spotify:track:lastG"); }, ^{
         closedCard = card();
+        settingsDismissed = NO;
         [self.window.rootViewController dismissViewControllerAnimated:NO completion:^{ settingsDismissed = YES; }];
         nav = nil;
     });
