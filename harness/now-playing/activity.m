@@ -1,5 +1,6 @@
 // The real LiveActivity.x timer and reader, with only ActivityKit/player services replaced.
 #import <UIKit/UIKit.h>
+#import <objc/runtime.h>
 #import "artwork.h"
 #import "Shared/LiveActivity/LiveActivity.h"
 #import "Shared/Lyrics/Lyrics.h"
@@ -49,6 +50,46 @@ static void refresh(void) {
     runFor(.05);
 }
 
+static void lockedLyrics(void) {
+    // Model a locked process still executing main-queue work but deferring run-loop timers.
+    Method timerMethod = class_getClassMethod(NSTimer.class, @selector(timerWithTimeInterval:repeats:block:));
+    IMP originalTimer = method_getImplementation(timerMethod);
+    IMP deferredTimer = imp_implementationWithBlock(^NSTimer *(id cls, NSTimeInterval interval, BOOL repeats, void (^block)(NSTimer *)) {
+        NSTimer *timer = ((id (*)(id, SEL, NSTimeInterval, BOOL, id))originalTimer)(
+            cls, @selector(timerWithTimeInterval:repeats:block:), interval, repeats, block);
+        timer.fireDate = NSDate.distantFuture;
+        return timer;
+    });
+    Method stateMethod = class_getInstanceMethod(UIApplication.class, @selector(applicationState));
+    IMP originalState = method_getImplementation(stateMethod);
+    IMP backgroundState = imp_implementationWithBlock(^UIApplicationState(id app) { return UIApplicationStateBackground; });
+    method_setImplementation(timerMethod, deferredTimer);
+    method_setImplementation(stateMethod, backgroundState);
+
+    harnessState(@"activity-locked", @"Locked song");
+    harnessLines(nil);
+    sentLine = nil;
+    extern void (^harnessLyricsRequested)(NSString *);
+    harnessLyricsRequested = ^(NSString *track) {
+        if (![track isEqual:@"activity-locked"]) return;
+        harnessLyricsRequested = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            harnessLines(@[lineOf(@"Locked lyric", 0, 1000000)]);
+            [NSNotificationCenter.defaultCenter postNotificationName:SGKaraokeLinesKeptNotification object:track];
+        });
+    };
+    SGSetLiveActivityEnabled(YES);
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:3];
+    while (![sentLine isEqual:@"Locked lyric"] && deadline.timeIntervalSinceNow > 0) runFor(.01);
+    check([sentLine isEqual:@"Locked lyric"], @"Live Activity requests and publishes lyrics while locked without now-playing or UI events");
+    SGSetLiveActivityEnabled(NO);
+    harnessLyricsRequested = nil;
+    method_setImplementation(timerMethod, originalTimer);
+    method_setImplementation(stateMethod, originalState);
+    imp_removeBlock(deferredTimer);
+    imp_removeBlock(backgroundState);
+}
+
 void activityChecks(void) {
     [NSUserDefaults.standardUserDefaults setVolatileDomain:@{SGKeyLiveActivityTranslation: @YES} forName:NSArgumentDomain];
     harnessLanguage = @"en";
@@ -94,4 +135,5 @@ void activityChecks(void) {
     harnessTranslations = nil;
     harnessLanguage = @"en";
     [NSUserDefaults.standardUserDefaults setVolatileDomain:@{} forName:NSArgumentDomain];
+    lockedLyrics();
 }

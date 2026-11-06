@@ -920,7 +920,11 @@ Shared:
                   the mod's own (Player/SleepTimer.m: 15 min, 30 min, 1 hour, End of track, End of album) that fades
                   the sound out and pauses Spotify, and stays set when the card is switched off (LiveActivity.h lists its files): a timer polls the player and
                   sends a new state only when what the view shows changes, local updates only, no push, and asks ActivityKit
-                  only then. It ticks four times a second in the lyrics view and once a second in the others. The card
+                  only then. A strict main-queue dispatch timer, not a run-loop timer that iOS can defer with the screen
+                  off, ticks four times a second in the lyrics view and once a second while paused or in the others.
+                  These are polls, not four ActivityKit updates a second: unchanged states are coalesced. The lyrics
+                  reader requests missing lines independently of artwork or an open player, and a lines-kept notification
+                  sends the current line at once, including in the background. The card
                   is tinted with the cover's color and shows the cover itself, a JPEG of a few dozen pixels inside
                   the state, which ActivityKit caps at 4 KB (the bridge sends it without the cover when it would
                   not fit); the color is darkened to a luminance of 0.04 at most, so the white text keeps 4.5:1 on any
@@ -947,6 +951,17 @@ Shared:
                   1 hour, End of track, End of album or Off) is the card's own, Player/SleepTimer.m, which keeps its
                   own clock with the activity off. The intent asks again for 8 s while the player is not up,
                   then tells Siri to open Spotify. Checked in the simulator against harness/shortcuts/
+
+                  Install limitation: LiveContainer runs Spotify as a guest, not a separately installed app, and
+                  upstream LiveContainer does not register guest app extensions with SpringBoard. Vitrine cannot
+                  register its Live Activity widget or change the installed host's capabilities from inside that guest;
+                  even its install check reads NSBundle.mainBundle, which LiveContainer replaces with the guest bundle.
+                  Use Vitrine's IPA installed directly, retaining its Live Activity extension, and enable Live Activities
+                  for that installed app. Updating Vitrine inside LiveContainer alone cannot supply the missing widget.
+                  The lock screen's now-playing lyrics/artwork is a separate feature, not this ActivityKit card.
+                  NSSupportsLiveActivitiesFrequentUpdates, written by Vitrine's IPA overlay, raises the remote push
+                  update budget; this card uses local updates with pushType nil, so that key is not a fix for delayed
+                  local lyrics. Actual locked-screen delivery and any system throttling still require a device check.
 
     ListeningStats/ listening stats kept on the phone (ListeningStats.h lists its files): each music track timed while
                   it plays through PlayerState's observer and written to a text log in Application Support once it ran 30 s

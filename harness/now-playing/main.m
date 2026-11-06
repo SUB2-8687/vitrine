@@ -104,8 +104,10 @@ id SGKaraokePlayer(void) {
 }
 NSString *SGKaraokePlayingTrack(void) { return sg_player.state.track.URI; }
 NSArray<SGKaraokeLine *> *SGKaraokeLinesForTrack(NSString *trackID) { return sg_lines; }
-void SGKaraokeRequestLyrics(NSString *trackID) {}
-// The lines are there from the start, so nothing is posted under it.
+void (^harnessLyricsRequested)(NSString *);
+void SGKaraokeRequestLyrics(NSString *trackID) {
+    if (harnessLyricsRequested) harnessLyricsRequested(trackID);
+}
 NSNotificationName const SGKaraokeLinesKeptNotification = @"harness.karaokeLinesKept";
 NSInteger SGKaraokeDelayMs(void) { return [NSUserDefaults.standardUserDefaults integerForKey:SGKeyLyricsDelay]; }
 // Only the translation check selects the translated artist row.

@@ -85,7 +85,7 @@ static const double kTintLuminance = 0.04;
 // (0.48 + 0.05) / (0.04 + 0.05).
 static const double kAccentLuminance = 0.48;
 
-static NSTimer *sg_timer;
+static dispatch_source_t sg_timer;
 static NSTimeInterval sg_tickEvery;
 static NSString *sg_shown;
 static NSString *sg_missingLyrics;
@@ -112,12 +112,18 @@ static BOOL heldBack(void) {
         && UIApplication.sharedApplication.applicationState != UIApplicationStateActive;
 }
 
-// An NSTimer cannot be asked to change pace, so changing it is putting one down and another up.
+// As for lock-screen artwork, a strict dispatch timer keeps polling while the screen is off:
+// iOS can defer run-loop timers there even while background audio keeps the process running.
+// Lyrics/cache access remains on main, never on the audio render thread.
 static void startTimer(NSTimeInterval every) API_AVAILABLE(ios(17.0)) {
-    [sg_timer invalidate];
+    if (!sg_timer) {
+        sg_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, dispatch_get_main_queue());
+        dispatch_source_set_event_handler(sg_timer, ^{ tick(); });
+        dispatch_resume(sg_timer);
+    }
     sg_tickEvery = every;
-    sg_timer = [NSTimer timerWithTimeInterval:every repeats:YES block:^(NSTimer *t) { tick(); }];
-    [NSRunLoop.mainRunLoop addTimer:sg_timer forMode:NSRunLoopCommonModes];
+    uint64_t interval = (uint64_t)(every * NSEC_PER_SEC);
+    dispatch_source_set_timer(sg_timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)interval), interval, 0);
 }
 
 // Sends `shown`, what the activity is to show as one string, unless it is showing that already and was
@@ -492,7 +498,7 @@ static void runShortcut(NSString *action, NSMutableDictionary *reply) API_AVAILA
 
 void SGSetLiveActivityEnabled(BOOL on) {
     if (@available(iOS 17.0, *)) {
-        [sg_timer invalidate];
+        if (sg_timer) dispatch_source_cancel(sg_timer);
         sg_timer = nil;
         sg_shown = nil;
         sg_lastStart = nil;
