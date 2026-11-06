@@ -19,6 +19,36 @@ static void check(BOOL ok, NSString *label) {
     if (!ok) failures++;
 }
 
+// Turns the main run loop until `done` says so, at most 5 s: UIKit finishes a presentation or a dismissal some turns
+// later, and how many depends on the machine, so a fixed wait passes on one Mac and not on another.
+static BOOL waitUntil(BOOL (^done)(void)) {
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!done() && limit.timeIntervalSinceNow > 0) [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    return done();
+}
+
+static NSString *named(UIViewController *controller) {
+    return controller ? [NSString stringWithFormat:@"%@ %@", NSStringFromClass(controller.class), controller.title ?: @""] : @"nil";
+}
+
+// Over the full screen, as the app presents its player and its sheets on a phone (a Mac Catalyst sheet is a
+// presentation of another kind). Waits for the presentation to be over, read from the page and its transition rather
+// than from the completion, which a window the harness launched from a shell does not always get; UIKit refuses to
+// present over a page still being presented.
+static void present(UIViewController *presenter, UIViewController *page) {
+    page.modalPresentationStyle = UIModalPresentationOverFullScreen;
+    [presenter presentViewController:page animated:NO completion:nil];
+    if (!waitUntil(^{ return (BOOL)(page.presentingViewController != nil && !page.isBeingPresented && !page.transitionCoordinator); }))
+        printf("     %s was not presented over %s\n", named(page).UTF8String, named(presenter).UTF8String);
+}
+
+static void dismissAll(UIViewController *presenter) {
+    if (!presenter.presentedViewController) return;
+    [presenter dismissViewControllerAnimated:NO completion:nil];
+    if (!waitUntil(^{ return (BOOL)(presenter.presentedViewController == nil); }))
+        printf("     what %s presented was not dismissed\n", named(presenter).UTF8String);
+}
+
 // A container of the app's kind: shows one child by size, holds the rest behind it. Not a UITabBarController, which
 // is what Spotify's tab bar container is not either.
 @interface HarnessContainer : UIViewController
@@ -34,13 +64,15 @@ static void check(BOOL ok, NSString *label) {
 @interface HarnessPage : UIViewController
 @end
 
-// A page UIKit is taking away: it reports itself as being dismissed, which is what the resolver has to skip so the
-// screen coming back is the top again before the animation ends.
+// A page UIKit is taking away: once `leaving` is set it reports itself as being dismissed, which is what the resolver
+// has to skip so the screen coming back is the top again before the animation ends. Set only once it is up: UIKit asks
+// a page it is presenting the same question, and does not present one that says yes.
 @interface HarnessDismissingPage : HarnessPage
+@property (nonatomic) BOOL leaving;
 @end
 
 @implementation HarnessDismissingPage
-- (BOOL)isBeingDismissed { return YES; }
+- (BOOL)isBeingDismissed { return self.leaving || super.isBeingDismissed; }
 @end
 
 @implementation HarnessPage
@@ -115,7 +147,8 @@ static UIWindow *appWindowRef;
 
 static UIWindow *windowWith(UIViewController *root) {
     UIWindow *window = appWindowRef;
-    // A fresh root each time, so a chain from the test before cannot linger as a child.
+    // A fresh root each time, so a chain from the test before cannot linger as a child or as a presentation.
+    dismissAll(window.rootViewController);
     window.rootViewController = nil;
     window.rootViewController = root;
     [window makeKeyAndVisible];
@@ -162,7 +195,10 @@ static NSDictionary *driverState(UIWindow *window) {
 }
 
 static void expectTop(UIWindow *window, UIViewController *page, NSString *label) {
-    check(SGTopControllerInWindow(window, nil, nil) == page, label);
+    UIViewController *top = SGTopControllerInWindow(window, nil, nil);
+    if (top != page) printf("     top %s at %s, wanted %s\n", named(top).UTF8String,
+                            NSStringFromCGRect(top.viewIfLoaded ? SGViewScreenFrame(top.view) : CGRectZero).UTF8String, named(page).UTF8String);
+    check(top == page, label);
 }
 
 static void expectState(UIWindow *window, NSString *topClass, NSArray<NSString *> *controllers, NSArray<NSString *> *presented, NSString *label) {
@@ -198,14 +234,12 @@ static void runChecks(UIWindow *sceneWindow) {
     // 4. The player presented over the app: the overlay is the top, and it was presented by the page in front, which
     //    is the shape the phone reported (presented NowPlayingOverlayContainer inside, the player's own content top).
     HarnessPage *overlay = page(@"NowPlaying_OverlayContainer");
-    [SGTopControllerInWindow(window, nil, nil) presentViewController:overlay animated:NO completion:nil];
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    present(SGTopControllerInWindow(window, nil, nil), overlay);
     expectTop(window, overlay, @"a presented player overlay is the resolved top");
 
     // 5. Something presented over the player: the resolver reaches that, so Esc must not act on the overlay behind it.
     HarnessPage *sheet = page(@"PlayerSheet");
-    [overlay presentViewController:sheet animated:NO completion:nil];
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    present(overlay, sheet);
     expectTop(window, sheet, @"what is presented over the player is the resolved top, not the player");
 
     // 6. Driver equivalence: the same chain read the way `state` reads it — the root that UIKit presents from (a
@@ -217,12 +251,14 @@ static void runChecks(UIWindow *sceneWindow) {
 
     // 6b. A presented page UIKit is dismissing is skipped: the screen it was over is the top again. It goes over
     //     the sheet, which is the front page (a controller shows one presentation at a time).
-    HarnessPage *dismissing = [HarnessDismissingPage new];
+    HarnessDismissingPage *dismissing = [HarnessDismissingPage new];
     dismissing.title = @"Dismissing";
-    [sheet presentViewController:dismissing animated:NO completion:nil];
-    [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    present(sheet, dismissing);
+    dismissing.leaving = YES;
     check(sheet.presentedViewController == dismissing, @"the dismissing page is the one presented");
     expectTop(window, sheet, @"a presented page that is being dismissed is skipped, the one under it is the top");
+    // Back to an ordinary page, so the chain can be dismissed before the next tree.
+    dismissing.leaving = NO;
 
     // 5b. The player's real shape: an overlay presenting a container whose shown child is a full-screen background
     //     page the controls are not inside, the close button in a sibling collection view of the overlay's view. The
@@ -244,8 +280,10 @@ static void runChecks(UIWindow *sceneWindow) {
         close.accessibilityIdentifier = @"now-playing-minimize-button";
         [close setTitle:@"Close" forState:UIControlStateNormal];
         [overlayPage.view addSubview:close];   // a sibling of the container's view, as the phone has it
-        [SGTopControllerInWindow(pgWindow, nil, nil) presentViewController:overlayPage animated:NO completion:nil];
-        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        present(SGTopControllerInWindow(pgWindow, nil, nil), overlayPage);
+        // The container and the background page full size in the overlay, as the player lays them out: hosted
+        // frames are applied once a chain is in a window, and a view left at its loaded size depends on the screen.
+        applyFrames(overlayPage);
 
         expectTop(pgWindow, background, @"the player resolves to its background plane, not to the overlay");
         NSArray<UIViewController *> *presentedChain = SGPresentedControllersInWindow(pgWindow);
@@ -257,8 +295,7 @@ static void runChecks(UIWindow *sceneWindow) {
 
         // A sheet over the player: the last presented is no longer the overlay, so Esc/⌘W find nothing.
         HarnessPage *overlaySheet = page(@"PlayerSheet2");
-        [overlayPage presentViewController:overlaySheet animated:NO completion:nil];
-        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        present(overlayPage, overlaySheet);
         check(SGPresentedControllersInWindow(pgWindow).lastObject == overlaySheet,
               @"a sheet over the player becomes the last presented controller");
         check(SGPlayerCloseControlInWindow(pgWindow, @[@"now-playing-minimize-button"]) == nil,
@@ -304,14 +341,14 @@ static void runChecks(UIWindow *sceneWindow) {
 
         // A sheet over the input page descends from it but is not it: nothing is answered.
         HarnessPage *popup = page(@"SearchPopup");
-        [recents presentViewController:popup animated:NO completion:nil];
-        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        present(recents, popup);
         check(SGSearchInputFieldInPushedPage(searchWindow, browse, @"SearchUIContainerViewController", @"SearchBarSearch.TextField") == nil,
               @"no field is answered while a sheet is over the input page");
 
         // The page's field is taken when it is not the cursor's, and left alone when it is.
-        [popup dismissViewControllerAnimated:NO completion:nil];
-        [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        dismissAll(recents);
+        // UIKit may lay the pages out again as the sheet goes; the containers here have no layout of their own.
+        applyFrames(stack);
         UIResponder *again = SGSearchInputFieldInPushedPage(searchWindow, browse, @"SearchUIContainerViewController", @"SearchBarSearch.TextField");
         check(again == field, @"the field is found again once the sheet is gone");
 
@@ -353,10 +390,14 @@ static void runChecks(UIWindow *sceneWindow) {
         fputs("FAIL UIKit smoke timed out\n", stderr);
         exit(1);
     });
-    // The scene connects after launch and moves the window into it; the trees are built on the next turn.
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        runChecks(self.window);
-    });
+    // The trees are built once the scene the window moved into is active, from a run loop timer and not from a block
+    // on the main queue: UIKit finishes a presentation in a block of its own on that queue, which cannot run while
+    // the checks wait inside one (the completion never comes and the presented view keeps no size).
+    __block id observer = [NSNotificationCenter.defaultCenter addObserverForName:UISceneDidActivateNotification object:nil
+        queue:nil usingBlock:^(NSNotification *note) {
+        [NSNotificationCenter.defaultCenter removeObserver:observer];
+        [NSTimer scheduledTimerWithTimeInterval:0 repeats:NO block:^(NSTimer *timer) { runChecks(self.window); }];
+    }];
     return YES;
 }
 @end
