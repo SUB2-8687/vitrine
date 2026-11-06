@@ -1105,6 +1105,27 @@
 "settings.locallyrics.viewer.loading" = "Loading lyrics…";
 "settings.locallyrics.viewer.none" = "No imported lyrics for this track.";
 
+"settings.localmusic.add" = "Add Files";
+"settings.localmusic.albums" = "Albums";
+"settings.localmusic.artists" = "Artists";
+"settings.localmusic.browse" = "Browse only. Playback and queueing are not verified for these files in this Spotify version.";
+"settings.localmusic.empty" = "No imported files";
+"settings.localmusic.failed" = "Spotify could not play this.";
+"settings.localmusic.folders" = "Folders";
+"settings.localmusic.free_limit" = "Spotify Free limits playing chosen songs. Spoof Premium in Vitrine Settings lifts this limit.";
+"settings.localmusic.go_artist" = "Go to Artist";
+"settings.localmusic.imported" = "Imported";
+"settings.localmusic.library" = "Local Library";
+"settings.localmusic.loading" = "Loading local files…";
+"settings.localmusic.play" = "Play";
+"settings.localmusic.play_next" = "Play Next";
+"settings.localmusic.queue" = "Add to Queue";
+"settings.localmusic.see_all" = "See All";
+"settings.localmusic.shuffle" = "Shuffle";
+"settings.localmusic.songs" = "Songs";
+"settings.localmusic.unknown" = "Unknown";
+"settings.localmusic.verify_songs" = "To play unverified songs here, first play them once in Spotify's Local Files. Spoof Premium alone does not verify them.";
+
 "settings.lockscreen.artwork.choice.every_song" = "Every song";
 "settings.lockscreen.artwork.choice.lyrics" = "Lyrics";
 "settings.lockscreen.artwork.choice.moving" = "Moving artwork";

@@ -622,6 +622,19 @@ Shared:
                   A file the user put in Documents any other way, or that took an import's name, is never listed, renamed or deleted,
                   and there are no folders and no network. The numbering, never overwriting, the list and the delete
                   are checked on the Mac in harness/local-files/audio.m.
+                  Local Library (LocalMusicIndex.m, LocalMusicStore.m, LocalMusicPages.m), next to Imported files:
+                  those imported files by artist (album artist, else artist), album (with its artist; disc, track,
+                  title order) and folder, with "Unknown" groups, the user's Edit info over the file's own tags and
+                  never a write to the file; artist, album and folder pages with a cover header, an artist's first 5
+                  songs and See All, and a reusable album shelf. The index is rebuilt off main when imports, deletes
+                  or edits change, cached by name and file identity; covers are references decoded at display size
+                  into a 16 MiB cache emptied on a memory warning. On Spotify 9.1.90 (LocalMusicPlayback.m) a page
+                  plays or shuffles its songs as the spotify:local-files context, and a song can go next or to the
+                  end of the queue, one at a time; a file is playable only once Spotify has been seen playing it,
+                  which records the URI Spotify gave it with the file's identity (a replaced file needs playing
+                  again), and a page with songs not yet seen says to play them once in Spotify's Local Files. A
+                  refusal for Spotify Free (mft_disallow) says Spoof Premium lifts it; nothing is retried. Other
+                  Spotify versions, or a player missing the calls it needs, get the pages to browse only.
                   The model, the cover fallback and every kind of lyrics file are checked on the Mac against
                   harness/local-files/, whose README lists the cases, the row and the editor in the simulator
                   against its sim/

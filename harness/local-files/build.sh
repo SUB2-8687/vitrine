@@ -50,3 +50,5 @@ xcrun -sdk macosx clang -target arm64-apple-ios17.0-macabi -isysroot "$SDK" -ifr
     -fobjc-arc -g -Wall -Werror -I"$SRC" "$HERE/audio.m" "${AUDIO_SOURCE:-$SRC/Shared/LocalFiles/LocalAudioImport.m}" \
     -framework Foundation -o "$OUT/audio"
 CFFIXED_USER_HOME="$OUT/home" "$OUT/audio" "$OUT/audio-files"
+# Pure local-library grouping and queue submission order.
+BUILD_DIR="$OUT" bash "$HERE/pages-build.sh"

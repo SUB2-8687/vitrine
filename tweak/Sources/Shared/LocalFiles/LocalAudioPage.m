@@ -7,6 +7,8 @@
 #import "Settings/SGPage.h"
 #import "Settings/SGPageStyle.h"
 #import "LocalAudioImport.h"
+#import "LocalMusicPages.h"
+#import "LocalMusicStore.h"
 
 #pragma mark - the Imported files page
 
@@ -84,6 +86,7 @@
     [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.cancel", @"Cancel") style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) { done(NO); }]];
     [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.delete", @"Delete") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
         BOOL deleted = SGLocalAudioDelete(name, SGLocalAudioFolder(), NSUserDefaults.standardUserDefaults);
+        [NSNotificationCenter.defaultCenter postNotificationName:SGLocalMusicFilesDidChangeNotification object:nil];
         if (deleted) [self reloadNames];
         else SGPresentInformation(self, SGL(@"settings.localfiles.delete.failed", @"Could not delete the file"), name);
         done(deleted);
@@ -119,6 +122,7 @@ static void report(UIViewController *presenter, NSUInteger imported, NSArray<NSS
         NSArray<NSString *> *failed = nil;
         NSUInteger imported = SGLocalAudioImport(urls, SGLocalAudioFolder(), NSUserDefaults.standardUserDefaults, &failed).count;
         dispatch_async(dispatch_get_main_queue(), ^{
+            [NSNotificationCenter.defaultCenter postNotificationName:SGLocalMusicFilesDidChangeNotification object:nil];
             if ([presenter isKindOfClass:SGModPage.class]) [((SGModPage *)presenter).tableView reloadData];
             if (presenter) report(presenter, imported, failed);
         });
@@ -127,10 +131,9 @@ static void report(UIViewController *presenter, NSUInteger imported, NSArray<NSS
 
 @end
 
-static void pickAudio(void) {
+void SGLocalAudioPresentPicker(UIViewController *top) {
     static SGAudioPicker *delegate;
     if (!delegate) delegate = [SGAudioPicker new];
-    UIViewController *top = SGTopController();
     delegate.presenter = top;
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeAudio] asCopy:YES];
     picker.allowsMultipleSelection = YES;
@@ -140,7 +143,7 @@ static void pickAudio(void) {
 
 UIViewController *SGLocalFilesSettingsPage(void) {
     SGModRow *import = SGWithSymbol(SGActionRow(SGL(@"settings.localfiles.import.title", @"Import audio files"),
-        SGL(@"settings.localfiles.import.subtitle", @"Copied from Files, never moved"), ^{ pickAudio(); }), @"square.and.arrow.down");
+        SGL(@"settings.localfiles.import.subtitle", @"Copied from Files, never moved"), ^{ SGLocalAudioPresentPicker(SGTopController()); }), @"square.and.arrow.down");
     SGModRow *imported = SGWithSymbol(SGPageRow(SGL(@"settings.localfiles.imported.title", @"Imported files"), ^UIViewController *{ return [SGImportedAudioPage new]; }), @"music.note.list");
     imported.value = ^NSString *{
         NSUInteger count = SGLocalAudioImportedNames(SGLocalAudioFolder(), NSUserDefaults.standardUserDefaults).count;
@@ -148,6 +151,7 @@ UIViewController *SGLocalFilesSettingsPage(void) {
     };
     return [[SGModPage alloc] initWithTitle:SGL(@"settings.localfiles.title", @"Local files") intro:nil sections:@[
         SGNotedSection(nil, @[import], SGL(@"settings.localfiles.import.footer", @"Imported files show in Spotify's Local Files once its setting for showing audio files from this device is on, in Spotify's settings. A file with a name already in use gets a number after it.")),
-        SGSection(nil, @[imported]),
+        SGSection(nil, @[imported, SGWithSymbol(SGPageRow(SGL(@"settings.localmusic.library", @"Local Library"),
+            ^UIViewController *{ return SGLocalMusicLibraryPage(); }), @"square.stack")]),
     ] footer:nil];
 }
