@@ -3366,7 +3366,13 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
 // sung line while following the song, around wherever the page has been scrolled to while browsing.
 // The ones further off are let go, so a long song costs a couple of dozen line views rather than
 // one for every line, and the lines in sight are the only ones the compositor has to draw.
+- (CFTimeInterval)lineCreationClock {
+    return CACurrentMediaTime();
+}
+
 - (void)showLinesInSight {
+    CFTimeInterval started = [self lineCreationClock];
+    const CFTimeInterval creationBudgetSeconds = 0.001;
     if (!_tops.count) return;
     CGFloat offset = ((CALayer *)_scroll.layer.presentationLayer ?: _scroll.layer).bounds.origin.y;
     if (offset == _sightOffset && _focusTop == _sightFocus && _arrangement == _sightArrangement) return;
@@ -3406,11 +3412,12 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     }];
     NSUInteger made = 0;
     for (NSNumber *index in wanted) {
-        if (made++ == kLinesPerFrame) {
+        if (made == kLinesPerFrame || (made && [self lineCreationClock] - started >= creationBudgetSeconds)) {
             _sightOffset = -CGFLOAT_MAX;
             break;
         }
         [self viewForLine:index.integerValue];
+        made++;
     }
 }
 

@@ -260,7 +260,9 @@ Shared:
                   best answer (LyricsSources.m, the list to drag in LyricsSourcesPage.m): Apple Music's TTML from
                   BiniLyrics.m (now lrc.red: first the TTML filed under Spotify's ISRC for the track, from
                   SGSpotifyISRC in Haptics/SystemMusicHaptics.x, else its search by name) and Unison.m, read by SGTTML.m,
-                  which carries a second voice and the backing vocals, and in its head Apple's translation and its
+                  which carries a second voice and the backing vocals (in a document whose root says byModel="true",
+                  any prefix, a line with no x-bg span has its parenthesised runs of words moved to its backing row,
+                  unless a run is never closed or nothing would be left of the line), and in its head Apple's translation and its
                   pronunciation of a line, each keyed to the line by its itunes:key or lrc:key, the pronunciation
                   timed word by word (the translation taken in the Lyrics page's language); Musixmatch.m, matched by
                   Spotify's track id with an anonymous token, word timed where it has richsync; NetEase.m, word timing from yrc for what the others only line time; LrcLib.m, open and
@@ -1247,7 +1249,9 @@ Redesigned:
                   Everything, everything else -- the header row, the thumbnail, the title row and the controls --
                   fades a few seconds after the last touch and the lines take the whole safe area until a tap; set
                   to Keep the title, only the controls under the title row and the lyrics' own button fade and the
-                  lines grow down into their room): lines sung over each other lit together, the stack moving on
+                  lines grow down into their room): line views only for the lines in and near sight, built nearest
+                  the middle first, at most four a pass and none after the first once the pass has spent 1 ms, the
+                  next pass picking up the rest (a work budget; the display link is never slowed); lines sung over each other lit together, the stack moving on
                   once the first is sung out; an instrumental break of 7 s or more held by three dots
                   that breathe and fill over its length on a Core Animation timeline laid against the song's clock; and
                   a line's pronunciation (under the words it spells) and translation, switched on from a glass button in

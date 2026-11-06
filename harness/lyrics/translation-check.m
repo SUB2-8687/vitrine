@@ -145,8 +145,13 @@ static void googleHolds(void) {
 #include "review-check.inc"
 #include "wrap-check.inc"
 #include "round-one-check.inc"
+#include "model-budget-check.inc"
 
 void SGHarnessRunTranslationCheck(UIWindow *window) {
+    modelBudgetChecks();
+    if (getenv("SG_LYRICS_MODEL_BUDGET_ONLY")) {
+        exit(sg_failed ? 1 : 0);
+    }
     if (getenv("SG_LYRICS_ROUND_ONE_ONLY")) {
         [NSTimer scheduledTimerWithTimeInterval:0.1 repeats:NO block:^(NSTimer *timer) {
             roundOneChecks(window);

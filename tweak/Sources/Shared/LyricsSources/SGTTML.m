@@ -91,7 +91,8 @@ typedef NS_ENUM(NSInteger, SGTTMLPart) {
     NSMutableString *_plain;                     // every character of the line, for a line-timed <p>
     NSMutableString *_word;                      // the characters of the span being read
     NSInteger _wordStart, _wordEnd;
-    NSUInteger _spanDepth, _bgDepth, _wordDepth;
+    NSUInteger _spanDepth, _bgDepth, _wordDepth, _elementDepth;
+    BOOL _byModel;
 }
 
 - (instancetype)init {
@@ -122,6 +123,13 @@ typedef NS_ENUM(NSInteger, SGTTMLPart) {
 
 - (void)parser:(NSXMLParser *)parser didStartElement:(NSString *)element namespaceURI:(NSString *)uri
  qualifiedName:(NSString *)qualified attributes:(NSDictionary<NSString *, NSString *> *)attributes {
+    _elementDepth++;
+    if (_elementDepth == 1 && [element isEqualToString:@"tt"]) {
+        for (NSString *name in attributes) {
+            if (([name isEqualToString:@"byModel"] || [name hasSuffix:@":byModel"]) &&
+                [attributes[name] isEqualToString:@"true"]) _byModel = YES;
+        }
+    }
     if ([element isEqualToString:@"p"]) {
         [self openLine];
         _reading = SGTTMLPartNone;
@@ -177,6 +185,7 @@ typedef NS_ENUM(NSInteger, SGTTMLPart) {
 
 - (void)parser:(NSXMLParser *)parser didEndElement:(NSString *)element namespaceURI:(NSString *)uri
  qualifiedName:(NSString *)qualified {
+    _elementDepth--;
     if ([element isEqualToString:@"p"]) {
         [self finishLine];
         [_stack removeAllObjects];
@@ -241,6 +250,30 @@ typedef NS_ENUM(NSInteger, SGTTMLPart) {
     if (_lineEnd > line.start) line.end = _lineEnd;
     line.voice = _voice;
     line.backing = [self lineFrom:_backing.words];
+    if (_byModel && !_backing) {
+        NSMutableIndexSet *backingIndexes = [NSMutableIndexSet indexSet];
+        NSUInteger opened = NSNotFound;
+        for (NSUInteger i = 0; i < line.words.count; i++) {
+            NSString *text = line.words[i].text;
+            if (opened == NSNotFound && [text hasPrefix:@"("]) opened = i;
+            if (opened != NSNotFound && [text containsString:@")"]) {
+                [backingIndexes addIndexesInRange:NSMakeRange(opened, i - opened + 1)];
+                opened = NSNotFound;
+            }
+        }
+        if (backingIndexes.count && backingIndexes.count < line.words.count) {
+            NSMutableArray<SGKaraokeWord *> *mainWords = [NSMutableArray array];
+            NSMutableArray<SGKaraokeWord *> *backingWords = [NSMutableArray array];
+            [line.words enumerateObjectsUsingBlock:^(SGKaraokeWord *word, NSUInteger i, BOOL *stop) {
+                [([backingIndexes containsIndex:i] ? backingWords : mainWords) addObject:word];
+            }];
+            mainWords.firstObject.joined = NO;
+            backingWords.firstObject.joined = NO;
+            line.words = mainWords;
+            line.backing = [self lineFrom:backingWords];
+            line.backing.timing = line.timing;
+        }
+    }
     [_lines addObject:line];
     [_keys addObject:_key ?: (id)NSNull.null];
 }
