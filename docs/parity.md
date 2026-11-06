@@ -294,6 +294,20 @@ today's look until it is changed.
 | The album blur running to the foot | Not taken: Vitrine's 40 pt ramp was measured against the scanner-border seam |
 | Shake to report | Not taken: upstream telemetry |
 
+### Upstream 1.0.1 and 1.1.0-beta.1 (described by behavior)
+
+1.0.1 showed no user-facing change beyond its version. What 1.1.0-beta.1 adds, built from behavior specs only:
+
+| Item | Where Vitrine stands |
+|---|---|
+| Lyric line views built on a time budget | Done (Redesigned/Lyrics/SGRKaraokeView.m, `showLinesInSight`): four a pass as before, none after the first once 1 ms is spent, the next pass resuming; harness/lyrics/model-budget-check.inc |
+| Backing vocals in machine-made TTML | Done (Shared/LyricsSources/SGTTML.m): with `byModel="true"` on the root, a line's parenthesised runs become its backing row; explicit x-bg wins; harness/lyrics/model-budget-check.inc |
+| Comparative charts in listening stats | Done (Shared/ListeningStats/SGTopCharts.m, TopChartPage.m): each top list's heading opens up to 50 ranked entries with moves, NEW, runs in the top 5, played and discovered counts; harness/listening-stats/ |
+| A year's recap | Done (Shared/ListeningStats/SGRecap.m, RecapStory.m): free and on the phone, seven shareable cards for a year with 30 days with plays, announced from 1 to 14 January in Vitrine Settings by default; harness/listening-stats/ |
+| Local artist, album and folder pages | Done (Shared/LocalFiles/LocalMusicPages.m, LocalMusicPlayback.m): for the files Vitrine imported; Play, Shuffle, Play Next and Add to Queue on Spotify 9.1.90 for files Spotify has been seen playing, browse only elsewhere; several songs at once to Play Next left out, Spotify answering Conflict to the second; harness/local-files/pages-check.m |
+| Weekly and monthly recaps | Not taken: upstream's paid tier |
+| Animated cover geometry, edition-safe animated covers, header creator fades, profile avatar, DJ visualization, AutoMix changes | Not taken: the behavior could not be read completely enough to specify |
+
 ### Upstream Plus features, Vitrine's own versions (described by behavior)
 
 Vitrine has no paid tier, so where a Plus feature could be built from its behavior alone it now has one of its own,
