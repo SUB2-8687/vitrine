@@ -344,7 +344,7 @@ static NSString *lineOf(SGPlay *play) {
             field(play.artist), field(play.album)];
 }
 
-static NSString *keyOf(SGPlay *play) {
+NSString *SGTrackKey(SGPlay *play) {
     return [NSString stringWithFormat:@"%@\x1f%@", play.title.lowercaseString, play.artist.lowercaseString];
 }
 
@@ -758,12 +758,12 @@ static BOOL hasNearbyEnd(NSDictionary *buckets, int64_t end) {
     // An exact import matches on the persisted line itself, field normalization included; NSString's
     // content hash keeps million-row imports linear instead of making equal-length tuple arrays collide.
     for (SGPlay *play in _plays) {
-        indexEnd(ends, keyOf(play), play.end);
+        indexEnd(ends, SGTrackKey(play), play.end);
         if (needsExact) [exact addObject:lineOf(play)];
     }
     NSMutableArray<SGPlay *> *added = [NSMutableArray array];
     for (SGPlay *play in incoming) {
-        NSString *key = keyOf(play);
+        NSString *key = SGTrackKey(play);
         NSString *exactKey = needsExact ? lineOf(play) : nil;
         BOOL have = play.exactImport && [exact containsObject:exactKey];
         if (!play.exactImport) have = hasNearbyEnd(ends[key], play.end);
@@ -821,11 +821,15 @@ static BOOL hasNearbyEnd(NSDictionary *buckets, int64_t end) {
 
 #pragma mark - stats
 
+NSComparisonResult SGTopOrder(SGStatEntry *a, SGStatEntry *b) {
+    if (a.plays != b.plays) return a.plays > b.plays ? NSOrderedAscending : NSOrderedDescending;
+    if (a.ms != b.ms) return a.ms > b.ms ? NSOrderedAscending : NSOrderedDescending;
+    return [a.name localizedCaseInsensitiveCompare:b.name];
+}
+
 static NSArray<SGStatEntry *> *topOf(NSDictionary<NSString *, SGStatEntry *> *entries, NSUInteger top) {
     NSArray<SGStatEntry *> *sorted = [entries.allValues sortedArrayUsingComparator:^NSComparisonResult(SGStatEntry *a, SGStatEntry *b) {
-        if (a.plays != b.plays) return a.plays > b.plays ? NSOrderedAscending : NSOrderedDescending;
-        if (a.ms != b.ms) return a.ms > b.ms ? NSOrderedAscending : NSOrderedDescending;
-        return [a.name localizedCaseInsensitiveCompare:b.name];
+        return SGTopOrder(a, b);
     }];
     return [sorted subarrayWithRange:NSMakeRange(0, MIN(top, sorted.count))];
 }
@@ -857,7 +861,7 @@ SGStats *SGStatsBetween(NSArray<SGPlay *> *plays, int64_t start, int64_t end, NS
         stats.plays++;
         stats.ms += play.ms;
         NSString *artist = play.artist.lowercaseString;
-        count(tracks, keyOf(play), play.title, play.artist, play);
+        count(tracks, SGTrackKey(play), play.title, play.artist, play);
         count(artists, artist, play.artist, nil, play);
         if (play.album.length) count(albums, [NSString stringWithFormat:@"%@\x1f%@", play.album.lowercaseString, artist], play.album, play.artist, play);
     }

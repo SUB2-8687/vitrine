@@ -10,8 +10,12 @@
 // last), pick (an extended export and a zip of a basic one handed to the picker's delegate as if picked),
 // select=<section>.<row> (a tap on a row of the page on top), kind=<0 week|1 month|2 year>, back, forward (the period
 // card's controls), pop, bottom, dump (the rows each section shows).
+// showcase (four weeks of a chart and 40 days of last year merged in), chart=<0 songs|1 artists|2 albums> (that Top
+// heading tapped; checks the chart page opens and ranks), story (Recap opened, last year's story played: checks it
+// opens, moves on by VoiceOver's swipe and by itself after 6 s, and closes; takes 11 s), storyopen (only opens it).
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
+#import "../../harness-fail.h"
 #import "Core/SGCore.h"
 #import "Settings/SGModPage.h"
 #import "Shared/Player/PlayerState.h"
@@ -71,13 +75,13 @@ static UIDocumentPickerViewController *SGHarnessPicker;
     self.window.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     NSArray<NSString *> *actions = [args subarrayWithRange:NSMakeRange(1, args.count - 1)];
     // erase and seed go before the page is built, so it opens on them.
-    for (NSString *action in actions) if ([@[@"erase", @"seed"] containsObject:action]) [self run:action];
+    for (NSString *action in actions) if ([@[@"erase", @"seed", @"showcase"] containsObject:action]) [self run:action];
     self.nav = [[UINavigationController alloc] initWithRootViewController:SGListeningStatsPage()];
     self.window.rootViewController = self.nav;
     [self.window makeKeyAndVisible];
     __block NSUInteger i = 0;
     for (NSString *action in actions) {
-        if ([@[@"erase", @"seed"] containsObject:action]) continue;
+        if ([@[@"erase", @"seed", @"showcase"] containsObject:action]) continue;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((1 + 0.7 * i++) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSLog(@"[harness] %@", action);
             [self run:action];
@@ -156,7 +160,7 @@ static UIDocumentPickerViewController *SGHarnessPicker;
     [picker.delegate documentPicker:picker didPickDocumentsAtURLs:@[json, zipURL]];
     // The import row while the files are read, before the merge comes back, and the guard against a second pick.
     UITableView *table = self.table;
-    NSIndexPath *importRow = [NSIndexPath indexPathForRow:0 inSection:7];   // Import history
+    NSIndexPath *importRow = [NSIndexPath indexPathForRow:0 inSection:8];   // Import history
     UITableViewCell *row = [table.dataSource tableView:table cellForRowAtIndexPath:importRow];
     SGHarnessPicker = nil;
     [table.delegate tableView:table didSelectRowAtIndexPath:importRow];
@@ -169,6 +173,131 @@ static UIDocumentPickerViewController *SGHarnessPicker;
     [self after:2 do:^{
         UIAlertController *alert = (UIAlertController *)self.nav.presentedViewController;
         NSLog(@"[harness] import says \"%@\": %@", alert.title, alert.message);
+    }];
+}
+
+// The chart's four weeks, ending a minute ago: moves up and down, New entries and runs in the top 5. Then 40 days
+// of last year, for a recap with every card.
+- (void)showcase {
+    int64_t now = time(NULL), week = 7 * 86400;
+    NSDictionary<NSString *, NSArray<NSString *> *> *songs = @{
+        @"Kyoto": @[@"Phoebe Bridgers", @"Punisher"], @"Garden Song": @[@"Phoebe Bridgers", @"Punisher"],
+        @"Nobody": @[@"Mitski", @"Be the Cowboy"], @"Be Sweet": @[@"Japanese Breakfast", @"Jubilee"],
+        @"Paprika": @[@"Japanese Breakfast", @"Jubilee"], @"Sunblind": @[@"Fleet Foxes", @"Shore"],
+        @"Simulation Swarm": @[@"Big Thief", @"Dragon New Mountain I Believe In You"], @"Change": @[@"Big Thief", @"Dragon New Mountain I Believe In You"],
+        @"715 - CREEKS": @[@"Bon Iver", @"22, A Million"]};
+    NSArray<NSDictionary<NSString *, NSNumber *> *> *weeks = @[
+        @{@"Kyoto": @9, @"Be Sweet": @7, @"Nobody": @6, @"Paprika": @5, @"Garden Song": @4, @"Simulation Swarm": @3, @"Change": @2, @"715 - CREEKS": @1},
+        @{@"Kyoto": @7, @"Nobody": @5, @"Garden Song": @4, @"Be Sweet": @3, @"Sunblind": @2, @"Simulation Swarm": @1},
+        @{@"Kyoto": @6, @"Garden Song": @4, @"Nobody": @2},
+        @{@"Kyoto": @5, @"Garden Song": @3}];
+    NSMutableArray<SGPlay *> *plays = [NSMutableArray array];
+    [weeks enumerateObjectsUsingBlock:^(NSDictionary<NSString *, NSNumber *> *counts, NSUInteger back, BOOL *stop) {
+        __block int64_t end = now - 60 - (int64_t)back * week;
+        [counts enumerateKeysAndObjectsUsingBlock:^(NSString *title, NSNumber *count, BOOL *inner) {
+            for (int i = 0; i < count.intValue; i++) {
+                [plays addObject:play(end, 200000 + (int64_t)title.length * 4000, title, songs[title][0], songs[title][1])];
+                end -= 240;   // apart by more than the 90 s in which an import takes the same song for a duplicate
+            }
+        }];
+    }];
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSDateInterval *lastYear = SGPeriodStep(SGStatsPeriodYear, NSDate.date, -1, calendar);
+    // Paprika and Change are left for this week's discoveries.
+    NSArray<NSString *> *titles = @[@"Kyoto", @"Nobody", @"Be Sweet", @"Garden Song", @"Sunblind", @"Simulation Swarm", @"715 - CREEKS"];
+    for (NSInteger day = 0; day < 40; day++) {
+        // Runs of days through the year, 9 in a row in March, in the evening mostly.
+        NSInteger offset = day < 9 ? 60 + day : 60 + day * 7;
+        NSDate *date = [calendar dateByAddingUnit:NSCalendarUnitDay value:offset toDate:lastYear.startDate options:0];
+        for (NSInteger i = 0; i < 2 + day % 4; i++) {
+            NSString *title = titles[(NSUInteger)((day + i * i) % (NSInteger)titles.count)];
+            NSDate *end = [calendar dateBySettingHour:(i % 3 ? 22 : 8) minute:10 + i * 5 second:0 ofDate:date options:0];
+            [plays addObject:play((int64_t)end.timeIntervalSince1970, 210000, title, songs[title][0], songs[title][1])];
+        }
+    }
+    [SGListeningLog() merge:plays completion:^(NSUInteger added, NSError *error) {
+        if (error) HARNESS_FAIL(@"showcase merge failed: %@", error);
+        NSLog(@"[harness] showcase merged %lu", (unsigned long)added);
+    }];
+}
+
+// The Top heading of `kind` tapped as a finger would; its chart is checked once loaded.
+- (void)chart:(NSInteger)kind {
+    UITableView *table = self.table;
+    UIView *heading = [table.delegate tableView:table viewForHeaderInSection:2 + kind];
+    if (![heading isKindOfClass:UIButton.class]) HARNESS_FAIL(@"the Top heading of section %ld is %@, not a button", (long)(2 + kind), heading.class);
+    NSLog(@"[harness] heading \"%@\", hint \"%@\"", heading.accessibilityLabel, heading.accessibilityHint);
+    [(UIButton *)heading sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self after:2 do:^{
+        UIViewController *top = self.nav.topViewController;
+        NSString *expected = @[@"Top tracks", @"Top artists", @"Top albums"][(NSUInteger)kind];
+        if (![top.title isEqualToString:expected]) HARNESS_FAIL(@"the heading opened \"%@\", not %@", top.title, expected);
+        UITableView *chart = self.table;
+        UITableViewCell *list = [chart.dataSource tableView:chart cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:1]];
+        NSMutableArray<UIView *> *entries = [NSMutableArray array];
+        findViews(list, NSClassFromString(@"SGChartEntryView"), entries);
+        NSMutableArray<NSString *> *spoken = [NSMutableArray array];
+        for (UIView *entry in entries) [spoken addObject:[NSString stringWithFormat:@"%@ = %@", entry.accessibilityLabel, entry.accessibilityValue]];
+        NSInteger rows = (NSInteger)entries.count;
+        if (!rows) HARNESS_FAIL(@"the chart ranks nothing");
+        UITableViewCell *summary = [chart.dataSource tableView:chart cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+        NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+        findViews(summary, UILabel.class, labels);
+        NSLog(@"[harness] chart \"%@\": summary %@; %ld rows: %@", top.title, [[labels valueForKey:@"text"] componentsJoinedByString:@" | "], (long)rows,
+              [spoken componentsJoinedByString:@"; "]);
+        NSLog(@"[harness] PASS the heading opens its chart");
+    }];
+}
+
+// Recap opened from the page, then the first year with a recap.
+- (void)openStory:(void (^)(UIViewController *story))then {
+    [self.table.delegate tableView:self.table didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:5]];
+    [self after:1.5 do:^{
+        UITableView *years = self.table;
+        if (![self.nav.topViewController.title isEqualToString:@"Recap"]) HARNESS_FAIL(@"the Recap row opened \"%@\"", self.nav.topViewController.title);
+        for (NSInteger row = 0; row < [years numberOfRowsInSection:0]; row++) {
+            NSIndexPath *path = [NSIndexPath indexPathForRow:row inSection:0];
+            UITableViewCell *cell = [years.dataSource tableView:years cellForRowAtIndexPath:path];
+            NSMutableArray<UILabel *> *labels = [NSMutableArray array];
+            findViews(cell, UILabel.class, labels);
+            // Beside the title, or under it at the accessibility text sizes.
+            NSString *value = [cell.accessoryView isKindOfClass:UILabel.class] ? [(UILabel *)cell.accessoryView text]
+                : [[(UIListContentConfiguration *)cell.contentConfiguration secondaryText] componentsSeparatedByString:@"\n"].lastObject;
+            NSLog(@"[harness] recap year row: %@ = %@", [[labels valueForKey:@"text"] componentsJoinedByString:@" | "], value);
+            if (![value isEqualToString:@"Play"]) continue;
+            [years.delegate tableView:years didSelectRowAtIndexPath:path];
+            [self after:1.5 do:^{
+                UIViewController *story = self.nav.presentedViewController;
+                if (![NSStringFromClass(story.class) isEqualToString:@"SGRecapStoryController"]) HARNESS_FAIL(@"the year opened %@", story.class);
+                then(story);
+            }];
+            return;
+        }
+        HARNESS_FAIL(@"no year has a recap");
+    }];
+}
+
+- (void)story {
+    [self openStory:^(UIViewController *story) {
+        NSUInteger count = [[story valueForKey:@"count"] unsignedIntegerValue];
+        if ([[story valueForKey:@"index"] unsignedIntegerValue] != 0 || count < 3) HARNESS_FAIL(@"the story opened on card %@ of %lu", [story valueForKey:@"index"], (unsigned long)count);
+        NSMutableArray<UIView *> *strips = [NSMutableArray array];
+        findViews(story.view, NSClassFromString(@"SGStoryProgress"), strips);
+        UIView *strip = strips.firstObject;
+        [strip accessibilityIncrement];
+        if ([[story valueForKey:@"index"] unsignedIntegerValue] != 1) HARNESS_FAIL(@"VoiceOver's swipe up did not move on");
+        NSLog(@"[harness] story: %lu cards, now %@ (%@)", (unsigned long)count, strip.accessibilityValue, strip.accessibilityLabel);
+        [self after:6.6 do:^{
+            if ([[story valueForKey:@"index"] unsignedIntegerValue] != 2) HARNESS_FAIL(@"the story did not move on by itself after 6 s (card %@)", [story valueForKey:@"index"]);
+            NSLog(@"[harness] story moved on by itself to %@", strip.accessibilityValue);
+            NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+            findViews(story.view, UIButton.class, buttons);
+            for (UIButton *button in buttons) if ([button.accessibilityLabel isEqualToString:@"Close"]) [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+            [self after:1.5 do:^{
+                if (self.nav.presentedViewController) HARNESS_FAIL(@"Close left %@ up", self.nav.presentedViewController.class);
+                NSLog(@"[harness] PASS the story opens, moves on and closes");
+            }];
+        }];
     }];
 }
 
@@ -190,6 +319,30 @@ static UIDocumentPickerViewController *SGHarnessPicker;
         [SGListeningLog() merge:plays completion:^(NSUInteger added, NSError *error) {
             if (error) { NSLog(@"[harness] seed failed: %@", error); exit(1); }
             NSLog(@"[harness] seeded %lu", (unsigned long)added);
+        }];
+    } else if ([verb isEqualToString:@"showcase"]) {
+        [self showcase];
+    } else if ([verb isEqualToString:@"chart"]) {
+        [self chart:value.integerValue];
+    } else if ([verb isEqualToString:@"story"]) {
+        [self story];
+    } else if ([verb isEqualToString:@"storyopen"]) {
+        [self openStory:^(UIViewController *story) { NSLog(@"[harness] story open"); }];
+    } else if ([verb isEqualToString:@"storyshare"]) {
+        // Share tapped on the first card; the image handed to the share sheet is read back.
+        [self openStory:^(UIViewController *story) {
+            NSMutableArray<UIButton *> *buttons = [NSMutableArray array];
+            findViews(story.view, UIButton.class, buttons);
+            for (UIButton *button in buttons) if ([button.accessibilityLabel isEqualToString:@"Share card"]) [button sendActionsForControlEvents:UIControlEventTouchUpInside];
+            [self after:2 do:^{
+                NSString *tmp = NSTemporaryDirectory();
+                for (NSString *path in [NSFileManager.defaultManager subpathsAtPath:tmp]) {
+                    if (![path.lastPathComponent hasPrefix:@"Vitrine-Recap-"]) continue;
+                    UIImage *image = [UIImage imageWithContentsOfFile:[tmp stringByAppendingPathComponent:path]];
+                    NSLog(@"[harness] shared %@: %.0f x %.0f px under %@", path.lastPathComponent, image.size.width * image.scale, image.size.height * image.scale,
+                          story.presentedViewController.class);
+                }
+            }];
         }];
     } else if ([verb isEqualToString:@"record"]) {
         [self record];

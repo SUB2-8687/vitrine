@@ -6,7 +6,8 @@ OUT=${BUILD_DIR:-build}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 xcrun clang -fobjc-arc -O2 -Wall -Werror -I ../../tweak/Sources -framework Foundation \
-    main.m ../../tweak/Sources/Shared/ListeningStats/SGPlayLog.m ../../tweak/Sources/Core/SGLocalize.m -o "$OUT/listening-stats"
+    main.m ../../tweak/Sources/Shared/ListeningStats/SGPlayLog.m ../../tweak/Sources/Shared/ListeningStats/SGTopCharts.m \
+    ../../tweak/Sources/Shared/ListeningStats/SGRecap.m ../../tweak/Sources/Core/SGLocalize.m -o "$OUT/listening-stats"
 SRC=$(cd ../../tweak/Sources && pwd)
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 "${THEOS:-$HOME/theos}/bin/logos.pl" -c generator=internal "$SRC/Shared/ListeningStats/ListeningStats.x" > "$OUT/ListeningStats.m"

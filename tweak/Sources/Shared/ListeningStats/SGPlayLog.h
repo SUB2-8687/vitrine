@@ -94,6 +94,11 @@ SGHistoryImport *SGReadHistoryURLs(NSArray<NSURL *> *urls);
 @property (nonatomic, copy) NSArray<SGStatEntry *> *tracks, *artists, *albums;
 @end
 
+// A track's identity in every top list and in import deduplication: its title and artist, case-insensitively.
+NSString *SGTrackKey(SGPlay *play);
+// The order of every top list: most plays, then most listening time, then name.
+NSComparisonResult SGTopOrder(SGStatEntry *a, SGStatEntry *b);
+
 // The plays that ended at or after `since` (Unix seconds; 0 for all of them), added up.
 SGStats *SGStatsSince(NSArray<SGPlay *> *plays, int64_t since, NSUInteger top);
 // The plays that ended in [start, end) (Unix seconds; INT64_MAX for no end), added up the same way.

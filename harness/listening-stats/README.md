@@ -122,8 +122,28 @@ ranges (ties, leap day, a current streak ending yesterday, none without plays).
 
 Page structure (sections): 0 the streak card; 1 the period card (Week/Month/Year control, previous, title,
 next), the chart, Listening time, Plays, By hour of day; 2–4 Top tracks/artists/albums (five on a card, See all
-while there are more of the 25); 5 All time, total Plays, History; 6 Record plays; 7 Import history, Import a
-folder, Export history; 8 Erase listening history.
+while there are more of the 25; the heading opens the chart while the period has plays); 5 Recap; 6 All time,
+total Plays, History; 7 Record plays; 8 Import history, Import a folder, Export history; 9 Erase listening history.
+
+## Charts and the recap
+
+`SGTopCharts.m` and `SGRecap.m` are pure and built into the Mac binary. `chartChecks()` ranks a synthetic
+Monday-first January 2026 in New York: the tie-break (plays, then time, then name), moves against the week
+before, New for an entry absent the week before and for one there but 54th (outside its top 50), a run of 3
+weeks in the top 5 ending with the shown week, the discovered count (not an entry from two weeks back), a play
+at the week's first instant in and one at the next week's out, an episode left out, an empty week, and artist
+and album identity. `recapChecks()` covers 29 versus 30 active days, the year boundary by play end (31 Dec
+23:59:59 in, 1 Jan 00:00 out), the top lists, discoveries leaving out what was played before 1 January, the
+longest streak across the DST change, the peak hour and month, the album card dropped when no play names an
+album, the announcement window (31 Dec, 1 Jan, 14 Jan, 15 Jan) and the preference fallback.
+
+The simulator app adds `showcase` (four weeks of a chart and 40 days of last year), `chart=<0|1|2>` (the Top
+heading tapped: the chart page opens and ranks), `story` (Recap opened and last year's story played: it opens,
+moves on by VoiceOver's increment and by itself after 6 s, and Close dismisses it), `storyopen` and `storyshare`
+(the share image read back at 9:16). Failures exit through `harness-fail.h`.
+
+    xcrun simctl launch <udid> com.vitrine.listeningstatsharness erase showcase chart=0
+    xcrun simctl launch <udid> com.vitrine.listeningstatsharness erase showcase story
 
 2026-10-24 local verification: `./build.sh && build/listening-stats` passed all 97 checks.
 
@@ -146,7 +166,7 @@ Importing… until the merge, a second tap on it ignored meanwhile), and `record
 5 s skip left out.
 
 The local parity batch also builds this simulator app with the real page and dark document presentation
-helper. Since the calendar redesign the import row is section 7, row 0 (folder import row 1, export row 2) and
+helper. Since the Recap section the import row is section 8, row 0 (folder import row 1, export row 2) and
 the shown period's hourly page is section 1, row 4; the All time page's hourly row is section 0, row 2.
 
 What it does not cover: Spotify's real player reporting, a real export from Spotify, cloud document-provider

@@ -977,7 +977,15 @@ Shared:
                   plays. Its page leads with the current and best day streak and their dates, then a calendar week, month or
                   year stepped through one at a time (the calendar's first weekday), with a bar per day or month, the time
                   and plays, top tracks, artists and albums, and a locale-formatted hourly breakdown; all time stays a row
-                  of its own. File parsing, traversal,
+                  of its own. Each top list's heading opens a chart of that period (SGTopCharts.m, TopChartPage.m): up to
+                  50 entries by plays, then time, each with its move against the period before, NEW when it was not in
+                  that period's top 50, and its run of periods in the top 5; songs, artists or albums played and
+                  discovered (never played before the period). Recap (SGRecap.m, RecapStory.m) plays a year with 30 or more
+                  days with plays as seven cards (time, top artist, song and album, discoveries, active days and the
+                  longest streak, peak hour and month), each shareable as a 9:16 picture; a year belongs by each play's
+                  end. From 1 to 14 January the year just ended is announced once (`spotifyglass.stats.recap.announce`:
+                  in Vitrine Settings by default, when Spotify opens, or off; the year announced is kept as its number).
+                  File parsing, traversal,
                   aggregation and serialization stay off the main thread. Tested on the Mac against harness/listening-stats/,
                   the page and the recorder in the simulator against its sim/
     Connect/      Connect speakers on the Wi-Fi for a build signed without the multicast entitlement (Connect.h lists

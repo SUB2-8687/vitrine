@@ -4,6 +4,8 @@
 //     ./build.sh && build/listening-stats
 #import <Foundation/Foundation.h>
 #import "Shared/ListeningStats/SGPlayLog.h"
+#import "Shared/ListeningStats/SGTopCharts.h"
+#import "Shared/ListeningStats/SGRecap.h"
 #include <sys/resource.h>
 #include <signal.h>
 #include <unistd.h>
@@ -338,6 +340,164 @@ static void periodChecks(void) {
           s.current == 1 && [s.currentStart isEqualToDate:s.currentEnd], "streak range: across leap day, and a one-day current streak");
     s = SGStreaks(@[], date(@"2024-03-04T12:00:00-05:00"), monday);
     CHECK(!s.bestStart && !s.bestEnd && !s.currentStart && !s.currentEnd, "streak range: none without plays");
+}
+
+static SGPlay *at(NSString *iso, int64_t ms, NSString *title, NSString *artist, NSString *album) {
+    return play(unixOf(iso), ms, title, artist, album);
+}
+
+static SGChartEntry *entryNamed(SGChart *chart, NSString *name) {
+    for (SGChartEntry *entry in chart.entries) if ([entry.name isEqualToString:name]) return entry;
+    return nil;
+}
+
+// A Monday-first week of January 2026 in New York (no DST), against the week before and the two before that.
+static void chartChecks(void) {
+    NSCalendar *ny = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+    ny.timeZone = [NSTimeZone timeZoneWithName:@"America/New_York"];
+    ny.firstWeekday = 2;
+    NSMutableArray<SGPlay *> *plays = [NSMutableArray array];
+    void (^times)(NSUInteger, NSString *, int64_t, NSString *) = ^(NSUInteger n, NSString *iso, int64_t ms, NSString *title) {
+        for (NSUInteger i = 0; i < n; i++) [plays addObject:at(iso, ms, title, @"Artist", @"")];
+    };
+    // Two weeks back: Old only. One week back (12 Jan): Delta at the top.
+    times(1, @"2026-01-06T12:00:00-05:00", 30000, @"Old");
+    times(1, @"2026-01-13T12:00:00-05:00", 60000, @"Delta");
+    // The week before (19 Jan): Beta 5, Delta 4, Alpha 3, then 50 two-play fillers, then Epsilon at 54th.
+    times(5, @"2026-01-20T12:00:00-05:00", 60000, @"Beta");
+    times(4, @"2026-01-20T13:00:00-05:00", 60000, @"Delta");
+    times(3, @"2026-01-20T14:00:00-05:00", 60000, @"Alpha");
+    for (int i = 0; i < 50; i++) times(2, @"2026-01-21T12:00:00-05:00", 60000, [NSString stringWithFormat:@"Filler %02d", i]);
+    times(1, @"2026-01-22T12:00:00-05:00", 60000, @"Epsilon");
+    // The week shown (26 Jan): Delta 4 plays, then three with three plays apart only by time and name.
+    times(4, @"2026-01-27T12:00:00-05:00", 25000, @"Delta");
+    times(2, @"2026-01-27T13:00:00-05:00", 300000, @"Gamma");
+    times(1, @"2026-01-26T00:00:00-05:00", 300000, @"Gamma");   // the week's first instant is in it
+    times(3, @"2026-01-28T12:00:00-05:00", 200000, @"Beta");
+    times(3, @"2026-01-28T13:00:00-05:00", 200000, @"Alpha");
+    times(1, @"2026-01-29T12:00:00-05:00", 200000, @"Epsilon");
+    times(1, @"2026-01-29T13:00:00-05:00", 30000, @"Old");
+    times(1, @"2026-02-02T00:00:00-05:00", 600000, @"Boundary");   // the next week's first instant
+    for (int i = 0; i < 10; i++) {
+        SGPlay *episode = at(@"2026-01-30T12:00:00-05:00", 600000, @"Podcast", @"Host", @"");
+        episode.uri = @"spotify:episode:1";
+        [plays addObject:episode];
+    }
+    NSDate *shown = date(@"2026-01-28T12:00:00-05:00");
+    SGChart *chart = SGChartBuild(plays, SGChartKindSongs, SGStatsPeriodWeek, shown, ny);
+    NSArray *names = [chart.entries valueForKey:@"name"];
+    CHECK(([names isEqualToArray:@[@"Delta", @"Gamma", @"Alpha", @"Beta", @"Epsilon", @"Old"]]),
+          "chart: plays, then listening time, then name (%s)", [names componentsJoinedByString:@", "].UTF8String);
+    CHECK(!entryNamed(chart, @"Boundary") && !entryNamed(chart, @"Podcast") && chart.played == 6 && chart.plays == 15,
+          "chart: a play ending at the week's end belongs to the next; an episode is not music");
+    SGChartEntry *delta = entryNamed(chart, @"Delta"), *gamma = entryNamed(chart, @"Gamma"), *alpha = entryNamed(chart, @"Alpha"),
+                 *beta = entryNamed(chart, @"Beta"), *epsilon = entryNamed(chart, @"Epsilon");
+    CHECK(delta.previousRank == 2 && alpha.previousRank == 3 && beta.previousRank == 1 && delta.rank == 1 && beta.rank == 4,
+          "chart: moves against the week before (Delta up 1, Alpha same, Beta down 3)");
+    CHECK(gamma.previousRank == 0 && epsilon.previousRank == 0,
+          "chart: New when absent the week before, or there but outside its top 50 (Epsilon was 54th)");
+    CHECK(delta.run == 3 && alpha.run == 2 && beta.run == 2 && gamma.run == 1 && entryNamed(chart, @"Old").run == 0,
+          "chart: run of 3 weeks in the top 5 including this one; 0 outside the top 5");
+    CHECK(chart.discovered == 1, "chart: discovered = never played before the week (Gamma only, not Old from two weeks back)");
+    SGChart *empty = SGChartBuild(plays, SGChartKindSongs, SGStatsPeriodWeek, date(@"2025-06-04T12:00:00-04:00"), ny);
+    CHECK(empty && !empty.entries.count && !empty.played && !empty.discovered && !empty.plays, "chart: a week without plays is empty");
+
+    NSArray *named = @[at(@"2026-01-27T12:00:00-05:00", 60000, @"One", @"Beyoncé", @"Lemonade"),
+                       at(@"2026-01-27T13:00:00-05:00", 60000, @"Two", @" BEYONCE", @"lemonade"),
+                       at(@"2026-01-27T14:00:00-05:00", 60000, @"Three", @"Other", @"Lemonade")];
+    SGChart *artists = SGChartBuild(named, SGChartKindArtists, SGStatsPeriodWeek, shown, ny);
+    SGChart *albums = SGChartBuild(named, SGChartKindAlbums, SGStatsPeriodWeek, shown, ny);
+    CHECK(artists.played == 2 && artists.entries.firstObject.plays == 2 && albums.played == 2 && albums.entries.firstObject.plays == 2,
+          "chart: an artist by name without case, diacritics or spaces; an album by its name with its artist");
+
+    SGStatEntry *(^entry)(NSUInteger, int64_t, NSString *, NSString *) = ^SGStatEntry *(NSUInteger plays, int64_t ms, NSString *name, NSString *detail) {
+        SGStatEntry *e = [SGStatEntry new];
+        e.plays = plays; e.ms = ms; e.name = name; e.detail = detail;
+        return e;
+    };
+    SGStatEntry *zed = entry(2, 60000, @"Lemonade", @"Zed"), *abe = entry(2, 60000, @"lemonade", @"Abe");
+    CHECK(SGTopOrder(entry(3, 1, @"Z", nil), zed) == NSOrderedAscending && SGTopOrder(entry(2, 60001, @"Z", nil), zed) == NSOrderedAscending &&
+          SGTopOrder(entry(2, 60000, @"Alpha", nil), zed) == NSOrderedAscending && SGTopOrder(zed, abe) == NSOrderedSame,
+          "top lists: plays, then time, then name without case; a tie on all three stays a tie, the artist not consulted");
+    NSArray *twins = @[at(@"2026-01-27T12:00:00-05:00", 60000, @"One", @"Zed", @"Lemonade"), at(@"2026-01-27T13:00:00-05:00", 60000, @"Two", @"Abe", @"Lemonade")];
+    NSArray *twinArtists = [SGChartBuild(twins, SGChartKindAlbums, SGStatsPeriodWeek, shown, ny).entries valueForKey:@"detail"];
+    CHECK([twinArtists isEqualToArray:(@[@"Abe", @"Zed"])], "chart: albums tied on plays, time and name go by artist (%s)", [twinArtists componentsJoinedByString:@", "].UTF8String);
+}
+
+static NSDate *localDay(NSCalendar *cal, NSInteger year, NSInteger month, NSInteger day, NSInteger hour, NSInteger minute) {
+    NSDateComponents *c = [NSDateComponents new];
+    c.year = year; c.month = month; c.day = day; c.hour = hour; c.minute = minute;
+    return [cal dateFromComponents:c];
+}
+
+static void recapChecks(void) {
+    NSCalendar *ny = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+    ny.timeZone = [NSTimeZone timeZoneWithName:@"America/New_York"];
+    NSMutableArray<SGPlay *> *plays = [NSMutableArray array];
+    SGPlay *(^on)(NSDate *, int64_t, NSString *, NSString *) = ^SGPlay *(NSDate *end, int64_t ms, NSString *title, NSString *artist) {
+        SGPlay *p = play((int64_t)end.timeIntervalSince1970, ms, title, artist, @"");
+        [plays addObject:p];
+        return p;
+    };
+    on(localDay(ny, 2024, 6, 1, 12, 0), 60000, @"Song A", @"Veteran");                    // before the year
+    for (NSInteger d = 1; d <= 10; d++) on(localDay(ny, 2025, 3, d, 21, 30), 300000, @"Song A", @"Veteran");   // a 10-day streak at 21h
+    for (NSInteger d = 1; d <= 29; d += 2) on(localDay(ny, 2025, 6, d, 9, 15), 60000, @"Song B", @"Newcomer"); // 15 days
+    for (NSInteger d = 1; d <= 7; d += 2) on(localDay(ny, 2025, 8, d, 9, 15), 60000, @"Song B", @"Newcomer");  // 4 days
+    SGPlay *aug7 = plays.lastObject;
+    on(date(@"2025-12-31T23:59:59-05:00"), 30000, @"Song C", @"Newcomer");                // the year's last second
+    on(date(@"2026-01-01T00:00:00-05:00"), 30000, @"Song D", @"Future");                  // the next year's first
+    on(localDay(ny, 2025, 9, 1, 12, 0), 900000, @"Episode", @"Host").uri = @"spotify:episode:1";
+
+    NSArray<SGRecapYear *> *years = SGRecapYears(plays, ny);
+    CHECK(years.count == 3 && years[0].activeDays == 1 && years[1].activeDays == 30 && years[1].eligible && years[2].activeDays == 1,
+          "recap years: 2026, 2025 (30 active days, eligible), 2024, the latest first");
+    NSMutableArray *fewer = [plays mutableCopy];
+    [fewer removeObject:aug7];
+    years = SGRecapYears(fewer, ny);
+    CHECK(years[1].activeDays == 29 && !years[1].eligible, "recap years: 29 active days is not enough");
+
+    SGRecap *recap = SGRecapBuild(plays, localDay(ny, 2025, 7, 1, 12, 0), date(@"2026-03-01T12:00:00-05:00"), ny);
+    CHECK(spans(recap.year, @"2025-01-01T00:00:00-05:00", @"2026-01-01T00:00:00-05:00") && recap.eligible && recap.activeDays == 30,
+          "recap: the calendar year, 30 active days");
+    CHECK(recap.plays == 30 && recap.ms == 10 * 300000 + 19 * 60000 + 30000,
+          "recap: plays by end, the last second in, the next year's first and the episode out");
+    CHECK(([[recap.artists valueForKey:@"name"] isEqualToArray:@[@"Newcomer", @"Veteran"]] &&
+           [[recap.songs valueForKey:@"name"] isEqualToArray:@[@"Song B", @"Song A", @"Song C"]] && recap.songs.firstObject.plays == 19 && !recap.albums.count),
+          "recap: top artists and songs in chart order; no album names, no albums");
+    CHECK(recap.newArtists == 1 && recap.newSongs == 2 && [recap.topNewArtist.name isEqualToString:@"Newcomer"],
+          "recap: discoveries leave out what was played before 1 January (Veteran, Song A)");
+    CHECK(recap.longestStreak == 10 && [recap.streakStart isEqualToDate:localDay(ny, 2025, 3, 1, 0, 0)] && [recap.streakEnd isEqualToDate:localDay(ny, 2025, 3, 10, 0, 0)],
+          "recap: the longest streak, 1–10 March, across the DST change");
+    CHECK(recap.peakHour == 21 && recap.peakHourMs == 3000000 && [recap.peakMonth isEqualToDate:localDay(ny, 2025, 3, 1, 0, 0)] && recap.peakMonthMs == 3000000,
+          "recap: the peak hour (21h) and month (March)");
+    NSArray *cards = @[@(SGRecapCardTotal), @(SGRecapCardArtists), @(SGRecapCardSongs), @(SGRecapCardDiscoveries), @(SGRecapCardDays), @(SGRecapCardPeak)];
+    CHECK([recap.cards isEqualToArray:cards], "recap: the album card is dropped, the others kept in order");
+
+    CHECK(!SGRecapAnnouncedYear(date(@"2025-12-31T12:00:00-05:00"), ny), "announcement: not on 31 December");
+    CHECK(spans(SGRecapAnnouncedYear(date(@"2026-01-01T00:00:00-05:00"), ny), @"2025-01-01T00:00:00-05:00", @"2026-01-01T00:00:00-05:00"),
+          "announcement: 1 January announces the year just ended");
+    CHECK(SGRecapAnnouncedYear(date(@"2026-01-14T23:59:59-05:00"), ny) != nil, "announcement: still on 14 January");
+    CHECK(!SGRecapAnnouncedYear(date(@"2026-01-15T00:00:00-05:00"), ny), "announcement: over on 15 January");
+    CHECK(SGRecapAnnouncementFrom(0) == SGRecapAnnounceOnLaunch && SGRecapAnnouncementFrom(2) == SGRecapAnnounceOff &&
+          SGRecapAnnouncementFrom(3) == SGRecapAnnounceInSettings && SGRecapAnnouncementFrom(-1) == SGRecapAnnounceInSettings,
+          "announcement: an invalid stored value reads as In Vitrine Settings");
+
+    // The announced year is stored as its number, so a move across time zones neither repeats nor skips it.
+    NSCalendar *tokyo = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+    tokyo.timeZone = [NSTimeZone timeZoneWithName:@"Asia/Tokyo"];
+    NSDate *tokyoJan2 = date(@"2026-01-02T12:00:00+09:00"), *nyJan2 = date(@"2026-01-02T12:00:00-05:00"), *nyJan15 = date(@"2026-01-15T00:00:00-05:00");
+    NSDateInterval *tokyoEnded = SGRecapAnnouncedYear(tokyoJan2, tokyo), *nyEnded = SGRecapAnnouncedYear(nyJan2, ny);
+    NSInteger marked = SGRecapYearNumber(tokyoEnded, tokyo);
+    CHECK(marked == 2025 && SGRecapYearNumber(tokyoEnded, ny) == 2025 && SGRecapYearNumber(nyEnded, tokyo) == 2025 && [SGRecapYearTitle(nyEnded, ny) isEqualToString:@"2025"],
+          "announcement: the year ended is 2025 in either time zone, written as plain digits");
+    CHECK(!SGRecapUnannouncedYear(nyJan2, ny, SGRecapAnnounceInSettings, marked) && spans(SGRecapUnannouncedYear(nyJan2, ny, SGRecapAnnounceInSettings, 2024),
+          @"2025-01-01T00:00:00-05:00", @"2026-01-01T00:00:00-05:00") && !SGRecapUnannouncedYear(nyJan2, ny, SGRecapAnnounceOff, 2024),
+          "announcement: announced in Tokyo stays announced in New York; an earlier year marked does not count; Off announces nothing");
+    // The launch prompt is checked again just before it shows.
+    CHECK(SGRecapPromptDue(tokyoEnded, nyJan2, ny, SGRecapAnnounceOnLaunch, 2024), "prompt: due on 2 January with When Spotify opens, queued in another time zone");
+    CHECK(!SGRecapPromptDue(nyEnded, nyJan2, ny, SGRecapAnnounceOnLaunch, 2025) && !SGRecapPromptDue(nyEnded, nyJan2, ny, SGRecapAnnounceInSettings, 2024) &&
+          !SGRecapPromptDue(nyEnded, nyJan2, ny, SGRecapAnnounceOff, 2024) && !SGRecapPromptDue(nyEnded, nyJan15, ny, SGRecapAnnounceOnLaunch, 2024),
+          "prompt: not once the year was announced, the preference changed from When Spotify opens, or the days are over");
 }
 
 static void localHistoryChecks(NSString *dir, NSArray<SGPlay *> *existing) {
@@ -864,6 +1024,8 @@ int main(int argc, const char **argv) {
 
         calendarChecks();
         periodChecks();
+        chartChecks();
+        recapChecks();
         localHistoryChecks(dir, reread.plays);
         persistenceChecks(dir);
         recorderClockChecks();
