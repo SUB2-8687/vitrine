@@ -226,7 +226,10 @@ static void checkRunOwnership(void) {
         waits++;
         return SGKeyboardRunWait;
     }, pressControl, 0, 0.02, 10);
-    spin(0.8);
+    // Until the tenth probe, however slow the machine's timers are, then a while longer for any eleventh.
+    NSDate *limit = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (waits < 10 && limit.timeIntervalSinceNow > 0) spin(0.02);
+    spin(0.3);
     expectValue("ten attempts probe exactly ten times", waits, 10);
     expectFlag("the budgeted run still owns the work when it runs out", SGKeyboardRunOwns(budgetToken), YES);
 

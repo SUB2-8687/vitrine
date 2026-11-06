@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
+#import <mach/mach.h>
 #import <mach/mach_time.h>
+#import <mach/thread_policy.h>
 #import <math.h>
 #import <pthread.h>
 #import <stdatomic.h>
@@ -173,15 +175,37 @@ static void thresholds(double rate) {
     SGDSPEngineFree(engine);
 }
 
-static void normalScript(void) {
+// Rendered as the audio unit renders: on a time-constraint thread that waits between blocks. An ordinary thread
+// rendering back to back can be held off the CPU past a block's length on a busy machine, which the real-clock
+// guard rightly counts against the script; the audio thread is not held that way. The wait is an eighth of a
+// block, so 64 seconds of audio take 8.
+static void *normalScriptRender(void *unused) {
+    uint64_t pace = (uint64_t)llround(1024.0 / 48000 * 1e9 / 8 / nanosPerTick);
+    thread_time_constraint_policy_data_t policy = {
+        .period = (uint32_t)pace, .computation = (uint32_t)(pace / 2), .constraint = (uint32_t)pace, .preemptible = 1};
+    mach_port_t thread = mach_thread_self();
+    kern_return_t set = thread_policy_set(thread, THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy,
+                                          THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    mach_port_deallocate(mach_task_self(), thread);
+    require(set == KERN_SUCCESS, "the render thread takes the audio thread's time-constraint policy");
     SGDSPEngine *engine = SGDSPEngineCreate(48000);
     load(engine, gain);
+    uint64_t next = mach_absolute_time();
     for (int i = 0; i < 3000; i++) {
         block(engine);
         require(!SGDSPEngineLiveprogError(engine), "normal script never trips in 64 seconds of audio");
         if (i > 1) level(0.125f, -0.0625f);
+        next += pace;
+        mach_wait_until(next);
     }
     SGDSPEngineFree(engine);
+    return NULL;
+}
+
+static void normalScript(void) {
+    pthread_t thread;
+    require(pthread_create(&thread, NULL, normalScriptRender, NULL) == 0, "render thread starts");
+    require(pthread_join(thread, NULL) == 0, "render thread finishes");
 }
 
 static void heavy(void) {
