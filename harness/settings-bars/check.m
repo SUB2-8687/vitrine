@@ -172,12 +172,26 @@ static void runChecks(void) {
 @interface CheckApp : UIResponder <UIApplicationDelegate>
 @end
 
+@interface SGRHarnessScene : UIResponder <UIWindowSceneDelegate>
+@property (nonatomic, strong) UIWindow *window;
+@end
+
+@implementation SGRHarnessScene
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
+    self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+    self.window.rootViewController = [UIViewController new];
+    [self.window makeKeyAndVisible];
+}
+- (void)sceneDidBecomeActive:(UIScene *)scene {
+    dispatch_async(dispatch_get_main_queue(), ^{ runChecks(); });
+}
+@end
+
 @implementation CheckApp
 - (BOOL)application:(UIApplication *)app didFinishLaunchingWithOptions:(NSDictionary *)options {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
         HARNESS_FAIL(@"timed out");
     });
-    dispatch_async(dispatch_get_main_queue(), ^{ runChecks(); });
     return YES;
 }
 @end
