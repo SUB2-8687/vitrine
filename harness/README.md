@@ -11,7 +11,9 @@ harness when it touches `harness/<dir>/` or any file that harness's build
 scripts and sources reach — every repo path named in a build/check script
 (`-I ../autoeq/shim`, `VENDOR=../../vendor/audio`, `$SRC/...`), every file
 under such a directory, plus transitive quoted imports. A new directory a
-build script starts using is picked up without editing the script. Every harness runs when the event is `workflow_dispatch` or
+build script starts using is picked up without editing the script. A `workflow_dispatch` run given
+`paths` (space-separated repo paths) plans from those paths as if they had changed, so one or two harnesses can be
+rerun alone. Every harness runs when the event is `workflow_dispatch` without `paths` or
 `schedule`, when the changed list cannot be determined (new branch, force push,
 shallow history), when a change touches `.github/`,
 `scripts/harness-plan.py` or `tweak/Makefile`, or when a changed path is no longer
