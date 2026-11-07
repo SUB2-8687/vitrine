@@ -5,6 +5,7 @@
 #import "Settings/SGModPage.h"
 #import "Settings/SGPageStyle.h"
 #import "AnimatedArtwork.h"
+#import "Shared/LockScreenLyrics/SGLyricsClip.h"
 #import "Shared/LyricsBackground/LyricsBackgroundSettings.h"
 
 SGModRow *SGLoadAheadRow(void) {
@@ -32,6 +33,10 @@ NSArray *SGLockScreenMotionRows(void) {
         SGModRow *layout = SGChoiceRow(SGL(@"settings.lockscreen.lyrics_layout.title", @"Layout"), SGL(@"settings.lockscreen.lyrics_layout.subtitle", @"Where the lyrics sit. Poster shows the line alone, larger."),
                                        SGKeyLockScreenLyricsLayout, @[SGL(@"settings.lockscreen.lyrics_layout.choice.left", @"Left"), SGL(@"settings.lockscreen.lyrics_layout.choice.centered", @"Centered"), SGL(@"settings.lockscreen.lyrics_layout.choice.poster", @"Poster"), SGL(@"settings.lockscreen.lyrics_layout.choice.messages", @"Messages"), SGL(@"settings.lockscreen.lyrics_layout.choice.vinyl", @"Vinyl"), SGL(@"settings.lockscreen.lyrics_layout.choice.over_artwork", @"Over the artwork")], 0);
         layout.visible = style.visible;
+        SGModRow *dim = SGOptionRow(SGL(@"settings.lockscreen.dim_artwork.title", @"Dim the whole artwork"), SGL(@"settings.lockscreen.dim_artwork.subtitle", @"Blurs and darkens the whole artwork, moving artwork included, and floats the lyrics over it instead of shading only around them."), SGKeyLockScreenDimArtwork);
+        dim.visible = ^BOOL {
+            return SGLockArtworkShowsLyrics(SGLockScreenArtwork()) && SGInt(SGKeyLockScreenLyricsLayout, SGLyricsClipLeft) == SGLyricsClipOverArtwork;
+        };
         SGModRow *translation = SGOptionRow(SGL(@"settings.lockscreen.translations.title", @"Translations"), SGL(@"settings.lockscreen.translations.subtitle", @"Under the line, when the lyrics have one or automatic translation makes one"), SGKeyLockScreenTranslation);
         translation.visible = style.visible;
         SGModRow *lowData = SGOptionRow(SGL(@"settings.lockscreen.low_data.title", @"Download in Low Data Mode"), SGL(@"settings.lockscreen.low_data.subtitle", @"Moving artwork, up to about 7 MB a song. Applies to animated artwork throughout Vitrine."), SGKeyMotionLowData);
@@ -59,6 +64,7 @@ NSArray *SGLockScreenMotionRows(void) {
             artwork,
             style,
             layout,
+            dim,
             translation,
             star,
             sources,

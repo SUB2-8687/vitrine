@@ -1137,6 +1137,8 @@
 "settings.lockscreen.artwork.row.title" = "Full-screen artwork";
 "settings.lockscreen.artwork.subtitle" = "Puts the lyrics over the Canvas or animated cover.";
 "settings.lockscreen.artwork.title" = "Full-screen artwork";
+"settings.lockscreen.dim_artwork.subtitle" = "Blurs and darkens the whole artwork, moving artwork included, and floats the lyrics over it instead of shading only around them.";
+"settings.lockscreen.dim_artwork.title" = "Dim the whole artwork";
 "settings.lockscreen.low_data.subtitle" = "Moving artwork, up to about 7 MB a song. Applies to animated artwork throughout Vitrine.";
 "settings.lockscreen.low_data.title" = "Download in Low Data Mode";
 "settings.lockscreen.lyrics_layout.choice.centered" = "Centered";

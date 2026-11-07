@@ -22,7 +22,9 @@ typedef NS_ENUM(NSInteger, SGLyricsClipLayout) {
     SGLyricsClipMessages,    // a chat on black: the line sung last in a grey bubble, the line in a blue one on the other
                              // side, and while a next line is coming a grey bubble of three dots
     SGLyricsClipVinyl,       // a record with the cover as its label, the line in italic serif under it and the next one dimmed
-    SGLyricsClipOverArtwork, // sharp cover, previous/current/translation over a feathered local scrim
+    SGLyricsClipOverArtwork, // sharp cover, previous/current/translation over a feathered local scrim; dimmed (the
+                             // backdrop SGLyricsClipDimmedArtwork makes, or over moving artwork) the whole picture
+                             // blurred and darkened evenly instead, with no scrim
 };
 
 // Messages and Vinyl paint the whole picture: no backdrop, no translation, never over moving artwork.
@@ -36,11 +38,15 @@ CGSize SGLyricsClipSize(CGFloat pixels);
 // a dark field for NULL.
 // Callers with a preference snapshot use SGLyricsBackgroundCreate directly.
 CGImageRef SGLyricsClipBackdrop(CGImageRef cover, CGSize size) CF_RETURNS_RETAINED;
+// Over the artwork dimmed whole: the cover blurred and darkened evenly through the shared renderer, darkened by as
+// much as its brightest pixel needs for the lines' contrast over it, so a bright cover is darkened more.
+CGImageRef SGLyricsClipDimmedArtwork(CGImageRef cover, CGSize size) CF_RETURNS_RETAINED;
 // The clip's first frame, for the lock screen's preview image. Any of the words may be nil; a translation shows
 // smaller under the line, and only with it. `backdrop` is behind the words of Left, Centered and Poster, which
 // leave out `cover` and `previous`. Scenes (SGLyricsClipIsScene) leave out `backdrop`, which may be NULL for them,
 // and the translation: Messages draws `previous`, Vinyl `cover` (a plain label for NULL).
-// OverArtwork uses `cover` sharp, ignoring `backdrop`, and keeps `previous` above the line instead of `next`.
+// OverArtwork keeps `previous` above the line instead of `next`, over `backdrop` with no scrim when it is given
+// (SGLyricsClipDimmedArtwork), else over `cover` sharp under a local scrim.
 CGImageRef SGLyricsClipFrameWithLayout(CGImageRef backdrop, CGImageRef cover, NSString *previous, NSString *line,
                                        NSString *translation, NSString *next, CGSize size, SGLyricsClipLayout layout) CF_RETURNS_RETAINED;
 // Writes the clip as H.264 to `file`, replacing it, and returns once it is written; NO if it was not.
@@ -62,15 +68,16 @@ static inline BOOL SGLyricsClipWrite(NSURL *file, CGImageRef backdrop, NSString 
 // longer than that, the whole of it, turned to start there, so the lock screen's loop has no seam. The
 // line sung last shows dimmed above the line. Written at the largest 3:4 cut of the video, about its
 // middle, at the video's frame rate up to 30 fps. NO for a video stood on its side by its transform, or
-// one that does not read. Blocks, so never on the main queue. Left, Centered and Poster only: a scene covers
-// the picture whole.
+// one that does not read. Blocks, so never on the main queue. Not for a scene, which covers the picture whole.
+// OverArtwork here is always dimmed whole: every frame blurred and darkened evenly, by the brightest of the
+// stretch, rather than a band behind the words.
 BOOL SGLyricsClipWriteOverMotion(NSURL *file, NSURL *motion, NSString *previous, NSString *line, NSString *translation,
                                  NSString *next, double from, double seconds, SGLyricsClipLayout layout);
 // The end of a line's artwork ID, so a clip kept under it is the one wanted: the render version, the style, which a clip falling
-// back to the cover is drawn in, and the layout, and with moving artwork m and the first 16 characters of its
-// file's name (the store names files by a SHA-1 of their address), so another video for the track redraws the
-// line showing.
-NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout);
+// back to the cover is drawn in, and the layout, d when Over the artwork is dimmed whole, and with moving artwork m and the
+// first 16 characters of its file's name (the store names files by a SHA-1 of their address), so another video for the
+// track redraws the line showing.
+NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout, BOOL dimmed);
 // That clip's first frame, for the preview image, NULL where the clip would not be written. The same `from` and
 // `seconds` as the clip's, as the darkness behind the words is judged across that stretch of the video.
 CGImageRef SGLyricsClipMotionFrame(NSURL *motion, NSString *previous, NSString *line, NSString *translation, NSString *next,

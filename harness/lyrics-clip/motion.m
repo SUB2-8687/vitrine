@@ -110,6 +110,17 @@ static void drawDusk(CGContextRef c, size_t w, size_t h, double t) {
     CGContextFillEllipseInRect(c, CGRectMake(w * (0.1 + 0.3 * t), h * 0.2, w * 0.3, w * 0.3));
 }
 
+// Flat white, and flat grey at a quarter of white: nothing to blur, so a dimming that is even leaves them even.
+static void drawWhite(CGContextRef c, size_t w, size_t h, double t) {
+    CGContextSetRGBFillColor(c, 1, 1, 1, 1);
+    CGContextFillRect(c, CGRectMake(0, 0, w, h));
+}
+
+static void drawGrey(CGContextRef c, size_t w, size_t h, double t) {
+    CGContextSetRGBFillColor(c, 0.25, 0.25, 0.25, 1);
+    CGContextFillRect(c, CGRectMake(0, 0, w, h));
+}
+
 static BOOL makeVideo(NSURL *url, size_t w, size_t h, int fps, int seconds, void (*draw)(CGContextRef, size_t, size_t, double)) {
     [NSFileManager.defaultManager removeItemAtURL:url error:nil];
     AVAssetWriter *writer = [AVAssetWriter assetWriterWithURL:url fileType:AVFileTypeMPEG4 error:nil];
@@ -371,23 +382,28 @@ int motionMain(NSURL *out, int argc, char **argv) {
     printf("artwork IDs\n");
     NSURL *a = [NSURL fileURLWithPath:@"/c/Motion/3f9a0c11d2e4b5a6978877665544332211009988.mp4"];
     NSURL *b = [NSURL fileURLWithPath:@"/c/Motion/3f9a77aa00bb11cc22dd33ee44ff556677889900.mp4"];
-    SGLyricsClipLayout left = SGLyricsClipLeft;
-    check(![SGLyricsClipLook(nil, SGLyricsClipStill, left) isEqual:@"0l0"] &&
-          ![SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:@"m3f9a0c11d2e4b5a6s0l0"],
+    SGLyricsClipLayout left = SGLyricsClipLeft, over = SGLyricsClipOverArtwork;
+    check(![SGLyricsClipLook(nil, SGLyricsClipStill, left, NO) isEqual:@"0l0"] &&
+          ![SGLyricsClipLook(a, SGLyricsClipStill, left, NO) isEqual:@"m3f9a0c11d2e4b5a6s0l0"],
           @"cover and motion offers cannot reuse pre-versioned system artwork");
-    check(![SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:SGLyricsClipLook(a, SGLyricsClipAnimated, left)],
-          [NSString stringWithFormat:@"the style is in it over moving artwork (%@, %@)", SGLyricsClipLook(a, SGLyricsClipStill, left),
-           SGLyricsClipLook(a, SGLyricsClipAnimated, left)]);
-    check(![SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:SGLyricsClipLook(b, SGLyricsClipStill, left)], @"another video gives another one");
-    check([SGLyricsClipLook(a, SGLyricsClipStill, left) isEqual:SGLyricsClipLook([a copy], SGLyricsClipStill, left)],
+    check(![SGLyricsClipLook(a, SGLyricsClipStill, left, NO) isEqual:SGLyricsClipLook(a, SGLyricsClipAnimated, left, NO)],
+          [NSString stringWithFormat:@"the style is in it over moving artwork (%@, %@)", SGLyricsClipLook(a, SGLyricsClipStill, left, NO),
+           SGLyricsClipLook(a, SGLyricsClipAnimated, left, NO)]);
+    check(![SGLyricsClipLook(a, SGLyricsClipStill, left, NO) isEqual:SGLyricsClipLook(b, SGLyricsClipStill, left, NO)], @"another video gives another one");
+    check([SGLyricsClipLook(a, SGLyricsClipStill, left, NO) isEqual:SGLyricsClipLook([a copy], SGLyricsClipStill, left, NO)],
           @"the same video, style and layout give the same one");
-    check(![SGLyricsClipLook(nil, SGLyricsClipStill, left) isEqual:SGLyricsClipLook(a, SGLyricsClipStill, left)]
-          && ![SGLyricsClipLook(nil, SGLyricsClipStill, left) isEqual:SGLyricsClipLook(nil, SGLyricsClipAnimated, left)], @"over the cover, the style alone");
-    NSSet *looks = [NSSet setWithArray:@[SGLyricsClipLook(a, SGLyricsClipStill, left), SGLyricsClipLook(a, SGLyricsClipStill, SGLyricsClipCentered),
-                                         SGLyricsClipLook(a, SGLyricsClipStill, SGLyricsClipPoster), SGLyricsClipLook(nil, SGLyricsClipStill, left),
-                                         SGLyricsClipLook(nil, SGLyricsClipStill, SGLyricsClipCentered), SGLyricsClipLook(nil, SGLyricsClipStill, SGLyricsClipPoster)]];
+    check(![SGLyricsClipLook(nil, SGLyricsClipStill, left, NO) isEqual:SGLyricsClipLook(a, SGLyricsClipStill, left, NO)]
+          && ![SGLyricsClipLook(nil, SGLyricsClipStill, left, NO) isEqual:SGLyricsClipLook(nil, SGLyricsClipAnimated, left, NO)], @"over the cover, the style alone");
+    NSSet *looks = [NSSet setWithArray:@[SGLyricsClipLook(a, SGLyricsClipStill, left, NO), SGLyricsClipLook(a, SGLyricsClipStill, SGLyricsClipCentered, NO),
+                                         SGLyricsClipLook(a, SGLyricsClipStill, SGLyricsClipPoster, NO), SGLyricsClipLook(nil, SGLyricsClipStill, left, NO),
+                                         SGLyricsClipLook(nil, SGLyricsClipStill, SGLyricsClipCentered, NO), SGLyricsClipLook(nil, SGLyricsClipStill, SGLyricsClipPoster, NO)]];
     check(looks.count == 6, [NSString stringWithFormat:@"the layout is in it, over moving artwork and the cover (%@)",
                              [looks.allObjects componentsJoinedByString:@", "]]);
+    check(![SGLyricsClipLook(nil, SGLyricsClipStill, over, YES) isEqual:SGLyricsClipLook(nil, SGLyricsClipStill, over, NO)]
+          && ![SGLyricsClipLook(nil, SGLyricsClipAnimated, over, YES) isEqual:SGLyricsClipLook(nil, SGLyricsClipAnimated, over, NO)]
+          && ![SGLyricsClipLook(a, SGLyricsClipStill, over, YES) isEqual:SGLyricsClipLook(a, SGLyricsClipStill, left, NO)],
+          [NSString stringWithFormat:@"dimming the whole artwork is in it (%@, %@)", SGLyricsClipLook(nil, SGLyricsClipStill, over, YES),
+           SGLyricsClipLook(nil, SGLyricsClipStill, over, NO)]);
 
     // A video gone from the store or cut short fails at once, with no preview, for LyricsArtwork.x to remember.
     printf("videos that will not read\n");
@@ -434,7 +450,8 @@ int motionMain(NSURL *out, int argc, char **argv) {
           @"君の名前を呼んだ", @1.0, @3.0,
           [@"" stringByPaddingToLength:200 withString:@"밤하늘에 빛나는 별을 세면서 너의 이름을 몇 번이고 불렀어, " startingAtIndex:0]],
     ];
-    NSArray *layoutNames = @[@"", @"-centered", @"-poster"];
+    NSDictionary<NSNumber *, NSString *> *layoutNames = @{@(SGLyricsClipLeft): @"", @(SGLyricsClipCentered): @"-centered",
+                                                          @(SGLyricsClipPoster): @"-poster", @(SGLyricsClipOverArtwork): @"-over"};
     for (NSURL *video in videos) {
         NSString *name = video.lastPathComponent.stringByDeletingPathExtension;
         AVURLAsset *asset = [AVURLAsset URLAssetWithURL:video options:@{AVURLAssetPreferPreciseDurationAndTimingKey: @YES}];
@@ -466,14 +483,17 @@ int motionMain(NSURL *out, int argc, char **argv) {
         SGMotionClipShape(video, 0.75, [out URLByAppendingPathComponent:[name stringByAppendingString:@"-cut.mp4"]]);
         double cutMs = (CFAbsoluteTimeGetCurrent() - start) * 1000;
         printf("  the cut alone: %.0f ms for %.2f s, %.1f ms a frame\n", cutMs, length, cutMs / (length * fps));
-        // Every case in Left; the others, only over the stand-ins, without the looks behind the words.
-        SGLyricsClipLayout lastLayout = [video isEqual:flag] || [video isEqual:dark] ? SGLyricsClipPoster : SGLyricsClipLeft;
-        for (SGLyricsClipLayout layout = SGLyricsClipLeft; layout <= lastLayout; layout++)
+        // Every case in Left; the others (Over the artwork dimmed whole), only over the stand-ins, without the looks
+        // behind the words.
+        NSArray<NSNumber *> *layouts = [video isEqual:flag] || [video isEqual:dark]
+            ? @[@(SGLyricsClipLeft), @(SGLyricsClipCentered), @(SGLyricsClipPoster), @(SGLyricsClipOverArtwork)] : @[@(SGLyricsClipLeft)];
+        for (NSNumber *layoutNumber in layouts)
         for (NSArray *c in cases) @autoreleasepool {
+            SGLyricsClipLayout layout = layoutNumber.integerValue;
             double from = [c[4] doubleValue] < 0 ? length + [c[4] doubleValue] : [c[4] doubleValue], seconds = [c[5] doubleValue];
             double wanted = MIN(seconds, length);
             NSString *translation = c.count > 6 ? c[6] : nil;
-            NSURL *url = [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@%@.mp4", name, c[0], layoutNames[layout]]];
+            NSURL *url = [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@%@.mp4", name, c[0], layoutNames[layoutNumber]]];
             start = CFAbsoluteTimeGetCurrent();
             BOOL written = SGLyricsClipWriteOverMotion(url, video, c[1], c[2], translation, c[3], from, seconds, layout);
             if (!matches) {
@@ -537,7 +557,7 @@ int motionMain(NSURL *out, int argc, char **argv) {
                 CGImageRelease(behind);
             }
             if (preview && ([c[0] isEqual:@"line"] || translation))
-                savePNG(preview, [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@%@-preview.png", name, c[0], layoutNames[layout]]]);
+                savePNG(preview, [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@%@-preview.png", name, c[0], layoutNames[layoutNumber]]]);
             if (preview && translation && layout == SGLyricsClipLeft && ![c[0] hasPrefix:@"overflow"]) {
                 // Behind the dimmed lines: on the bright flag, the narrower softening and fixed band before left the
                 // stars' pattern at 1.31 and a dimmed line 3.4:1 on the brightest there.
@@ -565,6 +585,42 @@ int motionMain(NSURL *out, int argc, char **argv) {
             CGImageRelease(first);
             CGImageRelease(middle);
         }
+    }
+
+    // Over the artwork dimmed whole darkens the whole frame evenly, no band, by what the brightest of the picture needs:
+    // over flat white to grey, between a quarter of white and the 82 of 255 under which a dimmed line keeps 3.3:1, and over
+    // flat grey by at least 30%. The clip's first frame is the preview's.
+    printf("\nover the artwork, dimmed whole, over flat videos\n");
+    for (NSArray *flat in @[@[@"white", [NSValue valueWithPointer:drawWhite], @255], @[@"grey", [NSValue valueWithPointer:drawGrey], @64]]) {
+        NSURL *source = [out URLByAppendingPathComponent:[NSString stringWithFormat:@"source-%@.mp4", flat[0]]];
+        check(makeVideo(source, 720, 1280, 30, 3, (void (*)(CGContextRef, size_t, size_t, double))[flat[1] pointerValue]),
+              [NSString stringWithFormat:@"made flat %@, 720x1280, 30 fps, 3 s", flat[0]]);
+        NSString *p = blanked(@"(And I turn into a stalker)"), *l = blanked(@"I stare at the moon"), *t = blanked(@"나는 달을 바라봐");
+        NSURL *url = [out URLByAppendingPathComponent:[NSString stringWithFormat:@"%@-blank-over.mp4", flat[0]]];
+        BOOL written = SGLyricsClipWriteOverMotion(url, source, p, l, t, nil, 0, 2, SGLyricsClipOverArtwork);
+        CGImageRef preview = SGLyricsClipMotionFrame(source, p, l, t, nil, 0, 2, SGLyricsClipOverArtwork), first = frameAt(url, 0);
+        if (!written || !preview || !first) {
+            check(NO, [NSString stringWithFormat:@"%@: written and read back", flat[0]]);
+        } else {
+            size_t w, h;
+            uint8_t *q = pixelsOf(preview, &w, &h);
+            int most = 0, least = 255;
+            for (size_t i = 0; i < w * h * 4; i++) if (i % 4 != 3) most = MAX(most, q[i]), least = MIN(least, q[i]);
+            free(q);
+            double behind = linear(most) + 0.05;
+            double line = 1.05 / behind, dimmed = (linear(255 * (0.5 + 0.5 * most / 255.0)) + 0.05) / behind;
+            int level = [flat[2] intValue];
+            check(most - least <= 2, [NSString stringWithFormat:@"%@: the whole frame darkened evenly (%d to %d of 255)", flat[0], least, most]);
+            if (level == 255)
+                check(least >= 64 && most <= 82 && line >= 4.5 && dimmed >= 3.3,
+                      [NSString stringWithFormat:@"white: to grey, %d of 255; the line %.2f:1, a dimmed line %.2f:1", most, line, dimmed]);
+            else
+                check(most <= round(level * 0.7) + 1, [NSString stringWithFormat:@"grey: darkened by at least 30%% (%d of %d)", most, level]);
+            double apart = fabs(meanIn(first, 0, 1) - meanIn(preview, 0, 1));
+            check(apart < 3, [NSString stringWithFormat:@"%@: the clip's first frame is the preview (%.1f of 255 apart)", flat[0], apart]);
+        }
+        CGImageRelease(preview);
+        CGImageRelease(first);
     }
 
     // Over a video dark at its start and bright later, the band is as dark as the brightest of the clip's stretch

@@ -89,7 +89,10 @@ uncropped phone projection: full frame width, top at 10% of screen height; neutr
 system chrome. It checks 8% frame margins and screen-space safe heights (17–65%, centre 40%).
 All layouts share that mapping, including Messages and Vinyl. Over the artwork uses a broad side-anchored
 gradient without a flat plateau and subtle shadow; white-cover current-line contrast is at least 4.5:1,
-dimmed-line contrast 3:1. Sharp aspect fill and both styles are checked.
+dimmed-line contrast 3:1. Sharp aspect fill and both styles are checked. With Dim the whole artwork the
+frame away from the words must equal the blurred, evenly darkened picture (no gradient edge), darkened at
+least 30% and enough for 4.5:1 and 3.3:1 on white, bright, dark and colourful covers; `motion` runs the same
+over its two stand-in videos.
 The harness observes the actual Core Text frames at the draw boundary: Left, Centered, Poster, Vinyl
 and Over the artwork each have an 84%-wide column, and a long sentence's longest shaped line must
 exceed 70% of the visible width. Font size and fitting rules are unchanged. The reported Left/Centered

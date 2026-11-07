@@ -40,6 +40,12 @@ static const CGFloat kTranslationScale = 0.62, kTranslationAlpha = 0.8, kTransla
 // Reaches are in frame widths; the vertical reach grows with the text block.
 static const CGFloat kArtworkScrimAlpha = 0.94, kArtworkSideReach = 1.8, kArtworkVerticalReach = 0.6;
 static const CGFloat kArtworkShadowAlpha = 0.45;
+// Dimmed whole (SGLyricsClipDimmedArtwork): the cover blurred by the shared renderer at kDimBlur (at width 640, about
+// the spread the tent of kSoftWidth gives a video's frames), then darkened evenly, by at least kDimLeast so a dark
+// cover reads as dimmed too, and by as much more as the brightest pixel of the blurred picture needs for a dimmed line
+// (kNextAlpha white over it) to keep kDimContrast and the line kLineContrast: 3:1 with a tenth to spare for the
+// encoder and the breath's resampling, and 4.5:1. A white cover comes to about a third of white: grey, not black.
+static const CGFloat kDimBlur = 20, kDimLeast = 0.3, kDimContrast = 3.3, kLineContrast = 4.5;
 // A still is one frame held this long; an animated clip breathes once over kLoopSeconds, which is all it
 // plays before the lock screen loops it.
 static const int32_t kStillSeconds = 2;
@@ -77,6 +83,93 @@ static CGContextRef newContext(CGSize size, void *data, size_t bytesPerRow) {
 
 CGImageRef SGLyricsClipBackdrop(CGImageRef cover, CGSize size) {
     return SGLyricsBackgroundCreate(cover, size, SGLyricsBackgroundDefault(SGLyricsBackgroundLockScreen));
+}
+
+// The colours a darkening is judged on: each channel cut into kLightSteps steps of kLightStep levels, and the steps
+// of the picture's pixels marked, red, then green, then blue. A step is judged on its worst level in each channel,
+// so a judgement on these is never kinder than one on the pixels.
+enum { kLightStep = 4, kLightSteps = 256 / kLightStep, kLightCells = kLightSteps * kLightSteps * kLightSteps };
+typedef struct {
+    uint64_t seen[kLightCells / 64];
+} Lights;
+
+static void markLight(Lights *lights, int red, int green, int blue) {
+    size_t cell = ((size_t)(red / kLightStep) * kLightSteps + green / kLightStep) * kLightSteps + blue / kLightStep;
+    lights->seen[cell / 64] |= 1ull << (cell % 64);
+}
+
+// The pixels of a BGRA picture into `lights`.
+static void addLights(Lights *lights, const uint8_t *base, size_t width, size_t height, size_t bytesPerRow) {
+    for (size_t y = 0; y < height; y++) {
+        const uint8_t *pixel = base + y * bytesPerRow;
+        for (size_t x = 0; x < width; x++, pixel += 4) markLight(lights, pixel[2], pixel[1], pixel[0]);
+    }
+}
+
+// An sRGB value, 0 to 1, as linear light.
+static double linearOf(double value) {
+    return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4);
+}
+
+// Whether every colour of `lights` is readable over once `keep` of it is kept, each level then taken one higher for
+// the rounding of the darkening: the line keeping kLineContrast, and a dimmed line, kNextAlpha white blended over
+// it, kDimContrast. With L a colour's WCAG luminance and D the blend's, those are 1.05 / (L + 0.05) >= kLineContrast
+// and D - kDimContrast * L >= 0.05 * (kDimContrast - 1); L and D are each a weighted sum of one function per
+// channel, so both tests are too, and a step's worst colour is found channel by channel: its top level for the
+// line, its least margin of the blend's light over kDimContrast times its own for the dimmed line. With none, the
+// picture is judged as white.
+static BOOL readableAt(const Lights *lights, double keep) {
+    double light[kLightSteps], margin[kLightSteps], a = kNextAlpha;
+    for (int step = 0; step < kLightSteps; step++) {
+        margin[step] = INFINITY;
+        for (int level = step * kLightStep; level < (step + 1) * kLightStep; level++) {
+            double value = MIN(level * keep + 1, 255) / 255;
+            light[step] = linearOf(value);
+            margin[step] = MIN(margin[step], linearOf(a + (1 - a) * value) - kDimContrast * light[step]);
+        }
+    }
+    double mostLight = 1.05 / kLineContrast - 0.05, leastMargin = 0.05 * (kDimContrast - 1);
+    BOOL any = NO;
+    for (size_t word = 0; word < kLightCells / 64; word++) {
+        for (uint64_t bits = lights->seen[word]; bits; bits &= bits - 1) {
+            size_t cell = word * 64 + (size_t)__builtin_ctzll(bits);
+            size_t red = cell / (kLightSteps * kLightSteps), green = cell / kLightSteps % kLightSteps, blue = cell % kLightSteps;
+            if (0.2126 * light[red] + 0.7152 * light[green] + 0.0722 * light[blue] > mostLight) return NO;
+            if (0.2126 * margin[red] + 0.7152 * margin[green] + 0.0722 * margin[blue] < leastMargin) return NO;
+            any = YES;
+        }
+    }
+    if (any) return YES;
+    Lights white = {0};
+    markLight(&white, 255, 255, 255);
+    return readableAt(&white, keep);
+}
+
+// How much of the picture an even darkening keeps, of 256: the most that leaves all of `lights` readable, and no more
+// than kDimLeast leaves. Black always is.
+static uint16_t keepFor(const Lights *lights) {
+    uint16_t low = 0, high = (uint16_t)floor(256 * (1 - kDimLeast));
+    if (readableAt(lights, high / 256.0)) return high;
+    while (high - low > 1) {
+        uint16_t middle = (low + high) / 2;
+        if (readableAt(lights, middle / 256.0)) low = middle;
+        else high = middle;
+    }
+    return low;
+}
+
+CGImageRef SGLyricsClipDimmedArtwork(CGImageRef cover, CGSize size) {
+    SGLyricsBackgroundStyle style = {SGLyricsBackgroundBlur, 0, kDimBlur, 0};
+    CGImageRef blurred = SGLyricsBackgroundCreate(cover, size, style);
+    if (!blurred) return NULL;
+    CGContextRef context = newContext(size, NULL, 0);
+    CGContextDrawImage(context, (CGRect){CGPointZero, size}, blurred);
+    CGImageRelease(blurred);
+    Lights lights = {0};
+    addLights(&lights, CGBitmapContextGetData(context), (size_t)size.width, (size_t)size.height, CGBitmapContextGetBytesPerRow(context));
+    CGContextRelease(context);
+    style.darkness = 1 - keepFor(&lights) / 256.0;
+    return SGLyricsBackgroundCreate(cover, size, style);
 }
 
 static BOOL isHangul(unichar c) {
@@ -196,9 +289,12 @@ static void drawCut(CTFrameRef frame, NSAttributedString *words, CGContextRef co
 
 // The words alone on a clear image the size of the clip, nil when there are none. Over moving artwork they
 // carry a shadow, the dimmed lines are less dim, and the image is only the words' box, which `drawn` gets
-// the place of in the clip.
+// the place of in the clip. With `scrim` (Over the artwork on its cover kept sharp) the image carries the
+// gradient behind them.
 static CGImageRef newWords(NSString *previous, NSString *line, NSString *translation, NSString *next, CGSize size,
-                           SGLyricsClipLayout layout, CGRect *drawn) CF_RETURNS_RETAINED {
+                           SGLyricsClipLayout layout, BOOL scrim, CGRect *drawn) CF_RETURNS_RETAINED {
+    // Over the artwork keeps the line sung last above the line instead of the next, which shows only at a rest.
+    if (layout == SGLyricsClipOverArtwork && line.length) next = nil;
     if (!previous.length && !line.length && !next.length) return NULL;
     if (!line.length) translation = nil;
     if (layout == SGLyricsClipPoster) {
@@ -248,7 +344,7 @@ static CGImageRef newWords(NSString *previous, NSString *line, NSString *transla
     CGPathRef path = CGPathCreateWithRect(box, NULL);
     CTFrameRef frame = CTFramesetterCreateFrame(setter, CFRangeMake(0, 0), path, NULL);
     CGContextRef context = newContext(size, NULL, 0);
-    if (layout == SGLyricsClipOverArtwork) {
+    if (scrim) {
         CGFloat reachX = size.width * kArtworkSideReach, reachY = height / 2 + size.width * kArtworkVerticalReach;
         uint8_t *pixels = CGBitmapContextGetData(context);
         size_t stride = CGBitmapContextGetBytesPerRow(context);
@@ -580,16 +676,17 @@ static CGImageRef newScene(CGImageRef cover, NSString *previous, NSString *line,
     return image;
 }
 
-// What goes over the backdrop: a scene's picture, or the words.
-static CGImageRef newPicture(CGImageRef cover, NSString *previous, NSString *line, NSString *translation, NSString *next,
-                             CGSize size, SGLyricsClipLayout layout) CF_RETURNS_RETAINED {
+// What goes over the backdrop: a scene's picture, or the words; Over the artwork's under their scrim when it has no
+// backdrop, as the cover then shows sharp.
+static CGImageRef newPicture(CGImageRef backdrop, CGImageRef cover, NSString *previous, NSString *line, NSString *translation,
+                             NSString *next, CGSize size, SGLyricsClipLayout layout) CF_RETURNS_RETAINED {
     if (SGLyricsClipIsScene(layout)) return newScene(cover, previous, line, next, size, layout);
-    if (layout == SGLyricsClipOverArtwork) return newWords(previous, line, translation, line.length ? nil : next, size, layout, NULL);
-    return newWords(nil, line, translation, next, size, layout, NULL);
+    BOOL over = layout == SGLyricsClipOverArtwork;
+    return newWords(over ? previous : nil, line, translation, next, size, layout, over && !backdrop, NULL);
 }
 
 static CGImageRef newBackdrop(CGImageRef backdrop, CGImageRef cover, CGSize size, SGLyricsClipLayout layout) CF_RETURNS_RETAINED {
-    if (layout == SGLyricsClipOverArtwork)
+    if (layout == SGLyricsClipOverArtwork && !backdrop)
         return SGLyricsBackgroundCreate(cover, size, (SGLyricsBackgroundStyle){SGLyricsBackgroundCover, 0, 0, 0});
     return CGImageRetain(backdrop);
 }
@@ -604,7 +701,7 @@ static void drawFrame(CGContextRef context, CGImageRef backdrop, CGImageRef word
 
 CGImageRef SGLyricsClipFrameWithLayout(CGImageRef backdrop, CGImageRef cover, NSString *previous, NSString *line,
                                        NSString *translation, NSString *next, CGSize size, SGLyricsClipLayout layout) {
-    CGImageRef words = newPicture(cover, previous, line, translation, next, size, layout);
+    CGImageRef words = newPicture(backdrop, cover, previous, line, translation, next, size, layout);
     CGImageRef background = newBackdrop(backdrop, cover, size, layout);
     CGContextRef context = newContext(size, NULL, 0);
     drawFrame(context, background, words, size, 0);
@@ -649,7 +746,7 @@ BOOL SGLyricsClipWriteWithLayout(NSURL *file, CGImageRef backdrop, CGImageRef co
     [writer addInput:input];
     if (![writer startWriting]) return NO;
     [writer startSessionAtSourceTime:kCMTimeZero];
-    CGImageRef words = newPicture(cover, previous, line, translation, next, size, layout);
+    CGImageRef words = newPicture(backdrop, cover, previous, line, translation, next, size, layout);
     CGImageRef background = newBackdrop(backdrop, cover, size, layout);
     BOOL ok = YES;
     for (int32_t i = 0; i < frames && ok; i++) {
@@ -729,9 +826,10 @@ typedef struct {
     CGImageRef words;     // the words' box, NULL for none
     CGRect drawn;         // where it goes in the cut
     uint16_t *keep;       // how much of the picture each row of the cut keeps, of 256, from the top: the dimming
-    CGRect soft;          // the rows behind the words, across the cut, in the stored frame
-    uint8_t *blurred;     // those rows blurred, NULL with no words
+    CGRect soft;          // the rows behind the words, across the cut, in the stored frame; dimmed whole, the cut
+    uint8_t *blurred;     // those rows blurred, NULL with no words unless dimmed whole
     uint16_t *feather;    // how much of the blurred rows each row takes, of 256, fading in and out at the top and bottom
+    BOOL whole;          // Over the artwork, dimmed whole: the cut blurred and darkened evenly, words or none
 } Over;
 
 // How dark row `y` of `height` (from the top) is made: `band` across the middle 40% of the band about the
@@ -750,12 +848,24 @@ static void setKeep(Over *over, size_t rows, CGFloat band) {
 static Over makeOver(Motion motion, NSString *previous, NSString *line, NSString *translation, NSString *next,
                      SGLyricsClipLayout layout) {
     Over over = {0};
-    over.words = newWords(previous, line, translation, next, motion.cut, layout, &over.drawn);
+    over.words = newWords(previous, line, translation, next, motion.cut, layout, NO, &over.drawn);
     size_t rows = (size_t)motion.cut.height;
     over.keep = malloc(rows * sizeof(uint16_t));
+    CGRect cut = cutIn(motion);
+    if (layout == SGLyricsClipOverArtwork) {
+        // Blurred whole, with no edge to fade; until fitBand judges the stretch, darkened as white needs.
+        over.whole = YES;
+        over.soft = cut;
+        size_t width = (size_t)cut.size.width;
+        over.blurred = malloc(width * rows * 4);
+        over.feather = malloc(rows * sizeof(uint16_t));
+        Lights none = {0};
+        uint16_t keep = keepFor(&none);
+        for (size_t y = 0; y < rows; y++) over.feather[y] = 256, over.keep[y] = keep;
+        return over;
+    }
     setKeep(&over, rows, kBandDim);
     if (!over.words) return over;
-    CGRect cut = cutIn(motion);
     // A font size past the margin newWords leaves about the words, itself a font size, and faded in over both, so
     // every line is on picture blurred whole and the blur's edge is gentle and away from them.
     CGFloat reach = round(motion.cut.width * kFont);
@@ -824,9 +934,12 @@ static int lightBehind(uint8_t *base, size_t bytesPerRow, Motion motion, const O
 // set in `over`: by the brightest behind the words of kBandSamples frames spread from its first to its last,
 // softened as drawOver softens them. The writer and the preview both call this for the same stretch, so they
 // agree. The frames come from an image generator, one decode from a key frame each; one that does not read is
-// skipped, and with none the band keeps kBandDim.
+// skipped, and with none the band keeps kBandDim. Dimmed whole, the cut is darkened evenly instead, by what the
+// brightest pixel of those frames, blurred, needs (keepFor), as a cover dimmed whole is; with none read, as white needs.
 static void fitBand(AVURLAsset *asset, Motion motion, Over *over, double from, double seconds) {
     if (!over->blurred) return;
+    Lights lights = {0};
+    CGRect cut = cutIn(motion);
     AVAssetImageGenerator *generator = [AVAssetImageGenerator assetImageGeneratorWithAsset:asset];
     generator.requestedTimeToleranceBefore = generator.requestedTimeToleranceAfter = kCMTimeZero;
     size_t width = (size_t)motion.stored.width, height = (size_t)motion.stored.height, bytesPerRow = width * 4;
@@ -847,10 +960,18 @@ static void fitBand(AVURLAsset *asset, Motion motion, Over *over, double from, d
         CGContextRelease(context);
         CGImageRelease(image);
         soften(frame, bytesPerRow, height, motion, over);
-        light = MAX(light, lightBehind(frame, bytesPerRow, motion, over));
+        if (over->whole)
+            addLights(&lights, frame + (size_t)cut.origin.y * bytesPerRow + (size_t)cut.origin.x * 4, (size_t)cut.size.width,
+                      (size_t)cut.size.height, bytesPerRow);
+        else light = MAX(light, lightBehind(frame, bytesPerRow, motion, over));
     }
     free(frame);
-    if (light) setKeep(over, (size_t)motion.cut.height, MIN(MAX(1 - kBandLight * 255 / light, kBandDim), kBandDarkest));
+    if (over->whole) {
+        uint16_t keep = keepFor(&lights);
+        for (size_t y = 0; y < (size_t)motion.cut.height; y++) over->keep[y] = keep;
+    } else if (light) {
+        setKeep(over, (size_t)motion.cut.height, MIN(MAX(1 - kBandLight * 255 / light, kBandDim), kBandDarkest));
+    }
 }
 
 // The softening, the dimming and the words, drawn into `buffer`, a BGRA frame of the video: the rows behind
@@ -1056,8 +1177,10 @@ BOOL SGLyricsClipWriteOverMotion(NSURL *file, NSURL *motionFile, NSString *previ
     return [NSFileManager.defaultManager moveItemAtURL:partial toURL:file error:nil];
 }
 
-NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout) {
-    if (!motion) return [NSString stringWithFormat:@"%@-%ldl%ld", kRenderVersion, (long)style, (long)layout];
+NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout, BOOL dimmed) {
+    NSString *dim = dimmed ? @"d" : @"";
+    if (!motion) return [NSString stringWithFormat:@"%@-%ldl%ld%@", kRenderVersion, (long)style, (long)layout, dim];
     NSString *name = motion.lastPathComponent.stringByDeletingPathExtension;
-    return [NSString stringWithFormat:@"%@-m%@s%ldl%ld", kRenderVersion, name.length > 16 ? [name substringToIndex:16] : name, (long)style, (long)layout];
+    return [NSString stringWithFormat:@"%@-m%@s%ldl%ld%@", kRenderVersion, name.length > 16 ? [name substringToIndex:16] : name, (long)style,
+            (long)layout, dim];
 }

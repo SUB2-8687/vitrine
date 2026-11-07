@@ -1141,6 +1141,8 @@
 "settings.lockscreen.artwork.row.title" = "전체 화면 아트워크";
 "settings.lockscreen.artwork.subtitle" = "Canvas 또는 움직이는 커버 위에 가사를 표시합니다.";
 "settings.lockscreen.artwork.title" = "전체 화면 아트워크";
+"settings.lockscreen.dim_artwork.subtitle" = "움직이는 아트워크를 포함해 아트워크 전체를 흐리고 어둡게 한 뒤, 가사 주변만 어둡게 하는 대신 그 위에 가사를 띄웁니다.";
+"settings.lockscreen.dim_artwork.title" = "아트워크 전체 어둡게";
 "settings.lockscreen.low_data.subtitle" = "움직이는 아트워크, 노래당 최대 약 7MB. Vitrine 전체의 움직이는 아트워크에 적용됩니다.";
 "settings.lockscreen.low_data.title" = "저데이터 모드에서 다운로드";
 "settings.lockscreen.lyrics_layout.choice.centered" = "가운데 정렬";

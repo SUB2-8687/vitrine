@@ -148,6 +148,185 @@ static void verify(NSURL *url, CGImageRef backdrop, CGSize size, SGLyricsClipSty
     CGImageRelease(late);
 }
 
+// RGBA bytes of `image`, in sRGB.
+static NSData *rgbaOf(CGImageRef image) {
+    size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
+    NSMutableData *data = [NSMutableData dataWithLength:width * height * 4];
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(data.mutableBytes, width, height, 8, width * 4, space, (CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    return data;
+}
+
+// A 640x640 cover drawn by `draw`.
+static CGImageRef newDrawnCover(void (^draw)(CGContextRef context)) {
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(NULL, 640, 640, 8, 0, space, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    draw(context);
+    CGImageRef cover = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    return cover;
+}
+
+// WCAG's relative luminance of sRGB values, 0 to 1.
+static double luminanceOf(double r, double g, double b) {
+    double values[] = {r, g, b}, weights[] = {0.2126, 0.7152, 0.0722}, sum = 0;
+    for (int i = 0; i < 3; i++) sum += weights[i] * (values[i] <= 0.04045 ? values[i] / 12.92 : pow((values[i] + 0.055) / 1.055, 2.4));
+    return sum;
+}
+
+// The lowest contrast of the line (white) and of a dimmed line (half white) with the picture behind the words in
+// `frame`, as regression.m measures it for the scrim: inside the box of the same words drawn over a black cover
+// (`black`), where those leave no ink. `box` gets that box, from the top left.
+static void contrastBehind(CGImageRef frame, CGImageRef black, double *line, double *dimmed, CGRect *box) {
+    NSData *frameBytes = rgbaOf(frame), *blackBytes = rgbaOf(black);
+    const uint8_t *p = frameBytes.bytes, *k = blackBytes.bytes;
+    size_t w = CGImageGetWidth(frame), h = CGImageGetHeight(frame);
+    CGRect ink = CGRectNull;
+    for (size_t y = 0; y < h; y++)
+        for (size_t x = 0; x < w; x++)
+            if (k[(y * w + x) * 4] || k[(y * w + x) * 4 + 1] || k[(y * w + x) * 4 + 2]) ink = CGRectUnion(ink, CGRectMake(x, y, 1, 1));
+    *line = *dimmed = INFINITY;
+    *box = ink;
+    for (size_t y = CGRectGetMinY(ink); y < CGRectGetMaxY(ink); y++) {
+        for (size_t x = CGRectGetMinX(ink); x < CGRectGetMaxX(ink); x++) {
+            const uint8_t *q = p + (y * w + x) * 4, *o = k + (y * w + x) * 4;
+            if (o[0] || o[1] || o[2]) continue;
+            double r = q[0] / 255.0, g = q[1] / 255.0, b = q[2] / 255.0, behind = luminanceOf(r, g, b) + 0.05;
+            *line = MIN(*line, 1.05 / behind);
+            *dimmed = MIN(*dimmed, (luminanceOf(0.5 + 0.5 * r, 0.5 + 0.5 * g, 0.5 + 0.5 * b) + 0.05) / behind);
+        }
+    }
+}
+
+// The largest and smallest channel value of `image`, and the largest step between vertically neighbouring pixels in
+// column `x`.
+static void spread(CGImageRef image, int *most, int *least, size_t x, int *step) {
+    NSData *bytes = rgbaOf(image);
+    const uint8_t *p = bytes.bytes;
+    size_t w = CGImageGetWidth(image), h = CGImageGetHeight(image);
+    *most = 0, *least = 255, *step = 0;
+    for (size_t i = 0; i < w * h * 4; i++) {
+        if (i % 4 == 3) continue;
+        *most = MAX(*most, p[i]);
+        *least = MIN(*least, p[i]);
+    }
+    for (size_t y = 1; y < h; y++)
+        for (int c = 0; c < 3; c++) *step = MAX(*step, abs(p[(y * w + x) * 4 + c] - p[((y - 1) * w + x) * 4 + c]));
+}
+
+// Over the artwork dimmed whole (SGLyricsClipDimmedArtwork) against the same layout over its sharp cover: the frame
+// evenly dimmed and blurred, no shade of its own about the words, the contrast held over white, bright, dark and
+// colourful covers, both styles written. Each cover's frame, sharp and dimmed, is saved as over-<cover>-off.png and
+// -on.png.
+static void dimmedArtwork(NSURL *out, CGSize size) {
+    printf("over the artwork, dimmed whole\n");
+    CGImageRef colourful = newCover();
+    NSString *previous = @"Once a cocoa butter dreamer", *line = @"You made me your brown sugar believer, now I can fly";
+    NSString *translation = @"네 브라운 슈가의 신봉자가 되었어, 이제 난 날 수 있어";
+    CGImageRef white = newDrawnCover(^(CGContextRef c) {
+        CGContextSetRGBFillColor(c, 1, 1, 1, 1);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 640));
+    });
+    CGImageRef black = newDrawnCover(^(CGContextRef c) {
+        CGContextSetRGBFillColor(c, 0, 0, 0, 1);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 640));
+    });
+    // A pale cover: white, a soft yellow sun, a light blue band and a pink block.
+    CGImageRef bright = newDrawnCover(^(CGContextRef c) {
+        CGContextSetRGBFillColor(c, 0.98, 0.97, 0.95, 1);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 640));
+        CGContextSetRGBFillColor(c, 0.75, 0.88, 0.98, 1);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 220));
+        CGContextSetRGBFillColor(c, 1, 0.9, 0.45, 1);
+        CGContextFillEllipseInRect(c, CGRectMake(360, 380, 200, 200));
+        CGContextSetRGBFillColor(c, 0.98, 0.75, 0.82, 1);
+        CGContextFillRect(c, CGRectMake(60, 260, 200, 260));
+    });
+    // The colourful one darkened to 12%, as regression.m's dark cover.
+    CGImageRef dark = newDrawnCover(^(CGContextRef c) {
+        CGContextDrawImage(c, CGRectMake(0, 0, 640, 640), colourful);
+        CGContextSetRGBFillColor(c, 0, 0, 0, 0.88);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 640));
+    });
+    // A flat saturated red (219, 4, 0): judged on its green taken to the top of its step, at 7, it passes 3.3:1 at a
+    // keep of 159 of 256 that leaves the real colour, however the darkening rounds, under 3.29:1.
+    CGImageRef crimson = newDrawnCover(^(CGContextRef c) {
+        CGContextSetRGBFillColor(c, 219 / 255.0, 4 / 255.0, 0, 1);
+        CGContextFillRect(c, CGRectMake(0, 0, 640, 640));
+    });
+    CGImageRef blackDim = SGLyricsClipDimmedArtwork(black, size);
+    CGImageRef ink = SGLyricsClipFrameWithLayout(blackDim, black, previous, line, translation, nil, size, SGLyricsClipOverArtwork);
+    NSArray *covers = @[@[@"white", (__bridge id)white], @[@"bright", (__bridge id)bright], @[@"dark", (__bridge id)dark],
+                        @[@"colourful", (__bridge id)colourful], @[@"crimson", (__bridge id)crimson]];
+    for (NSArray *named in covers) {
+        NSString *name = named[0];
+        CGImageRef cover = (__bridge CGImageRef)named[1];
+        CGImageRef dimmed = SGLyricsClipDimmedArtwork(cover, size);
+        CGImageRef on = SGLyricsClipFrameWithLayout(dimmed, cover, previous, line, translation, nil, size, SGLyricsClipOverArtwork);
+        CGImageRef off = SGLyricsClipFrameWithLayout(NULL, cover, previous, line, translation, nil, size, SGLyricsClipOverArtwork);
+        CGImageRef bare = SGLyricsClipFrameWithLayout(dimmed, cover, nil, nil, nil, nil, size, SGLyricsClipOverArtwork);
+        CGImageRef sharp = SGLyricsClipFrameWithLayout(NULL, cover, nil, nil, nil, nil, size, SGLyricsClipOverArtwork);
+        double lineContrast, dimContrast;
+        CGRect box;
+        contrastBehind(on, ink, &lineContrast, &dimContrast, &box);
+        check(lineContrast >= 4.5 && dimContrast >= 3.3, [NSString stringWithFormat:@"%@: over the brightest behind the words, the line %.2f:1, "
+                                                        "a dimmed line %.2f:1", name, lineContrast, dimContrast]);
+        // Away from the words (a shadow's reach past their box) the frame is the bare dimmed picture: no shade of its own.
+        NSData *onBytes = rgbaOf(on), *bareBytes = rgbaOf(bare);
+        const uint8_t *a = onBytes.bytes, *b = bareBytes.bytes;
+        CGRect near = CGRectInset(box, -size.width * 0.03, -size.width * 0.03);
+        int away = 0;
+        for (size_t y = 0; y < size.height; y++)
+            for (size_t x = 0; x < size.width; x++)
+                if (!CGRectContainsPoint(near, CGPointMake(x, y)))
+                    for (int c = 0; c < 3; c++) away = MAX(away, abs(a[(y * (size_t)size.width + x) * 4 + c] - b[(y * (size_t)size.width + x) * 4 + c]));
+        check(away <= 1, [NSString stringWithFormat:@"%@: away from the words the frame is the dimmed picture alone (%d of 255 off)", name, away]);
+        int most, least, step, sharpMost, sharpLeast, sharpStep;
+        size_t column = (size_t)size.width - 4;
+        spread(bare, &most, &least, column, &step);
+        spread(sharp, &sharpMost, &sharpLeast, column, &sharpStep);
+        check(most <= round(sharpMost * 0.7) + 1, [NSString stringWithFormat:@"%@: darkened by at least 30%% (brightest %d, sharp %d)", name, most, sharpMost]);
+        if ([name isEqual:@"white"]) {
+            // Even, no gradient; grey rather than black, and no lighter than the 3.3:1 a dimmed line needs over it (82).
+            check(most - least <= 1 && least >= 64 && most <= 82,
+                  [NSString stringWithFormat:@"white: evenly dimmed to grey (%d to %d of 255)", least, most]);
+        }
+        if ([name isEqual:@"colourful"]) {
+            check(sharpStep > 100 && step <= 6,
+                  [NSString stringWithFormat:@"colourful: blurred, the cover's edge down the right side a step of %d (sharp %d)", step, sharpStep]);
+            for (SGLyricsClipStyle style = SGLyricsClipStill; style <= SGLyricsClipAnimated; style++) {
+                NSURL *url = [out URLByAppendingPathComponent:[NSString stringWithFormat:@"over-dimmed-%@.mp4",
+                                                                style == SGLyricsClipStill ? @"still" : @"animated"]];
+                BOOL written = SGLyricsClipWriteWithLayout(url, dimmed, cover, previous, line, translation, nil, size, style, SGLyricsClipOverArtwork);
+                printf("%s\n", url.lastPathComponent.UTF8String);
+                check(written, @"written");
+                if (written) verify(url, dimmed, size, style, YES);
+            }
+        }
+        if (![name isEqual:@"white"]) {
+            savePNG(off, [out URLByAppendingPathComponent:[NSString stringWithFormat:@"over-%@-off.png", name]]);
+            savePNG(on, [out URLByAppendingPathComponent:[NSString stringWithFormat:@"over-%@-on.png", name]]);
+        }
+        CGImageRelease(dimmed);
+        CGImageRelease(on);
+        CGImageRelease(off);
+        CGImageRelease(bare);
+        CGImageRelease(sharp);
+    }
+    CGImageRelease(ink);
+    CGImageRelease(blackDim);
+    CGImageRelease(white);
+    CGImageRelease(black);
+    CGImageRelease(bright);
+    CGImageRelease(dark);
+    CGImageRelease(colourful);
+    CGImageRelease(crimson);
+}
+
 int motionMain(NSURL *out, int argc, char **argv);
 int scenesMain(NSURL *out, CGImageRef cover);
 
@@ -273,8 +452,9 @@ int main(int argc, char **argv) {
             CGImageRelease(alone);
             CGImageRelease(next);
         }
+        dimmedArtwork(out, size);
         CGImageRef preview = SGLyricsClipFrame(backdrop, @"Hold on", nil, @"we're almost there", size);
-        check(preview && CGImageGetWidth(preview) == size.width && CGImageGetHeight(preview) == size.height, @"the preview frame is the clip's size");
+        check(preview &&CGImageGetWidth(preview) == size.width && CGImageGetHeight(preview) == size.height, @"the preview frame is the clip's size");
         savePNG(preview, [out URLByAppendingPathComponent:@"preview.png"]);
         CGImageRelease(preview);
         failures += scenesMain(scenesOut, cover);

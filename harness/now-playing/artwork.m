@@ -215,8 +215,11 @@ CGImageRef SGLyricsClipFrameWithLayout(CGImageRef backdrop, CGImageRef cover, NS
                                        NSString *translation, NSString *next, CGSize size, SGLyricsClipLayout layout) {
     return harnessPublicationFrame(line, backdrop);
 }
-NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout) {
-    return [NSString stringWithFormat:@"style%ldl%ld%@", (long)style, (long)layout, motion ? motion.lastPathComponent : @""];
+CGImageRef SGLyricsClipDimmedArtwork(CGImageRef cover, CGSize size) {
+    return CGImageRetain(cover ?: blue.CGImage);
+}
+NSString *SGLyricsClipLook(NSURL *motion, SGLyricsClipStyle style, SGLyricsClipLayout layout, BOOL dimmed) {
+    return [NSString stringWithFormat:@"style%ldl%ld%@%@", (long)style, (long)layout, dimmed ? @"d" : @"", motion ? motion.lastPathComponent : @""];
 }
 static BOOL writeFrame(NSURL *file, CGImageRef frame) {
     NSData *data = UIImagePNGRepresentation([UIImage imageWithCGImage:frame]);

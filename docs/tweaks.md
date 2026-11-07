@@ -472,7 +472,12 @@ Shared:
                   centre-filled, with the previous line, current line and translation over a broad side-anchored
                   Gaussian gradient with no flat box or cutoff, plus a subtle text shadow. On white, the current
                   line keeps at least 4.5:1 contrast and the dimmed lines 3:1. Still holds it, Animated gently
-                  breathes the cover, including under Moving artwork with lyrics.
+                  breathes the cover, including under Moving artwork with lyrics. Dim the whole artwork
+                  (`spotifyglass.lockscreen.dimArtwork`, off; shown under Over the artwork) replaces that local shade:
+                  the whole frame is the cover through the shared renderer's Blur at 20, or under Moving artwork with
+                  lyrics each video frame blurred alike on the clip queue (falling back to the dimmed cover), darkened
+                  evenly by one value per cover or clip, the least that keeps the line 4.5:1 and a dimmed line 3.3:1
+                  against the brightest blurred pixel (four frames for a video), never under 30%; the look gains `d`.
                   In the first three layouts a block still too tall at the smallest size, whose
                   bottom would pass 65% of the screen, lets go of the line sung last, then the next line, then the
                   translation, and last keeps the whole lines of the line that fit from 17% down, the last ending in an
