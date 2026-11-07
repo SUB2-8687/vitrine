@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.0-beta.27](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.26...v1.0.0-beta.27) (2026-11-06)
+
+
+### Features
+
+* upstream 탭·플레이어·헤더·DJ 개선 반영 ([b7987a1](https://github.com/oneulddu/vitrine/commit/b7987a1b179a82d51245fbf920db302022149f14))
+* 가사 줄 생성 시간 예산과 TTML 괄호 배킹 보컬 분리 ([4707841](https://github.com/oneulddu/vitrine/commit/47078417ce4a96effb715fed8306be2a5fcf124d))
+* 곡 차단·공유 카드·가사 표시 개선 추가 ([4e27144](https://github.com/oneulddu/vitrine/commit/4e271446fbe6167f1e21ff486a82502f28be6beb))
+* 로컬 음악 아티스트·앨범·폴더 페이지 추가 ([8275390](https://github.com/oneulddu/vitrine/commit/8275390686ac6c55dd02e27e077674d9144619ea))
+* 청취 통계 비교 차트와 연간 리캡 스토리 추가 ([24a99db](https://github.com/oneulddu/vitrine/commit/24a99db2ffdb4897141a7b276245434482f47645))
+
+
+### Fixes
+
+* 느린 가사 서버 때문에 뒤 소스 가사로 굳지 않게 ([56b58f2](https://github.com/oneulddu/vitrine/commit/56b58f2b60ee3445c6791e83b44d3e7d1e23a97f))
+* 잠금 화면 가사 줄마다 깜빡임과 예전 여백 수정 ([7bd164a](https://github.com/oneulddu/vitrine/commit/7bd164a885942bf877398c69b32f25eae214e3f5))
+* 잠긴 화면에서 Live Activity 가사가 멈추지 않게 ([7b5c7ce](https://github.com/oneulddu/vitrine/commit/7b5c7ce086b98789e72313b998df1fb1a2209a45))
+
 ## [1.0.0-beta.26](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.25...v1.0.0-beta.26) (2026-10-31)
 
 
