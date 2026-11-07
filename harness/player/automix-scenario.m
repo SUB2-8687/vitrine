@@ -29,6 +29,7 @@
 #import "Redesigned/Player/Player.h"
 #import "Redesigned/Player/PlayerQueue.h"
 #import "Core/SGPrefs.h"
+#import "../harness-fail.h"
 
 void SGRHarnessReport(SPTPlayerState *state);
 void SGRHarnessSetTransitionEnds(CFTimeInterval ends);
@@ -144,11 +145,21 @@ static void stepAfter(double (^delay)(void), dispatch_block_t block) {
 @interface SGRHarnessFrameStep : NSObject
 @property (nonatomic, copy) dispatch_block_t action;
 @property (nonatomic) NSUInteger frames;
+@property (nonatomic, copy) BOOL (^ready)(void);
+@property (nonatomic, copy) NSString *precondition;
+@property (nonatomic) CFTimeInterval deadline;
 @end
 @implementation SGRHarnessFrameStep
 - (void)frame:(CADisplayLink *)link {
     // The second callback follows a complete frame regardless of display-link callback order.
     if (++self.frames < 2) return;
+    if (self.ready && !self.ready()) {
+        if (CACurrentMediaTime() >= self.deadline) {
+            [link invalidate];
+            HARNESS_FAIL(@"automix precondition timed out: %@", self.precondition);
+        }
+        return;
+    }
     [link invalidate];
     self.action();
 }
@@ -158,12 +169,22 @@ static void stepOnFrame(dispatch_block_t block) {
     [sg_steps addObject:@[@"frame", [block copy]]];
 }
 
+static void stepUntil(NSString *precondition, BOOL (^ready)(void), dispatch_block_t block) {
+    [sg_steps addObject:@[@"frame", [block copy], [ready copy], precondition]];
+}
+
 static void runSteps(void) {
     if (!sg_steps.count) return;
     NSArray *next = sg_steps.firstObject;
     [sg_steps removeObjectAtIndex:0];
     if ([next[0] isKindOfClass:NSString.class]) {
         SGRHarnessFrameStep *frame = [SGRHarnessFrameStep new];
+        if (next.count == 4) {
+            const NSTimeInterval preconditionDeadlineSeconds = 10;
+            frame.ready = next[2];
+            frame.precondition = next[3];
+            frame.deadline = CACurrentMediaTime() + preconditionDeadlineSeconds;
+        }
         frame.action = ^{
             ((dispatch_block_t)next[1])();
             runSteps();
@@ -985,10 +1006,15 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
     });
     // Up again with nothing holding it, then the player taken out of the window.
     step(0.2, ^{
+        // Artwork readiness is asynchronous; keep the fixture inside the outgoing window while waiting.
+        sg_playbackTime = CACurrentMediaTime();
+        sg_controlledClock = YES;
         playA(14.2, 16);
         SGRHarnessSetTransition(blend());
     });
-    step(0.6, ^{
+    stepUntil(@"artwork stage up before removing the player (10 s)", ^BOOL{
+        return stage() != nil && cover.alpha == 0;
+    }, ^{
         weakStage = stage();
         wasOn = weakStage != nil;
         [window.rootViewController.view.subviews.firstObject removeFromSuperview];
@@ -996,6 +1022,7 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
     step(0.2, ^{
         check(A, @"no stage kept once the player is gone", wasOn && weakStage == nil && cover.alpha == 1,
               [NSString stringWithFormat:@"up before %d, stage kept %d, cover alpha %.2f", wasOn, weakStage != nil, cover.alpha]);
+        sg_controlledClock = NO;
     });
     step(0.2, ^{
         BOOL pass = sg_right == sg_checks;

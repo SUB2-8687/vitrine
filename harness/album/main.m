@@ -6,6 +6,7 @@
 #import "../download-mock.h"
 #import "Redesigned/Kit/SGRHeaderInfo.h"
 #import "Redesigned/Kit/SGRActionRow.h"
+#import "Redesigned/Kit/SGRField.h"
 #import <mach/mach.h>
 #import "../harness-fail.h"
 #import "hero-veil-check.h"
@@ -51,16 +52,32 @@ static void pinnedOn(UIView *page,SGRMirrorButton **download,SGRMirrorButton **m
     }
 }
 
-// The page's first frames, while the field holds it under its veil (SGRFieldHoldLimit) and a beat past: on every
+// The page's first frames, plus a controlled hold once its pinned buttons are ready: on every
 // frame drawn the pinned ⋯ is never its glyph alone. Either its own glass shows, or download's capsule is under it
 // and covers it, download right under ⋯ in the page so that nothing -- the veil -- is between the two. Read after
 // each Core Animation commit. `freeze` stops the main thread for 4 s on the first frame under the veil, so that a
 // screenshot catches it. The verdict is logged and kept for verifyAlbumActions.
 static BOOL sg_holdChecked,sg_holdPassed;
+static dispatch_block_t sg_afterHold;
+static void afterPinnedHold(dispatch_block_t action) {
+    if (sg_holdChecked) {
+        HARNESS_CHECK(sg_holdPassed);
+        action();
+    } else {
+        sg_afterHold = [action copy];
+    }
+}
 static void watchPinnedHold(UIView *page,BOOL freeze) {
     __block NSUInteger frames=0,veiled=0,onCapsule=0;
     __block BOOL failed=NO,frozen=!freeze,done=NO;
     __block CFTimeInterval start=0;
+    __block SGRArtworkField *heldField=nil;
+    __block BOOL observedHold=NO;
+    const NSTimeInterval holdDeadlineSeconds=10;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(holdDeadlineSeconds*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+        if(!done)HARNESS_FAIL(@"pinned hold precondition timed out after %.0f s: %lu frames, %lu under the veil, controlled hold observed %d",
+                             holdDeadlineSeconds,(unsigned long)frames,(unsigned long)veiled,observedHold);
+    });
     CFRunLoopObserverRef observer=CFRunLoopObserverCreateWithHandler(NULL,kCFRunLoopBeforeWaiting|kCFRunLoopExit,true,2000001,^(CFRunLoopObserverRef obs,CFRunLoopActivity activity){
         if(done)return;
         SGRMirrorButton *download,*more;pinnedOn(page,&download,&more);
@@ -68,11 +85,22 @@ static void watchPinnedHold(UIView *page,BOOL freeze) {
         if(!start)start=CACurrentMediaTime();
         UIView *veil=nil;
         for(UIView *v in page.subviews)if([NSStringFromClass(v.class) isEqualToString:@"SGRFieldVeil"])veil=v;
-        if(!veil && CACurrentMediaTime()-start>1){
+        // The launch's palette may release its veil before the first visible frame. Exercise the real
+        // holdPage implementation after readiness instead of requiring that transient launch race.
+        if(!veil && !heldField){
+            heldField=[SGRArtworkField new];
+            [heldField holdPage:page];
+            for(UIView *v in page.subviews)if([NSStringFromClass(v.class) isEqualToString:@"SGRFieldVeil"])veil=v;
+        }
+        if(!veil && observedHold && CACurrentMediaTime()-start>1){
             done=YES;
             sg_holdChecked=YES;sg_holdPassed=!failed && veiled>0;
             NSLog(@"[harness] %@ pinned hold: %lu frames, %lu under the veil, %lu with ⋯ on download's capsule; ⋯ %@",sg_holdPassed?@"PASS":@"FAIL",
                   (unsigned long)frames,(unsigned long)veiled,(unsigned long)onCapsule,failed?@"was drawn without glass":@"never without glass");
+            heldField=nil;
+            HARNESS_CHECK(sg_holdPassed);
+            dispatch_block_t action=sg_afterHold;sg_afterHold=nil;
+            if(action)dispatch_async(dispatch_get_main_queue(),action);
             return;
         }
         frames++;
@@ -112,6 +140,10 @@ static void watchPinnedHold(UIView *page,BOOL freeze) {
             NSLog(@"[harness] first frame under the veil held 4 s for a screenshot, veil a=%.2f",layer.presentationLayer.opacity);
             [NSThread sleepForTimeInterval:4];
             layer.speed=1;layer.timeOffset=0;
+        }
+        if(veil && heldField && !observedHold){
+            observedHold=YES;
+            [heldField showPage];
         }
     });
     CFRunLoopAddObserver(CFRunLoopGetMain(),observer,kCFRunLoopCommonModes);
@@ -843,9 +875,9 @@ static NSString *trailingLabel(UIView *root) {
     if (downloads) downloadScript();
     // `faces` (faces-check.h): the artist line's faces, after the header has drawn the one the page opened with.
     // `more` (more-check.h): the track rows' ⋯ in the page's colour, once the field has read the cover.
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"faces"]) at(2.5, ^{ facesRun(root.view, (UIControl *)parentRow); });
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"faces"]) at(2.5, ^{ afterPinnedHold(^{ facesRun(root.view, (UIControl *)parentRow); }); });
     if ([NSProcessInfo.processInfo.arguments containsObject:@"more"])
-        at(3, ^{ moreRun(root.view, trackCells, ^UIColor *{ return SGRAlbumFieldColor(page); }); });
+        at(3, ^{ afterPinnedHold(^{ moreRun(root.view, trackCells, ^UIColor *{ return SGRAlbumFieldColor(page); }); }); });
 
     if (shortTitle) {
         at(1, ^{
