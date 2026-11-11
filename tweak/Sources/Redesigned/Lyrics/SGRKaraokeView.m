@@ -2690,6 +2690,14 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
 - (void)takeTops:(NSArray<NSNumber *> *)tops {
     _stackEnd = tops.lastObject.doubleValue;
     _tops = tops.count ? [tops subarrayWithRange:NSMakeRange(0, tops.count - 1)] : tops;
+    if (!_sample && !_plain) {
+        NSInteger now = [self positionMs];
+        if (now >= 0) {
+            _sungCount = [self sungAt:now into:_sung focus:&_focus openBreak:&_openBreak];
+            _arrangement++;
+            if (_openBreak < 0) [_dots removeFromSuperview];
+        }
+    }
 }
 
 - (void)showStyle:(SGRKaraokeStyle *)style tops:(NSArray<NSNumber *> *)tops {
@@ -2704,9 +2712,7 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     _sightArrangement = NSUIntegerMax;
     [self placeLinesAnimated:NO];
     [self showLinesInSight];   // placing stands still while the page is scrolled by hand; the views do not
-    // The new views come in as the old ones were: the lines being sung lit, and every blur where it
-    // was rather than easing in from sharp, which a view made out of sight does unseen.
-    for (NSUInteger i = 0; i < _sungCount; i++) [self viewForLine:_sung[i]].active = YES;
+    // A restyle's blur starts in place rather than easing in from sharp.
     for (SGRKaraokeLineView *view in _shown.allValues) [view.layer removeAnimationForKey:@"blur"];
 }
 
@@ -3354,6 +3360,7 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
             };
         }
         if (self->_plain) [view showPlain];
+        else view.active = [self isSung:index];
         [view markMeaning:self->_meanings[@(index)]];
         [self->_scroll addSubview:view];
         self->_shown[@(index)] = view;

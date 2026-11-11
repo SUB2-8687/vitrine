@@ -124,6 +124,9 @@ Shared:
                   play, so a queue that is all blocked cannot spin. With nothing blocked the now playing hook returns at once
                   (a flag kept in step with the list)
     Flags/        Spotify's remote-config flags: the provider hook, the generated table, the All flags page and the Labs page;
+                  Labs also offers AI badges and its dependent Likely AI badges, both off by default
+                  (unlike Chroma). They enable Spotify's own classification badges on artists, search and rows;
+                  off leaves the server's values alone. They use the forced-flag registry and require a restart.
                   the provider pins 9.1.88's ios-reprise-liquid-glass-override.mode to default in both looks (after an All flags
                   override) and logs the server's own value once, as a force_disabled would take the glass off the redesign.
                   It also pins 9.1.90's ios-navigationui-tabbar-impl.is_liquid_glass_tab_bar_enabled off in both looks.
@@ -131,7 +134,10 @@ Shared:
                   and the hold on either side of the cover (GestureHold.m): `spotifyglass.gestures.hold`, on until
                   switched off, and `spotifyglass.gestures.hold.speed`, 1.5×, 2× (the default) or 3×, read when a hold
                   begins, the speed from before the hold restored on release; harness/gesture-hold/
-    Lyrics/       the lyrics engine for the redesign's Apple Music style lyrics and the lock screen: lines read from
+    Lyrics/       Newly measured layouts in the redesign compute sung/active lines from the current playback
+                  position before placement, including restyles and resizes; previews, plain lyrics and unknown
+                  positions skip the refresh. No new timer is used.
+                  The lyrics engine for the redesign's Apple Music style lyrics and the lock screen: lines read from
                   color-lyrics and the player's clock (KaraokeSource.x), words timed by estimate inside Spotify's line
                   times (KaraokeTiming.m, which splits Thai, Lao, Khmer and Burmese at the system's dictionary words), which line to name where two voices sing at once (the one that came in first,
                   for the lock screen and the Live Activity), a line in another alphabet in the alphabet chosen, Latin

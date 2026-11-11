@@ -949,12 +949,14 @@
 "settings.keyboard.volume_down" = "Volume down";
 "settings.keyboard.volume_up" = "Volume up";
 
+"settings.labs.ai_badges.title" = "AI badges";
 "settings.labs.comments_card.title" = "Comments card";
 "settings.labs.dj.header" = "DJ";
 "settings.labs.dj_auto_mix.title" = "Auto mix";
 "settings.labs.dj_auto_mix_menu.title" = "Auto mix in the context menu";
 "settings.labs.intro" = "Unreleased features; some do nothing on your version. A switch that is on forces the feature on; off leaves it to Spotify, which may still turn it on. Changes apply after you restart Spotify.";
 "settings.labs.library.header" = "Library";
+"settings.labs.likely_ai_badges.title" = "Likely AI badges";
 "settings.labs.local_files.title" = "Local files from the Files app";
 "settings.labs.martini.agent_button.title" = "Agent button";
 "settings.labs.martini.backend.title" = "Martini behind it";

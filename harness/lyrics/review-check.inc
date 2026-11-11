@@ -6,6 +6,40 @@ extern NSString *SGHarnessPlayingTrack;
 extern void (^SGHarnessAIRequested)(NSString *kind, NSString *track);
 static atomic_bool reviewReadOffMain;
 
+@interface SGRKaraokeView (PublicationHarness)
+- (void)placeLinesAnimated:(BOOL)animated;
+@end
+
+@interface SGPublicationView : SGRKaraokeView
+@property (nonatomic) BOOL published;
+@property (nonatomic) BOOL firstFrameCorrect;
+@end
+@implementation SGPublicationView
+- (NSInteger)positionMs { return 1500; }
+- (void)startLink {}
+- (void)placeLinesAnimated:(BOOL)animated {
+    [super placeLinesAnimated:animated];
+    if (self.published || ![[self valueForKey:@"tops"] count]) return;
+    self.published = YES;
+    NSDictionary *shown = [self valueForKey:@"shown"];
+    UIView *current = shown[@1], *previous = shown[@0];
+    self.firstFrameCorrect = (current.accessibilityTraits & UIAccessibilityTraitSelected) &&
+                             !(previous.accessibilityTraits & UIAccessibilityTraitSelected);
+}
+@end
+
+static void publicationCheck(void) {
+    SGHarnessPlayingTrack = @"publication";
+    SGKaraokeKeepLines(@"publication", @[sungLine(0, @"before"), sungLine(1000, @"current")]);
+    SGPublicationView *view = [[SGPublicationView alloc] initWithFrame:CGRectMake(0, 0, 360, 600)];
+    ((void (*)(id, SEL))objc_msgSend)(view, NSSelectorFromString(@"tick"));
+    [view layoutSubviews];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2];
+    while (!view.published && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    check(view.published && view.firstFrameCorrect, @"first published frame selects the current sung line without a display tick");
+}
+
 @interface SGReviewMutableLine : SGKaraokeLine
 @end
 @implementation SGReviewMutableLine
@@ -26,6 +60,7 @@ static BOOL reviewShowsText(UIView *view, NSString *text) {
 #include "extras-check.inc"
 
 static void reviewChecks(UIWindow *window) {
+    publicationCheck();
     NSUserDefaults *args = NSUserDefaults.standardUserDefaults;
     [args setBool:NO forKey:SGRKeyLyricsAutoTranslation];
     [args setBool:YES forKey:@"ai"];

@@ -11,6 +11,9 @@
 // different one.
 #import <Foundation/Foundation.h>
 #import <mach/mach_time.h>
+#import <spawn.h>
+#import <sys/wait.h>
+#import <crt_externs.h>
 #import "Core/SGFlagForce.h"
 #import "Core/SGPrefs.h"
 #import "Shared/AdBlock/AdBlock.h"
@@ -23,11 +26,72 @@ static double now(void) {
     return (double)mach_absolute_time() * base.numer / base.denom / 1e6;
 }
 
+static int badgeCheck(NSUInteger state) {
+    NSArray *switches = @[@[@NO, @NO], @[@YES, @NO], @[@YES, @YES], @[@NO, @YES]];
+    SGSetEnabled(SGKeyAIBadges, [switches[state][0] boolValue]);
+    SGSetEnabled(SGKeyLikelyAIBadges, [switches[state][1] boolValue]);
+    NSArray *keys = @[
+        @"ios-creator-impl.is_ai_persona_badge_enabled",
+        @"ios-creator-impl.is_ai_attribution_enabled",
+        @"ios-feature-search.ai_persona_badge_enabled",
+        @"ios-listuxplatformconsumers-defaultrowslotplugins.ai_persona_badge_enabled",
+        @"ios-creator-impl.is_likely_ai_persona_badge_enabled",
+        @"ios-feature-search.likely_ai_persona_badge_enabled",
+        @"ios-harness.not-a-badge",
+    ];
+    NSArray *truth = @[
+        @[@NO, @NO, @NO, @NO, @NO, @NO, @NO],
+        @[@YES, @YES, @YES, @YES, @NO, @NO, @NO],
+        @[@YES, @YES, @YES, @YES, @YES, @YES, @NO],
+        @[@NO, @NO, @NO, @NO, @NO, @NO, @NO],
+    ];
+    int wrong = 0;
+    for (NSUInteger i = 0; i < keys.count; i++) {
+        id expected = [truth[state][i] boolValue] ? @YES : nil;
+        id got = SGForcedFlagValue(keys[i]);
+        if (!(got == expected || [got isEqual:expected])) {
+            printf("wrong AI badge state %lu for %s\n", (unsigned long)state, [keys[i] UTF8String]);
+            wrong++;
+        }
+    }
+    printf("AI badge launch state %lu: %d wrong\n", (unsigned long)state, wrong);
+    return wrong ? 1 : 0;
+}
+
+static int badgeLaunches(char *executable) {
+    int wrong = 0;
+    for (char state = '0'; state <= '3'; state++) {
+        char value[] = {state, '\0'};
+        char *args[] = {executable, "--badge-state", value, NULL};
+        pid_t child;
+        int error = posix_spawn(&child, executable, NULL, NULL, args, *_NSGetEnviron());
+        if (error) {
+            fprintf(stderr, "badge launch failed: %s\n", strerror(error));
+            return 1;
+        }
+        int status;
+        if (waitpid(child, &status, 0) < 0) {
+            perror("badge launch wait");
+            return 1;
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) wrong++;
+    }
+    return wrong ? 1 : 0;
+}
+
 int main(int argc, char **argv) {
     @autoreleasepool {
         NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
         for (NSString *key in [store dictionaryRepresentation]) {
             if ([key hasPrefix:@"spotifyglass."]) [store removeObjectForKey:key];
+        }
+        SGPrefsChanged();
+        if (argc == 3 && !strcmp(argv[1], "--badge-state") &&
+            strlen(argv[2]) == 1 && argv[2][0] >= '0' && argv[2][0] <= '3')
+            return badgeCheck((NSUInteger)(argv[2][0] - '0'));
+        if (argc != 1) {
+            fprintf(stderr, "usage: %s [--badge-state 0|1|2|3]\n", argv[0]);
+            return 1;
         }
         [store setBool:YES forKey:SGKeyHideAds];
         [store setBool:YES forKey:SGKeyHideUpsells];
@@ -100,6 +164,7 @@ int main(int argc, char **argv) {
             printf("wrong report after the late ask\n");
             wrong++;
         }
+        wrong += badgeLaunches(argv[0]);
         return wrong ? 1 : 0;
     }
 }

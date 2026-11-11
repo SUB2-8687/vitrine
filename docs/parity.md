@@ -308,6 +308,13 @@ today's look until it is changed.
 | Weekly and monthly recaps | Not taken: upstream's paid tier |
 | Animated cover geometry, edition-safe animated covers, header creator fades, profile avatar, DJ visualization, AutoMix changes | Not taken: the behavior could not be read completely enough to specify |
 
+### Chroma 1.1.0-beta.2 (clean-room behavior)
+
+| Item | Where Vitrine stands |
+|---|---|
+| AI-content badges | Labs: AI badges and dependent Likely AI badges force only Spotify's specified classification flags; both default off, unlike Chroma, leaving Spotify's values alone until enabled. |
+| Karaoke first placement | Newly measured layouts compute the current sung/active state before placement; demo/plain lyrics and invalid positions are excluded, with no new timer. |
+
 ### Upstream Plus features, Vitrine's own versions (described by behavior)
 
 Vitrine has no paid tier, so where a Plus feature could be built from its behavior alone it now has one of its own,
