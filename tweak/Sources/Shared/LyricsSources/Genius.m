@@ -96,7 +96,14 @@ SGLyricsAsk SGGeniusAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
         return;
     }
     SGLyricsGetJSONIn(query.requestContext, SGLyricsURL(SGGeniusSearchURL, SGGeniusSearchQuery(query.title, query.artist)), nil, ^(id root) {
-        NSNumber *song = SGGeniusSongIn([root isKindOfClass:NSDictionary.class] ? root[@"response"] : nil, query.title, query.artist);
+        id response = SGLyricsField(root, @"response"), sections = SGLyricsField(response, @"sections");
+        BOOL empty = [sections isKindOfClass:NSArray.class];
+        for (id section in empty ? sections : @[]) {
+            id hits = SGLyricsField(section, @"hits");
+            if (![hits isKindOfClass:NSArray.class] || [hits count]) empty = NO;
+        }
+        if (empty) query.requestContext.emptyNameSearch = SGGeniusAsk;
+        NSNumber *song = SGGeniusSongIn(response, query.title, query.artist);
         if (!song) {
             SGLog(@"genius: no song for %@ by %@", query.title, query.artist);
             done(nil);

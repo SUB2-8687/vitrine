@@ -75,7 +75,7 @@ static void askMissing(SGLyricsOfferAsk *ask) {
     for (NSString *key in keys) {
         SGLyricsProvider *provider = SGLyricsProviderFor(key);
         SGLyricsQuery *query = queries[key];
-        SGLyricsInvoke(provider, query, ^(SGLyricsResult *result, BOOL failed) {
+        SGLyricsInvoke(provider, query, ^BOOL { return sg_asks[trackID] == ask; }, ^(SGLyricsResult *result, BOOL failed) {
             if (result.karaokeLines.count && !result.provider) result.provider = provider.name;
             // As in the walk: nothing, while a request failed, may be a busy server rather than no lyrics.
             SGLog(@"lyrics: %@ offers %lu lines for %@%@", key, (unsigned long)result.karaokeLines.count, trackID,

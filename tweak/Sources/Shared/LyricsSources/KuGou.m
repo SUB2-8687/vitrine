@@ -79,6 +79,8 @@ SGLyricsAsk SGKuGouAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *re
     if (ms > 0) search[@"duration"] = @(ms).stringValue;
     SGLyricsGetJSONTransformIn(query.requestContext, SGLyricsURL(kSearch, search), headers(), ^id(id root) {
         id candidates = [root isKindOfClass:NSDictionary.class] ? root[@"candidates"] : nil;
+        if ([candidates isKindOfClass:NSArray.class] && ![candidates count])
+            query.requestContext.emptyNameSearch = SGKuGouAsk;
         NSMutableArray<NSDictionary *> *fitting = [NSMutableArray array];
         for (NSDictionary *candidate in [candidates isKindOfClass:NSArray.class] ? candidates : @[]) {
             if (![candidate isKindOfClass:NSDictionary.class]) continue;

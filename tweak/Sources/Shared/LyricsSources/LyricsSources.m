@@ -37,14 +37,27 @@ static NSString *const kLegacyNetEase = @"spotifyglass.neteaseWordTiming";
 @implementation SGLyricsProvider
 @end
 
-void SGLyricsInvoke(SGLyricsProvider *provider, SGLyricsQuery *query, void (^done)(SGLyricsResult *, BOOL)) {
+void SGLyricsInvoke(SGLyricsProvider *provider, SGLyricsQuery *query, BOOL (^current)(void), void (^done)(SGLyricsResult *, BOOL)) {
     SGLyricsQuery *invocation = [SGLyricsQuery new];
     invocation.trackID = query.trackID;
     invocation.title = query.title; invocation.artist = query.artist; invocation.album = query.album;
     invocation.seconds = query.seconds;
     SGLyricsRequestContext *context = invocation.requestContext = [SGLyricsRequestContext new];
     provider.ask(invocation, ^(SGLyricsResult *result) {
-        void (^deliver)(void) = ^{ done(result, context.failed); };
+        void (^deliver)(void) = ^{
+            SGLyricsAsk search = context.emptyNameSearch;
+            NSString *title = !result && !context.failed && search && (!current || current())
+                ? SGLyricsBareTitleWithOptions(invocation.title, YES) : invocation.title;
+            if (title.length && ![title isEqualToString:invocation.title]) {
+                invocation.title = title;
+                context.emptyNameSearch = nil;
+                search(invocation, ^(SGLyricsResult *retry) {
+                    void (^finish)(void) = ^{ done(retry, context.failed); };
+                    if (NSThread.isMainThread) finish();
+                    else dispatch_async(dispatch_get_main_queue(), finish);
+                });
+            } else done(result, context.failed);
+        };
         if (NSThread.isMainThread) deliver();
         else dispatch_async(dispatch_get_main_queue(), deliver);
     });
@@ -1071,7 +1084,7 @@ static void recoverLater(SGLyricsWalk *walk) {
             if ([key isEqualToString:@"@pin"]) {
                 SGLyricsRequestContext *context = [SGLyricsRequestContext new];
                 SGLrcLibGetIDIn(context, walk.pin, ^(SGLyricsResult *fresh) { done(fresh, context.failed); });
-            } else SGLyricsInvoke(SGLyricsProviderFor(key), walk.query, done);
+            } else SGLyricsInvoke(SGLyricsProviderFor(key), walk.query, ^BOOL { return ownsWalk(walk) && !walk.settled; }, done);
             if (!ownsWalk(walk) || walk.settled) return;
         }
     });
@@ -1124,7 +1137,7 @@ static void step(SGLyricsWalk *walk) {
         step(walk);
         return;
     }
-    SGLyricsInvoke(provider, query, ^(SGLyricsResult *fresh, BOOL failed) {
+    SGLyricsInvoke(provider, query, ^BOOL { return currentWalk(walk); }, ^(SGLyricsResult *fresh, BOOL failed) {
         if (!currentWalk(walk)) return;
         if (failed) [walk.failures addObject:provider.key];
         // Instrumental counts as no lines here; a failed request does not, as the server may only be busy.
@@ -1157,7 +1170,7 @@ static void askAll(SGLyricsWalk *walk) {
         }
         [walk.started addObject:key];
         [walk.inFlight addObject:key];
-        SGLyricsInvoke(provider, walk.query, ^(SGLyricsResult *fresh, BOOL failed) {
+        SGLyricsInvoke(provider, walk.query, ^BOOL { return currentWalk(walk) && [walk.inFlight containsObject:key]; }, ^(SGLyricsResult *fresh, BOOL failed) {
             // Imported files, missing keys and cached replies may answer synchronously. Every
             // initial eligible ask must start before any reply can merge or exhaust the walk.
             dispatch_async(dispatch_get_main_queue(), ^{

@@ -205,11 +205,13 @@ static BOOL betterRecord(NSDictionary *record, NSDictionary *best, NSInteger sec
     if (seconds > 0) {
         NSInteger off = labs(secondsIn(record) - seconds);
         NSInteger wasOff = labs(secondsIn(best) - seconds);
-        return off < wasOff;
+        if (off != wasOff) return off < wasOff;
     }
-    NSString *text = record[@"syncedLyrics"] ?: record[@"plainLyrics"] ?: @"";
-    NSString *wasText = best[@"syncedLyrics"] ?: best[@"plainLyrics"] ?: @"";
-    return [text isKindOfClass:NSString.class] && (![wasText isKindOfClass:NSString.class] || text.length > wasText.length);
+    id text = synced ? record[@"syncedLyrics"] : record[@"plainLyrics"];
+    id wasText = wasSynced ? best[@"syncedLyrics"] : best[@"plainLyrics"];
+    NSUInteger len = [text isKindOfClass:NSString.class] ? [text length] : 0;
+    NSUInteger wasLen = [wasText isKindOfClass:NSString.class] ? [wasText length] : 0;
+    return len > wasLen;
 }
 
 // The search ranks by its own lights, and its first hit is often another song of the artist's or the
@@ -276,6 +278,8 @@ SGLyricsAsk SGLrcLibAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
 
     void (^bySearch)(void) = ^{
         getJSON(query.requestContext, SGLyricsURL(kSearch, search), ^id(id found) {
+            if ([found isKindOfClass:NSArray.class] && ![found count])
+                query.requestContext.emptyNameSearch = SGLrcLibAsk;
             return resultFor(matching(found, title, artist, seconds), seconds);
         }, ^(SGLyricsResult *result) {
                 SGLog(@"lrclib: search for %@ by %@ gave %@", title, artist,

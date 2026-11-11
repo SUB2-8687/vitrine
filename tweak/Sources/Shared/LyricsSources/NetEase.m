@@ -111,7 +111,11 @@ SGLyricsAsk SGNetEaseAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *
         return;
     }
     get(query.requestContext, @"search/get", @{@"s": [NSString stringWithFormat:@"%@ %@", title, lead], @"type": @"1", @"limit": @"10"}, ^(NSDictionary *root) {
-        id songs = [root[@"result"] isKindOfClass:NSDictionary.class] ? root[@"result"][@"songs"] : nil;
+        id result = [root[@"result"] isKindOfClass:NSDictionary.class] ? root[@"result"] : nil;
+        id songs = result[@"songs"];
+        if ([root[@"code"] isEqual:@200] && (([songs isKindOfClass:NSArray.class] && ![songs count])
+            || (!songs && [result[@"songCount"] isEqual:@0])))
+            query.requestContext.emptyNameSearch = SGNetEaseAsk;
         NSMutableArray<NSDictionary *> *fitting = [NSMutableArray array];
         for (NSDictionary *song in [songs isKindOfClass:NSArray.class] ? songs : @[]) {
             if (![song isKindOfClass:NSDictionary.class]) continue;

@@ -209,7 +209,11 @@ void SGDeezerAskWith(NSString *arl, SGLyricsQuery *query, void (^done)(SGLyricsR
     NSString *artist = [SGLyricsLeadArtist(query.artist) stringByReplacingOccurrencesOfString:@"\"" withString:@""];
     NSURL *url = SGLyricsURL(@"https://api.deezer.com/search", @{@"q": [NSString stringWithFormat:@"track:\"%@\" artist:\"%@\"", title, artist]});
     SGLyricsSourceRequestIn(query.requestContext, url, nil, nil, ^(NSData *data, NSInteger status) {
-        NSString *song = status == 200 ? songFor(json(data), query) : nil;
+        id root = status == 200 ? json(data) : nil;
+        id list = SGLyricsField(root, @"data");
+        if ([list isKindOfClass:NSArray.class] && ![list count])
+            query.requestContext.emptyNameSearch = ^(SGLyricsQuery *again, void (^answer)(SGLyricsResult *)) { SGDeezerAskWith(arl, again, answer); };
+        NSString *song = songFor(root, query);
         if (!song) { done(nil); return; }
         lyrics(query.requestContext, song, arl, generation, NO, done);
     });

@@ -34,10 +34,15 @@ void SGLyricsSetSourceTypes(NSString *key, SGLyricsTypes types);
 UIViewController *SGLyricsTypesPage(void);
 SGModRow *SGLyricsTypesRow(void);
 
-@class SGLyricsResult;
+@class SGLyricsResult, SGLyricsQuery;
+// Calls back on the main queue, nil when the source has nothing for the track.
+typedef void (^SGLyricsAsk)(SGLyricsQuery *query, void (^done)(SGLyricsResult *result));
 // One invocation, never a provider-wide or track-wide counter. Subrequests OR their outcomes.
 @interface SGLyricsRequestContext : NSObject
 @property (atomic, readonly) BOOL failed;
+// Set only for a successful, genuinely empty name search, before matching or fetching lyrics.
+// The continuation must search by name only, never repeat an ID or ISRC lookup.
+@property (atomic, copy) SGLyricsAsk emptyNameSearch;
 - (void)noteFailure:(BOOL)failed;
 - (void)noteResponse:(NSURLResponse *)response error:(NSError *)error;
 @end
@@ -117,9 +122,6 @@ SGLyricsResult *SGLyricsSnapshot(SGLyricsResult *result);
 // The lines as Spotify's own page takes them, ♪ over a break and an empty line at the end.
 void SGLyricsPageLines(NSArray<SGKaraokeLine *> *lines, NSArray<NSNumber *> **starts, NSArray<NSString *> **texts);
 
-// Calls back on the main queue, nil when the source has nothing for the track.
-typedef void (^SGLyricsAsk)(SGLyricsQuery *query, void (^done)(SGLyricsResult *result));
-
 @interface SGLyricsProvider : NSObject
 @property (nonatomic, copy) NSString *key;      // stored in the order, never shown
 @property (nonatomic, copy) NSString *name;     // "BiniLyrics", what the credit reads
@@ -134,6 +136,7 @@ typedef void (^SGLyricsAsk)(SGLyricsQuery *query, void (^done)(SGLyricsResult *r
 @end
 
 void SGLyricsInvoke(SGLyricsProvider *provider, SGLyricsQuery *query,
+                    BOOL (^current)(void),
                     void (^done)(SGLyricsResult *result, BOOL failed));
 
 // Shared backoff for empty-source retries and provisional-answer recovery.
@@ -431,6 +434,7 @@ NSArray<SGKaraokeLine *> *SGKuGouLines(NSString *content);
 // artists is the track's lead), 1 for another version of it, 2 for the plain song, 3 for the same version.
 NSString *SGLyricsFoldedText(NSString *text);
 NSString *SGLyricsBareTitle(NSString *title);
+NSString *SGLyricsBareTitleWithOptions(NSString *title, BOOL soundtrackOnly);
 NSSet<NSString *> *SGLyricsTitleVersion(NSString *title);
 NSInteger SGLyricsSongRank(NSString *title, NSString *artist, NSString *songTitle, NSArray<NSString *> *songArtists);
 // Genius's search, which the lyrics source (Genius.m) and the line meanings (LyricsMeanings/Meanings.m)

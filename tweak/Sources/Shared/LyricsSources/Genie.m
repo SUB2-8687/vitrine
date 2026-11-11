@@ -57,16 +57,18 @@ static NSString *anchor(NSString *row, NSString *kind) {
     return nil;
 }
 
-static NSString *songFor(NSString *html, NSString *title, NSString *artist) {
+static NSString *songFor(NSString *html, NSString *title, NSString *artist, BOOL *empty) {
     if (!html.length || html.length > 1024 * 1024) return nil;
+    *empty = [html containsString:@"검색 결과가 없습니다"];
     NSUInteger count = 0;
     for (NSTextCheckingResult *match in matches(@"<tr\\b[^>]*>.*?</tr\\s*>", html)) {
-        if (++count > 300) break;
+        if (++count > 300) { *empty = NO; break; }
         NSString *row = [html substringWithRange:match.range];
-        if (row.length > 32768) continue;
+        if (row.length > 32768) { *empty = NO; continue; }
         NSString *opening = capture(@"^(<tr\\b[^>]*>)", row);
         NSString *classes = capture(@"\\bclass\\s*=\\s*['\"]([^'\"]*)['\"]", opening);
         if (![[classes componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] containsObject:@"list"]) continue;
+        *empty = NO;
         NSString *song = SGLyricsDecimalID(capture(@"\\bsongid\\s*=\\s*['\"]([0-9]+)['\"]", opening));
         if (song && [SGLyricsMatchKey(anchor(row, @"title")) isEqualToString:SGLyricsMatchKey(title)] && SGLyricsSameArtist(anchor(row, @"artist"), artist)) return song;
     }
@@ -100,7 +102,10 @@ SGLyricsAsk SGGenieAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *))
     SGLyricsSourceRequestIn(query.requestContext, url, headers, nil, ^(NSData *data, NSInteger status) {
         SGLyricsTransform(^id {
             NSString *html = status == 200 && data.length ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
-            return songFor(html, title, artist);
+            BOOL empty = NO;
+            NSString *song = songFor(html, title, artist, &empty);
+            if (empty) query.requestContext.emptyNameSearch = SGGenieAsk;
+            return song;
         }, ^(NSString *song) {
         if (!song) { done(nil); return; }
         SGLyricsSourceRequestIn(query.requestContext, SGLyricsURL(@"https://dn.genie.co.kr/app/purchase/get_msl.asp", @{@"path": @"a", @"songid": song}), headers, nil, ^(NSData *answer, NSInteger code) {

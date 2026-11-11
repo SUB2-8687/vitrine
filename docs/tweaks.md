@@ -298,6 +298,12 @@ Shared:
                   and keeping the first word-timed lines to arrive. Timed lines release the card while finer
                   timing is sought. All at once waits for synced page text alongside word-timed lines, or
                   exhaustion, and only accepts instrumental at exhaustion if no lyrics arrived.
+                  A name search that finds nothing at all for a title carrying a film or soundtrack note
+                  ("(From \"…\")", "- Original Soundtrack", "OST") is asked once more with the song's own title
+                  (SGLyricsInvoke, SGLyricsBareTitleWithOptions; version notes such as Live or Remix stay), never
+                  after a failure or a rejected match, nor for Spotify-ID or ISRC lookups. BiniLyrics prefers a
+                  candidate whose duration is known and close, LRCLIB breaks equal-distance ties, and Spicy
+                  lines with null bounds take them from their words.
                   The old Type first boolean migrates to 0/1. Stored source orders are unchanged; unset
                   orders prioritize Imported lyrics, Spicy Lyrics, BiniLyrics, LyricsPlus, Musixmatch, Unison,
                   Deezer, NetEase, LRCLIB, Bugs, Genie, QQ Music, KuGou and Genius. Genius.m, last: untimed words for a track no

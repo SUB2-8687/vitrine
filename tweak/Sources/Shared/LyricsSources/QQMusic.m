@@ -175,6 +175,9 @@ SGLyricsAsk SGQQMusicAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *
         @"query": [NSString stringWithFormat:@"%@ %@", query.title, lead],
         @"search_type": @0, @"grp": @1, @"num_per_page": @8, @"page_num": @1,
     }}, ^id(id found) {
+        id list = dig(found, @[@"body", @"song", @"list"]);
+        if ([list isKindOfClass:NSArray.class] && ![list count])
+            query.requestContext.emptyNameSearch = SGQQMusicAsk;
         return songFor(found, title, artist, seconds);
     }, ^(NSNumber *song) {
         if (!song) {

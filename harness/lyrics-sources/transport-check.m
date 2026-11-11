@@ -205,8 +205,11 @@ int main(void) {
                 if ([host isEqual:@"www.genie.co.kr"]) return [@"<tr class='list' songid='7'><a class='title' title='Fixture'>Fixture</a><a class='artist'>Singer</a></tr>" dataUsingEncoding:NSUTF8StringEncoding];
                 if ([host isEqual:@"dn.genie.co.kr"]) return [@"callback({\"1000\":\"Hello\",\"2000\":\"\"})" dataUsingEncoding:NSUTF8StringEncoding];
                 if ([host isEqual:@"lyrics-api.binimum.org"]) return json(@{@"results": @[
-                    @{@"lyricsUrl": @"https://fixture.invalid/lyrics.ttml", @"timing_type": @"word", @"duration": @200}]});
+                    @{@"lyricsUrl": @"https://fixture.invalid/unknown.ttml", @"timing_type": @"word", @"duration": NSNull.null},
+                    @{@"lyricsUrl": @"https://fixture.invalid/lyrics.ttml", @"timing_type": @"word", @"duration": @202}]});
                 CHECK([path hasSuffix:@".ttml"]);
+                if ([path isEqual:@"/unknown.ttml"])
+                    return [@"<tt timing=\"Word\"><body><div><p begin=\"1s\" end=\"2s\"><span begin=\"1s\" end=\"2s\">Unknown</span></p></div></body></tt>" dataUsingEncoding:NSUTF8StringEncoding];
                 return [@"<tt timing=\"Word\"><body><div><p begin=\"1s\" end=\"2s\"><span begin=\"1s\" end=\"2s\">Hello</span></p></div></body></tt>" dataUsingEncoding:NSUTF8StringEncoding];
             };
             finished = NO;

@@ -40,7 +40,26 @@ NSString *SGLyricsFoldedText(NSString *text) {
 }
 
 NSString *SGLyricsBareTitle(NSString *title) {
+    return SGLyricsBareTitleWithOptions(title, NO);
+}
+
+NSString *SGLyricsBareTitleWithOptions(NSString *title, BOOL soundtrackOnly) {
     NSString *bare = title ?: @"";
+    if (soundtrackOnly) {
+        static NSRegularExpression *soundtrack;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            NSString *quoted = @"(?:\"[^\"]+\"|“[^”]+”|'[^']+'|‘[^’]+’)";
+            NSString *tail = @"(?:(?!\\s[-–—]\\s)[^)\\]])*";
+            NSString *annotation = [NSString stringWithFormat:@"(?:from\\s+(?:%@|the\\s+(?:motion\\s+picture|film|movie|series)\\b%@)|(?:original\\s+)?(?:motion\\s+picture\\s+)?soundtrack\\b%@|ost\\b%@)", quoted, tail, tail, tail];
+            NSString *pattern = [NSString stringWithFormat:@"(?i)\\s*(?:[\\(\\[]\\s*%@\\s*[\\)\\]]|\\s[-–—]\\s*%@(?=\\s[-–—]\\s|$)|\\s+from\\s+%@(?=\\s[-–—]\\s|$)|\\s+OST$)", annotation, annotation, quoted];
+            soundtrack = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+        });
+        if (![soundtrack numberOfMatchesInString:bare options:0 range:NSMakeRange(0, bare.length)]) return title;
+        bare = [soundtrack stringByReplacingMatchesInString:bare options:0 range:NSMakeRange(0, bare.length) withTemplate:@""];
+        bare = [bare stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        return bare.length ? bare : title;
+    }
     NSRange dash = [bare rangeOfString:@" - "];
     if (dash.location != NSNotFound) bare = [bare substringToIndex:dash.location];
     static NSRegularExpression *brackets;

@@ -24,8 +24,8 @@ static NSDictionary *bestOf(id results, NSInteger seconds) {
         // A length of null, or one that is not a number, is none to go on.
         double duration;
         NSInteger length = SGLyricsNumber(found[@"duration"], &duration) ? (NSInteger)duration : 0;
-        NSInteger off = seconds > 0 && length > 0 ? labs(length - seconds) : 0;
-        if (off > kLengthSlack) continue;
+        NSInteger off = seconds > 0 ? (length > 0 ? labs(length - seconds) : NSIntegerMax) : 0;
+        if (length > 0 && off > kLengthSlack) continue;
         BOOL wordTimed = [found[@"timing_type"] isEqual:@"word"];
         if (best && !(wordTimed && !bestWordTimed) && (bestWordTimed != wordTimed || off >= bestOff)) continue;
         best = found;
@@ -35,7 +35,7 @@ static NSDictionary *bestOf(id results, NSInteger seconds) {
     return best;
 }
 
-static void search(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
+static void searchByName(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
     if (!query.title.length || !query.artist.length) {
         SGLog(@"binilyrics: nothing to search with for %@", query.trackID);
         done(nil);
@@ -49,7 +49,10 @@ static void search(SGLyricsQuery *query, void (^done)(SGLyricsResult *result)) {
     if (query.album.length) search[@"album"] = query.album;
     NSInteger seconds = query.seconds;
     SGLyricsGetJSONTransformIn(query.requestContext, SGLyricsURL(kAPI, search), nil, ^id(id root) {
-        return bestOf([root isKindOfClass:NSDictionary.class] ? root[@"results"] : nil, seconds);
+        id results = [root isKindOfClass:NSDictionary.class] ? root[@"results"] : nil;
+        if ([results isKindOfClass:NSArray.class] && ![results count])
+            query.requestContext.emptyNameSearch = ^(SGLyricsQuery *again, void (^answer)(SGLyricsResult *)) { searchByName(again, answer); };
+        return bestOf(results, seconds);
     }, ^(NSDictionary *found) {
         if (!found) {
             SGLog(@"binilyrics: nothing within %lds of %@ by %@", (long)kLengthSlack, query.title, query.artist);
@@ -78,14 +81,14 @@ SGLyricsAsk SGBiniLyricsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
     captured.requestContext = query.requestContext;
     query = captured;
     if (query.trackID.length != 22) {
-        search(query, done);
+        searchByName(query, done);
         return;
     }
     // Asked once: the lyrics wait on it, and the search is there when Spotify does not answer.
     SGSpotifyISRCWithOutcome([@"spotify:track:" stringByAppendingString:query.trackID], 1, ^(NSString *isrc, BOOL failed) {
         [query.requestContext noteFailure:failed];
         if (!isrc) {
-            search(query, done);
+            searchByName(query, done);
             return;
         }
         SGLyricsGetTextTransformIn(query.requestContext, [NSURL URLWithString:[NSString stringWithFormat:kByISRC, isrc]], ^id(NSString *ttml) {
@@ -93,7 +96,7 @@ SGLyricsAsk SGBiniLyricsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
         }, ^(SGLyricsResult *result) {
             if (!result) {
                 SGLog(@"binilyrics: nothing filed under %@, searched by name", isrc);
-                search(query, done);
+                searchByName(query, done);
                 return;
             }
             SGLog(@"binilyrics: %@ (%@) has %lu %@ lines", query.title ?: query.trackID, isrc,

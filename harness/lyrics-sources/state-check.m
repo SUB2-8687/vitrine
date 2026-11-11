@@ -860,6 +860,67 @@ static NSDictionary *recoveryDisk(NSString *track) {
     return value;
 }
 
+static void checkSoundtrackRetry(void) {
+    // One invocation contract: only a genuine empty name search can remove its film annotation.
+    for (NSString *title in @[@"Song (From \"Film\")", @"Song (From the Motion Picture Film)",
+                              @"Song OST", @"Song - Original Soundtrack", @"Song From “Film”",
+                              @"Song - Original Soundtrack - Live", @"Song (From \"Howl's Moving Castle\")",
+                              @"Song - Live (From \"Film\")", @"Song - Live", @"From Home", @" Song "]) {
+        BOOL annotated = ![title isEqual:@"Song - Live"] && ![title isEqual:@"From Home"] && ![title isEqual:@" Song "];
+        NSString *clean = [title isEqual:@"Song - Live (From \"Film\")"] || [title isEqual:@"Song - Original Soundtrack - Live"] ? @"Song - Live" : @"Song";
+        for (NSString *outcome in @[@"empty", @"empty-again", @"rejected", @"timeout", @"refused", @"id", @"found", @"retired"]) {
+            SGLyricsQuery *query = [SGLyricsQuery new];
+            query.trackID = @"1234567890123456789012"; query.title = title;
+            query.artist = @"Singer"; query.album = @"Album"; query.seconds = 200;
+            SGLyricsProvider *provider = [SGLyricsProvider new];
+            provider.needsName = NO; // Like Musixmatch: the lookup, not the provider, can be by name.
+            SGLyricsWalk *walk = nil;
+            if ([outcome isEqual:@"retired"]) {
+                query.trackID = @"retired-soundtrack";
+                walk = [SGLyricsWalk new];
+                walk.query = query;
+                walk.generation = SGLyricsPinGeneration(query.trackID);
+                sg_walks[query.trackID] = walk;
+            }
+            SGLyricsResult *expected = SGLrcLibRecordResult(@{@"plainLyrics": @"Own song"});
+            __block BOOL retried = NO, finished = NO;
+            __block void (^pending)(SGLyricsResult *);
+            provider.ask = ^(SGLyricsQuery *first, void (^done)(SGLyricsResult *)) {
+                if (![outcome isEqual:@"rejected"] && ![outcome isEqual:@"id"]) first.requestContext.emptyNameSearch = ^(SGLyricsQuery *again, void (^answer)(SGLyricsResult *)) {
+                    CHECK(!retried && NSThread.isMainThread);
+                    retried = YES;
+                    CHECK([again.title isEqual:clean] && [again.artist isEqual:@"Singer"]);
+                    CHECK([again.album isEqual:@"Album"] && again.seconds == 200 && [again.trackID isEqual:query.trackID]);
+                    // A second empty result must finish, not start another attempt.
+                    again.requestContext.emptyNameSearch = ^(SGLyricsQuery *unused, void (^unexpected)(SGLyricsResult *)) { CHECK(NO); };
+                    answer([outcome isEqual:@"empty"] ? expected : nil);
+                };
+                if ([outcome isEqual:@"timeout"])
+                    [first.requestContext noteResponse:nil error:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil]];
+                if ([outcome isEqual:@"refused"])
+                    [first.requestContext noteResponse:[[NSHTTPURLResponse alloc] initWithURL:[NSURL URLWithString:@"https://fixture.invalid"]
+                        statusCode:403 HTTPVersion:nil headerFields:nil] error:nil];
+                if (walk) pending = [done copy];
+                else done([outcome isEqual:@"found"] ? expected : nil);
+            };
+            SGLyricsInvoke(provider, query, ^BOOL { return !walk || currentWalk(walk); }, ^(SGLyricsResult *result, BOOL failed) {
+                CHECK(!finished && NSThread.isMainThread);
+                CHECK(result == (([outcome isEqual:@"found"] || (annotated && [outcome isEqual:@"empty"])) ? expected : nil));
+                CHECK(failed == [outcome isEqual:@"timeout"]);
+                finished = YES;
+            });
+            if (walk) {
+                CHECK(!finished && pending);
+                SGLyricsRetire(query.trackID);
+                pending(nil);
+            }
+            CHECK(finished && retried == (annotated && ([outcome isEqual:@"empty"] || [outcome isEqual:@"empty-again"])));
+            CHECK([query.title isEqual:title]);
+        }
+    }
+    puts("soundtrack retry: genuine empty only, once, annotations, versions, failures and ID exclusion passed");
+}
+
 static void checkInvocationIsolation(void) {
     SGLyricsProvider *provider = [SGLyricsProvider new];
     NSMutableArray *contexts = [NSMutableArray array], *replies = [NSMutableArray array];
@@ -868,8 +929,8 @@ static void checkInvocationIsolation(void) {
     };
     SGLyricsQuery *query = [SGLyricsQuery new]; query.trackID = @"same-track";
     __block NSUInteger completions = 0;
-    SGLyricsInvoke(provider, query, ^(SGLyricsResult *result, BOOL failed) { CHECK(!result && failed); completions++; });
-    SGLyricsInvoke(provider, query, ^(SGLyricsResult *result, BOOL failed) { CHECK(!result && !failed); completions++; });
+    SGLyricsInvoke(provider, query, nil, ^(SGLyricsResult *result, BOOL failed) { CHECK(!result && failed); completions++; });
+    SGLyricsInvoke(provider, query, nil, ^(SGLyricsResult *result, BOOL failed) { CHECK(!result && !failed); completions++; });
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         [contexts[0] noteResponse:nil error:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil]];
         // A later successful/missing subrequest must not erase the failed search.
@@ -2795,6 +2856,7 @@ int main(void) {
         checkWalkTypes();
         checkWalkEarlyAnswer();
         checkConcurrentWalk();
+        checkSoundtrackRetry();
         checkInvocationIsolation();
         checkRecoveryNextPlayback();
         checkRecoveryUpgradeAndMiss();

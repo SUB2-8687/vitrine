@@ -1109,12 +1109,12 @@ int main(int argc, char **argv) {
         got = lrclibAnswer(query, nil);
         CHECK(got && got.synced && got.karaokeLines.count == 2);
         CHECK([SGKaraokeLineText(got.karaokeLines[0]) isEqualToString:@"sized"]);
-        // With no length among them the first is kept, as the walk is not made to prefer any of them.
+        // Equal duration distances break ties by the fullest sheet.
         found = @[unsized, @{@"id": @14, @"trackName": @"a", @"artistName": @"b", @"duration": NSNull.null,
                              @"syncedLyrics": @"[00:01.00]unsized again\n[00:02.00]unsized again b\n", @"plainLyrics": @"x\ny"}];
         got = lrclibAnswer(query, nil);
         CHECK(got && got.synced);
-        CHECK([SGKaraokeLineText(got.karaokeLines[0]) isEqualToString:@"alone"]);
+        CHECK([SGKaraokeLineText(got.karaokeLines[0]) isEqualToString:@"unsized again"]);
 
         // With no length to go on, a record whose LRC is null against one whose LRC is empty: the plain text wins.
         query.seconds = 0;

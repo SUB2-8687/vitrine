@@ -243,7 +243,8 @@ static void finish(SGLyricsRequestContext *context, NSString *trackID, SGLyricsR
     }
     NSArray *waiting = sg_waiting[trackID];
     [sg_waiting removeObjectForKey:trackID];
-    for (void (^done)(SGLyricsResult *, BOOL) in waiting) done(lyrics, context.failed);
+    SGLyricsAsk emptyNameSearch = context.emptyNameSearch;
+    for (void (^done)(SGLyricsResult *, BOOL, SGLyricsAsk) in waiting) done(lyrics, context.failed, emptyNameSearch);
 }
 
 // What the matcher settled on, kept even when Musixmatch may show no lyrics: the sources asked after
@@ -288,10 +289,17 @@ static void ask(SGLyricsRequestContext *context, NSString *trackID, NSDictionary
                 finish(context, trackID, nil, NO);
                 return;
             }
+            BOOL emptyNameSearch = match[@"q_track"] && integerOf(dig(calls, @"matcher.track.get/message/header/status_code")) == 404;
             for (id reply in [calls allValues]) {
                 NSInteger substatus = integerOf(dig(reply, @"message/header/status_code"));
                 [context noteFailure:substatus == 429 || substatus >= 500];
+                if (substatus != 200 && substatus != 404) emptyNameSearch = NO;
             }
+            if (emptyNameSearch) context.emptyNameSearch = ^(SGLyricsQuery *again, void (^done)(SGLyricsResult *)) {
+                // The refined name is a different search, not the cached miss for the original title.
+                if (sg_kept[again.trackID] == NSNull.null) [sg_kept removeObjectForKey:again.trackID];
+                SGMusixmatchAsk(again, done);
+            };
             noteCommontrack(trackID, dig(calls, @"matcher.track.get/message/body/track/commontrack_id"));
             SGLyricsResult *lyrics = fromCalls(calls);
             SGLog(@"musixmatch: %@ has %@", trackID, !lyrics ? @"no lyrics it may show"
@@ -330,8 +338,9 @@ SGLyricsAsk SGMusixmatchAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
         return;
     }
     NSMutableArray *waiting = sg_waiting[trackID];
-    void (^completed)(SGLyricsResult *, BOOL) = ^(SGLyricsResult *result, BOOL failed) {
+    void (^completed)(SGLyricsResult *, BOOL, SGLyricsAsk) = ^(SGLyricsResult *result, BOOL failed, SGLyricsAsk emptyNameSearch) {
         [query.requestContext noteFailure:failed];
+        query.requestContext.emptyNameSearch = emptyNameSearch;
         done(result);
     };
     if (waiting) {

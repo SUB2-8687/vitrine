@@ -76,6 +76,9 @@ SGLyricsAsk SGBugsAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResult *)) 
     NSURL *url = SGLyricsURL(@"https://m.bugs.co.kr/api/getSearchList", @{@"type": @"track", @"query": [NSString stringWithFormat:@"%@ %@", query.title, SGLyricsLeadArtist(query.artist)], @"page": @"1", @"size": @"30"});
     SGLyricsSourceRequestIn(query.requestContext, url, nil, nil, ^(NSData *data, NSInteger status) {
         id root = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        id list = SGLyricsField(root, @"list");
+        if ([list isKindOfClass:NSArray.class] && ![list count])
+            query.requestContext.emptyNameSearch = SGBugsAsk;
         NSString *song = songFor(root, query);
         if (!song) { done(nil); return; }
         lyrics(query.requestContext, song, YES, done);

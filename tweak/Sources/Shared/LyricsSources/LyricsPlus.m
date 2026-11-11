@@ -82,15 +82,19 @@ SGLyricsResult *SGLyricsPlusResult(id root) {
     return SGLyricsResultWithLines(lines, source.length ? [@"LyricsPlus · " stringByAppendingString:source] : @"LyricsPlus");
 }
 
-static void ask(SGLyricsRequestContext *context, NSDictionary *parameters, BOOL fallback, void (^done)(SGLyricsResult *)) {
+static void ask(SGLyricsQuery *query, NSDictionary *parameters, BOOL fallback, BOOL priorEmpty, void (^done)(SGLyricsResult *)) {
     NSString *base = fallback ? @"https://lyricsplus.binimum.org" : @"https://lyricsplus.prjktla.my.id";
     NSURL *url = SGLyricsURL([base stringByAppendingString:@"/v2/lyrics/get"], parameters);
-    SGLyricsSourceRequestIn(context, url, nil, nil, ^(NSData *data, NSInteger status) {
+    SGLyricsSourceRequestIn(query.requestContext, url, nil, nil, ^(NSData *data, NSInteger status) {
+        __block BOOL empty = NO;
         SGLyricsTransform(^id {
             id root = status == 200 && data.length ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+            id rows = SGLyricsField(root, @"lyrics");
+            empty = status == 404 || ([rows isKindOfClass:NSArray.class] && ![rows count]);
             return SGLyricsPlusResult(root);
         }, ^(SGLyricsResult *result) {
-        if (!result && !fallback) { ask(context, parameters, YES, done); return; }
+        if (!result && !fallback) { ask(query, parameters, YES, empty, done); return; }
+        if (!result && empty && priorEmpty) query.requestContext.emptyNameSearch = SGLyricsPlusAsk;
         SGLog(@"lyricsplus: %lu lines", (unsigned long)result.karaokeLines.count);
         done(result);
         });
@@ -101,5 +105,5 @@ SGLyricsAsk SGLyricsPlusAsk = ^(SGLyricsQuery *query, void (^done)(SGLyricsResul
     if (!NSThread.isMainThread) { dispatch_async(dispatch_get_main_queue(), ^{ SGLyricsPlusAsk(query, done); }); return; }
     if (!SGLyricsMatchKey(query.title).length || !SGLyricsMatchKey(query.artist).length) { done(nil); return; }
     NSDictionary *parameters = @{@"title": query.title, @"artist": SGLyricsLeadArtist(query.artist), @"album": query.album ?: @"", @"duration": [NSString stringWithFormat:@"%.3f", (double)MAX(0, query.seconds)]};
-    ask(query.requestContext, parameters, NO, done);
+    ask(query, parameters, NO, YES, done);
 };
