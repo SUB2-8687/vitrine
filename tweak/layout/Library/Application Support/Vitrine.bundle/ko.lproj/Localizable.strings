@@ -158,6 +158,8 @@
 "settings.appearance.round_artist_play.title" = "둥근 아티스트 재생 버튼";
 "settings.appearance.scroll_veil.subtitle" = "앨범, 플레이리스트, 아티스트 사진이 스크롤할수록 흐려지며 페이지 색상으로 어두워지고, 제목은 상단 막대 아래에서 잘립니다";
 "settings.appearance.scroll_veil.title" = "스크롤할 때 커버 흐리게";
+"settings.appearance.scrolled_title.subtitle" = "플레이리스트, 앨범, 아티스트, 프로필에서 뒤로 버튼과 더 보기 사이에 작은 제목을 표시합니다";
+"settings.appearance.scrolled_title.title" = "스크롤 시 페이지 제목";
 "settings.appearance.plain_checkmark.title" = "단순 체크표시";
 "settings.appearance.title" = "화면 모양";
 
@@ -2058,6 +2060,8 @@
 "settings.playlist.hide.more.title" = "더 보기";
 "settings.playlist.hide.pills.subtitle" = "첫 곡 위의 추가, 믹스, 정렬 등";
 "settings.playlist.hide.pills.title" = "큐레이션 버튼";
+"settings.playlist.hide.recommendations.subtitle" = "곡 목록 아래의 추천 곡과 새로 고침 버튼을 숨깁니다. 플레이리스트를 다시 열면 적용됩니다";
+"settings.playlist.hide.recommendations.title" = "추천 곡";
 "settings.playlist.hide.share.title" = "공유";
 "settings.playlist.hide.video.title" = "비디오";
 "settings.playlist.hide_above_tracks.header" = "트랙 위에서 숨기기";

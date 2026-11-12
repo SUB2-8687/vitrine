@@ -159,6 +159,8 @@
 "settings.appearance.round_artist_play.title" = "Round artist Play";
 "settings.appearance.scroll_veil.subtitle" = "Album, playlist and artist pictures blur and dim into the page's color as you scroll, and the title is cut off under the top bar";
 "settings.appearance.scroll_veil.title" = "Blur covers on scroll";
+"settings.appearance.scrolled_title.subtitle" = "Show the small title between Back and More on playlists, albums, artists and profiles";
+"settings.appearance.scrolled_title.title" = "Page title when scrolled";
 "settings.appearance.title" = "Appearance";
 
 "settings.appicon.choice.default" = "Default";
@@ -2057,6 +2059,8 @@
 "settings.playlist.hide.more.title" = "More";
 "settings.playlist.hide.pills.subtitle" = "Add, Mix, Sort and the rest, over the first track";
 "settings.playlist.hide.pills.title" = "Curation pills";
+"settings.playlist.hide.recommendations.subtitle" = "Hide recommendations and Refresh below the tracks. Reopen the playlist to apply";
+"settings.playlist.hide.recommendations.title" = "Recommended songs";
 "settings.playlist.hide.share.title" = "Share";
 "settings.playlist.hide.video.title" = "Video";
 "settings.playlist.hide_above_tracks.header" = "Hide above the tracks";

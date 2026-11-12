@@ -83,6 +83,9 @@ UIViewController *SGRPlaylistSettingsPage(void) {
         SGSection(SGL(@"settings.playlist.hide_on_page.header", @"Hide on a playlist's page"), @[
             SGSwitchRow(pillsName, SGL(@"settings.playlist.hide.pills.subtitle", @"Add, Mix, Sort and the rest, over the first track"),
                         SGRKeyPlaylistHideCuration),
+            SGOptionRow(SGL(@"settings.playlist.hide.recommendations.title", @"Recommended songs"),
+                        SGL(@"settings.playlist.hide.recommendations.subtitle", @"Hide recommendations and Refresh below the tracks. Reopen the playlist to apply"),
+                        SGRKeyPlaylistHideRecommendations),
         ]),
         SGNotedSection(SGL(@"settings.playlist.more_menu.header", @"More menu"), @[
             SGSwitchRow(sortMixName, SGL(@"settings.playlist.sort_mix.subtitle", @"At the top of a playlist's ⋯ menu"),

@@ -1398,6 +1398,10 @@ Redesigned:
                   and the curation pills gone, and the track rows on the field with a hairline between them
                   (Playlist.h lists its files). Sort and Mix, the two of those pills the ⋯ menu does not already offer,
                   are put on that menu's own sheet instead, above Spotify's rows, and fire Spotify's own buttons.
+                  Hide on a playlist's page → Recommended songs (`spotifyglass.redesign.playlist.hide.recommendations`,
+                  off; PlaylistRows.x) collapses the recommendation heading, its tracks and Refresh below the list to
+                  zero height, clipped, hidden from VoiceOver and not interactive; rows found by their recommendation
+                  component, restored on reuse and when switched off. It applies when the playlist is opened again.
                   The page of the songs the user liked by one artist (CollectionArtist) is Liked Songs' header kit
                   with no cover and goes through the same files: the neutral field, the wash and the bar's scrim
                   gone, the one row of shuffle, Play and download, and its rows as the playlist's are. Its pinned ⋯
@@ -1672,7 +1676,9 @@ album, playlist and artist pictures blur (radius 0 to 24 between 60 and 320 pt o
 (alpha up to 0.45 between 80 and 400 pt) as the page scrolls, with the full-screen art drifting at a quarter of the
 scroll and zooming on a pull, the Card-mode square blurred and dimmed in place, and the header text faded out over
 14 pt under the top bar (SGRHeaderInfo.m's -clipUnderTopBar, a mask sized once per header size and only moved on
-scroll); and Play in the page's color (`spotifyglass.redesign.playInPageColour`, on:
+scroll); Page title when scrolled (`spotifyglass.redesign.pageTitleWhenScrolled`, on; Redesigned/Kit/SGRScrolledTitle.x): off, the small title Spotify puts between
+Back and ⋯ once a playlist, album, artist or profile page is scrolled stays hidden, Back and ⋯ untouched, applied live
+and restored only once a push or pop has settled; and Play in the page's color (`spotifyglass.redesign.playInPageColour`, on:
 off, the Play glyph and word take the accent). Checked in the simulator against harness/album/veil-check.sh. The redesign has no
 global Full bleed covers row: the Albums and Playlists pages each have a Cover layout. Last come the Font, under either look and on any
 iOS, below 26 too, a page of its own with each choice drawn in itself: Default (Spotify's), San Francisco, SF

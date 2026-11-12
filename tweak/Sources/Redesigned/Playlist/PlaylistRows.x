@@ -21,6 +21,9 @@
 // Refresh cell paint the base surface over the field, where the black made bands of them (device,
 // trees/continuous/2.txt 2026-09-20). So the paint comes off every cell of the page, the Kit's way, and
 // only the row below is a row.
+// The optional recommendation switch collapses that component instead. Spotify 9.1.90 mounts
+// ListExtenderHeaderElement, ListExtenderTrackElement and ListExtenderRefreshElement in the
+// cell's ElementContentView; ordinary playlist tracks belong to a different module.
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Redesigned/Kit/SGRPress.h"
@@ -33,6 +36,67 @@ static char kRowKey, kTrackRowKey, kArtKey, kArtHolderKey, kSubtitleKey, kLineKe
 
 // Whether the curation pills close up (SGRKeyPlaylistHideCuration), read at launch.
 static BOOL sg_hideCuration;
+// Refreshed when a playlist opens, before its cells lay out; reopening also clears cached heights.
+static BOOL sg_hideRecommendations;
+
+static char kRecommendationHeightKey, kRecommendationStateKey, kRecommendationPreferenceKey;
+
+@interface SGRPlaylistRecommendationState : NSObject
+@property (nonatomic, weak) UIView *content;
+@property (nonatomic) UIViewAutoresizing autoresizing;
+@property (nonatomic) CGFloat height;
+@property (nonatomic) BOOL hidden, clipped, accessibilityHidden, interactive;
+@end
+@implementation SGRPlaylistRecommendationState
+@end
+
+static BOOL isRecommendation(UICollectionViewCell *cell) {
+    return SGClassNamed(object_getClass(cell.contentView), @"44ListUXPlatformConsumers_PlaylistExtenderImpl");
+}
+
+static void restoreRecommendation(UICollectionViewCell *cell) {
+    SGRPlaylistRecommendationState *state = objc_getAssociatedObject(cell, &kRecommendationStateKey);
+    if (!state) return;
+    CGRect frame = cell.frame;
+    frame.size.height = state.height;
+    cell.frame = frame;
+    if (cell.contentView == state.content) SGRRestoreCell(cell, &kRecommendationHeightKey);
+    else objc_setAssociatedObject(cell, &kRecommendationHeightKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    state.content.hidden = state.hidden;
+    state.content.autoresizingMask = state.autoresizing;
+    cell.clipsToBounds = state.clipped;
+    cell.accessibilityElementsHidden = state.accessibilityHidden;
+    cell.userInteractionEnabled = state.interactive;
+    objc_setAssociatedObject(cell, &kRecommendationStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void collapseRecommendation(UICollectionViewCell *cell, CGFloat naturalHeight) {
+    SGRPlaylistRecommendationState *state = objc_getAssociatedObject(cell, &kRecommendationStateKey);
+    if (state && state.content != cell.contentView) {
+        restoreRecommendation(cell);
+        state = nil;
+    }
+    if (!state) {
+        state = [SGRPlaylistRecommendationState new];
+        state.content = cell.contentView;
+        state.hidden = cell.contentView.hidden;
+        state.autoresizing = cell.contentView.autoresizingMask;
+        state.height = cell.bounds.size.height;
+        state.clipped = cell.clipsToBounds;
+        state.accessibilityHidden = cell.accessibilityElementsHidden;
+        state.interactive = cell.userInteractionEnabled;
+        objc_setAssociatedObject(cell, &kRecommendationStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    SGRCollapseCell(cell, naturalHeight, &kRecommendationHeightKey);
+    cell.userInteractionEnabled = NO;
+    // ListLayout leaves a zero-sized, hidden prefetched cell at its old frame even after fitting.
+    // Keep the cell itself collapsed as well as its layout attributes; its content keeps its natural height.
+    CGRect frame = cell.frame;
+    if (frame.size.height != 0) {
+        frame.size.height = 0;
+        cell.frame = frame;
+    }
+}
 
 static void clearSurface(UIView *view) {
     UIColor *color = view.backgroundColor;
@@ -106,7 +170,13 @@ static BOOL applyRow(UIView *cell) {
 %hook _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell
 - (void)layoutSubviews {
     %orig;
-    UIView *cell = (UIView *)self;
+    UICollectionViewCell *cell = (UICollectionViewCell *)self;
+    if (sg_hideRecommendations && isRecommendation(cell)) {
+        NSNumber *natural = objc_getAssociatedObject(cell, &kRecommendationHeightKey);
+        collapseRecommendation(cell, natural ? natural.doubleValue : cell.contentView.bounds.size.height);
+    } else if (objc_getAssociatedObject(cell, &kRecommendationStateKey)) {
+        restoreRecommendation(cell);
+    }
     if (!SGRPlaylistHeaderOf(cell)) return;
     SGRClearCellPaint(cell);
     // A track row is not the curation row, so only the other cells are searched for its toolbar.
@@ -114,13 +184,42 @@ static BOOL applyRow(UIView *cell) {
 }
 
 - (UICollectionViewLayoutAttributes *)preferredLayoutAttributesFittingAttributes:(UICollectionViewLayoutAttributes *)attributes {
+    UICollectionViewCell *cell = (UICollectionViewCell *)self;
+    BOOL hideRecommendation = sg_hideRecommendations && isRecommendation(cell);
+    if (!hideRecommendation && objc_getAssociatedObject(cell, &kRecommendationStateKey)) restoreRecommendation(cell);
     UICollectionViewLayoutAttributes *result = %orig;
+    if (hideRecommendation) {
+        collapseRecommendation(cell, result.size.height);
+        result.size = CGSizeMake(result.size.width, 0);
+        return result;
+    }
     if (!sg_hideCuration || !SGRFindByIdentifier((UIView *)self, SGRPlaylistCurationIdentifier, &kToolbarKey)) return result;
     result.size = CGSizeMake(result.size.width, 0);
     ((UIView *)self).clipsToBounds = YES;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ SGLog(@"redesign playlist: curation pills asked for a height, answered 0"); });
     return result;
+}
+
+- (void)prepareForReuse {
+    restoreRecommendation((UICollectionViewCell *)self);
+    %orig;
+}
+%end
+
+%hook _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController
+- (void)viewWillAppear:(BOOL)animated {
+    BOOL hidden = SGFlag(SGRKeyPlaylistHideRecommendations, NO);
+    sg_hideRecommendations = hidden;
+    %orig;
+    UIView *page = ((UIViewController *)self).viewIfLoaded;
+    NSNumber *previous = objc_getAssociatedObject(self, &kRecommendationPreferenceKey);
+    objc_setAssociatedObject(self, &kRecommendationPreferenceKey, @(hidden), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (previous && previous.boolValue != hidden) {
+        // ListLayout caches self-sizing heights; reopening must discard the collapsed measurements too.
+        UICollectionView *list = (UICollectionView *)SGRFindByIdentifier(page, SGRPlaylistListIdentifier, NULL);
+        [list reloadData];
+    }
 }
 %end
 
@@ -139,6 +238,7 @@ static BOOL applyRow(UIView *cell) {
 %ctor {
     if (!SGRedesignedUI()) return;
     sg_hideCuration = SGEnabled(SGRKeyPlaylistHideCuration);
+    sg_hideRecommendations = SGFlag(SGRKeyPlaylistHideRecommendations, NO);
     %init;
     SGRequireClasses(@[@"_TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell", @"SPTEncoreSwipeableTableViewCell"]);
 }

@@ -30,6 +30,8 @@ BOOL SGRPageFullCover(NSString *key);
 // Read at launch. Play's glyph and word in the color the page hands over (on unless switched off), else the accent;
 // the capsule stays white either way.
 #define SGRKeyPlayInPageColour @"spotifyglass.redesign.playInPageColour"
+// SGRScrolledTitle.x: Spotify's small navigation title on content pages. On by default, live.
+#define SGRKeyPageTitleWhenScrolled @"spotifyglass.redesign.pageTitleWhenScrolled"
 // The artist page's Play round, its glyph alone (off unless switched on): Artist/ArtistHeader.x sets roundPlay.
 #define SGRKeyArtistRoundPlay @"spotifyglass.redesign.artist.roundPlay"
 // Read at launch, off unless switched on, and only for round Play (roundPlay): the circle with its glyph cut out of it

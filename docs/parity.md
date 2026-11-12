@@ -314,6 +314,9 @@ today's look until it is changed.
 |---|---|
 | AI-content badges | Labs: AI badges and dependent Likely AI badges force only Spotify's specified classification flags; both default off, unlike Chroma, leaving Spotify's values alone until enabled. |
 | Karaoke first placement | Newly measured layouts compute the current sung/active state before placement; demo/plain lyrics and invalid positions are excluded, with no new timer. |
+| Hide playlist recommendations | Redesign → Playlists → Recommended songs; off by default (Chroma: on), applies when the playlist reopens. |
+| Hide the scrolled page title | Redesign → Appearance → Page title when scrolled; shown by default (Chroma hides it), live. |
+| Inline Up Next, Track Info, page snapshots, search-ahead warming, cover-look backgrounds, stand-in mask reveal | Not taken: the behavior could not be read completely enough to specify, or it adds unannounced Spotify traffic |
 
 ### Upstream Plus features, Vitrine's own versions (described by behavior)
 
