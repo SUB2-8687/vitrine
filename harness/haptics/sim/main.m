@@ -33,6 +33,9 @@ SPTPlayerState *SGPlayerState(void) {
     return nil;
 }
 
+// No song persistence in this audio-chain harness.
+void SGSpeedPitchSongValuesChanged(NSString *control) {}
+
 static atomic_uint_fast64_t sg_frame;
 static double sg_generatorRate;
 
@@ -242,6 +245,34 @@ static int sg_failures;
         SGMusicHapticsSettingsChanged();
     };
     [steps addObjectsFromArray:@[
+        @[@"engine stopped: drain stops and recovers", ^{
+            FakeHapticsBeginRecovery();
+            [self after:8 do:^{
+                if (!FakeHapticsRecovered()) sg_failures++;
+                FakeHapticsBeginOperationFailure();
+            }];
+            [self after:9 do:^{ if (!FakeHapticsOperationRecovered()) sg_failures++; }];
+            [self after:10 do:^{ FakeHapticsBeginRepeatedFailures(); }];
+            [self after:15 do:^{ if (!FakeHapticsEndRepeatedFailures()) sg_failures++; }];
+            [self after:18 do:^{
+                FakeHapticsDeferStop(^{
+                    flip(SGKeyMusicHaptics, YES);
+                    SGMusicHapticsPreview();
+                });
+                flip(SGKeyMusicHaptics, NO);
+            }];
+            [self after:20 do:^{ if (!FakeHapticsCompleteStop()) sg_failures++; }];
+            [self after:22 do:^{ FakeHapticsDeliverStoppedHandler(); }];
+            [self after:24 do:^{
+                if (!FakeHapticsAsyncStopRecovered()) sg_failures++;
+                FakeHapticsBeginTeardownFailure();
+            }];
+            [self after:25 do:^{ set(SGMusicFollowsBeat, 100); }];
+            [self after:30 do:^{
+                if (!FakeHapticsTeardownRecovered()) sg_failures++;
+                set(SGMusicFollowsEverything, 100);
+            }];
+        }, ^(double s) {}, @34],
         @[@"Beat: no rumble", ^{ set(SGMusicFollowsBeat, 100); }, ^(double s) {
             [self report:@"Beat: no rumble" seconds:s kicks:1 snares:1 rumble:NO intensity:tap100 level:NAN];
         }],
@@ -305,6 +336,7 @@ static int sg_failures;
     __block double from = 0;
     double at = 0.5;
     for (NSArray *step in steps) {
+        double duration = step.count > 3 ? [step[3] doubleValue] : 6;
         [self after:at do:^{
             NSLog(@"[harness] -> %@", step[0]);
             ((void (^)(void))step[1])();
@@ -313,8 +345,8 @@ static int sg_failures;
             FakeHapticsTake();
             from = CACurrentMediaTime();
         }];
-        [self after:at + 5.5 do:^{ ((void (^)(double))step[2])(CACurrentMediaTime() - from); }];
-        at += 6;
+        [self after:at + duration - 0.5 do:^{ ((void (^)(double))step[2])(CACurrentMediaTime() - from); }];
+        at += duration;
     }
     [self after:at do:^{
         NSLog(@"[harness] %@: %d failed", sg_failures ? @"FAILED" : @"all passed", sg_failures);

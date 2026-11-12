@@ -884,7 +884,10 @@ Shared:
                   and bass analyzer on the render thread (SGMusicAnalyzer.m, plain C), and a thread of its own schedules
                   the taps and the rumble for when the sound is heard, at their strength and leaving out what Follows
                   leaves out (MusicHaptics.x). Everything applies at once; nothing plays while Spotify is not the active
-                  app. Beside it, In the Background (iOS 18 and up) asks Spotify's extended-metadata for the track's
+                  app. When Core Haptics stops or resets the engine the thread stops sending to it at once, waits for
+                  an asynchronous stop to finish, and starts a fresh engine and players only after a cooldown; a
+                  failed call on a running engine cancels its playback without counting as a stop, and repeated
+                  failures are logged once (harness/haptics/sim/). Beside it, In the Background (iOS 18 and up) asks Spotify's extended-metadata for the track's
                   ISRC through SpotifyMetadata/ with Spotify's own spclient headers, asks Apple Music's catalog for that ISRC (the phone's own country first, then the US), and names the
                   matched song's catalog id (same ISRC, length within 2 s, a haptic track) or else the ISRC in the now
                   playing info for iOS's own Music Haptics, which plays on the lock screen and in other apps too
