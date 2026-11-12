@@ -21,8 +21,10 @@ CGRect SGRNowPlayingCardFrameIn(UIView *host, CGFloat *radius) {
     if (radius) *radius = 24;
     return [host convertRect:sg_card.bounds fromView:sg_card];
 }
-CGRect SGRNowPlayingArtworkFrameIn(UIView *host) {
-    return sg_barArt.window ? [host convertRect:sg_barArt.bounds fromView:sg_barArt] : CGRectNull;
+CGRect SGRNowPlayingArtworkFrameIn(UIView *host, CGFloat *radius) {
+    if (!sg_barArt.window) return CGRectNull;
+    if (radius) *radius = sg_barArt.layer.cornerRadius;
+    return [host convertRect:sg_barArt.bounds fromView:sg_barArt];
 }
 CGRect SGRPlayerCoverFrameIn(UIView *host) {
     return sg_cover.window ? [host convertRect:sg_cover.bounds fromView:sg_cover] : CGRectNull;

@@ -1,5 +1,6 @@
-// The redesign's now playing bar: the album-colored card becomes a glass card with round artwork and the
-// progress line under the text. Spotify's own labels, buttons and gestures stay in place.
+// The redesign's now playing bar: the album-colored card becomes a glass card with round (or rounded square)
+// artwork and the progress line under the text, and a Next button after play on request. Spotify's own labels,
+// buttons and gestures stay in place.
 //
 // The full screen player morphs the bar's own card and artwork into the cover art. The bar was
 // written to hand itself back to Spotify for that animation, from NowPlaying_ViewPageImpl's
@@ -32,7 +33,11 @@ static const CGFloat kCardRadius = 24;
 static const CGFloat kStripInset = 4;
 // Pressed, the card sinks to this and a veil this dark goes over it, as the Music app's mini player does.
 static const CGFloat kCardPressScale = 0.97, kCardPressDim = 0.22;
-static char kGlassKey, kStripGlassKey, kDimKey;
+// Rounded square's corners on the 40pt cover. The cover stands 8pt in from the card's 24pt corner, so a corner of
+// any radius stays inside the card's curve; 8pt is the Music app's mini player's.
+static const CGFloat kArtworkSquareRadius = 8;
+// kRoundedKey marks the cover's views this file rounded, so a change of shape rounds them again.
+static char kGlassKey, kStripGlassKey, kDimKey, kRoundedKey;
 static __weak UIView *sg_card;
 static CGRect sg_stripFrame;
 static __weak UIVisualEffectView *sg_cardGlass;
@@ -119,10 +124,11 @@ CGRect SGRNowPlayingCardFrameIn(UIView *host, CGFloat *radius) {
     return [host convertRect:glass.bounds fromView:glass];
 }
 
-CGRect SGRNowPlayingArtworkFrameIn(UIView *host) {
+CGRect SGRNowPlayingArtworkFrameIn(UIView *host, CGFloat *radius) {
     settleCard();
     UIView *artwork = sg_cardArtwork;
     if (!artwork.window || !host) return CGRectNull;
+    if (radius) *radius = artwork.layer.cornerRadius;
     return [host convertRect:artwork.bounds fromView:artwork];
 }
 
@@ -200,20 +206,33 @@ static void roundView(UIView *view, CGFloat radius) {
     view.layer.cornerCurve = kCACornerCurveContinuous;
 }
 
+// The cover's corners for the Player page's Artwork shape (SGRKeyBarArtworkShape).
+static CGFloat artworkRadius(CGFloat width) {
+    return SGInt(SGRKeyBarArtworkShape, SGRBarArtworkShapeCircle) == SGRBarArtworkShapeRoundedSquare ? kArtworkSquareRadius : width / 2;
+}
+
 static void restyleCardContent(UIView *card) {
     SGForEachView(card, ^(UIView *v) {
         if (inStrip(v, card)) return;
         CGSize size = v.bounds.size;
         BOOL square = size.width >= 36 && size.width <= 48 && fabs(size.width - size.height) < 1;
         if (!square || v.layer.cornerRadius <= 0) return;
-        if (v.layer.cornerRadius >= size.width / 2) {
+        // The shape asked for is there already: nothing to change, as on every layout after the first.
+        CGFloat radius = artworkRadius(size.width);
+        if (v.layer.cornerRadius == radius) {
+            if (!sg_cardArtwork) sg_cardArtwork = v;
+            return;
+        }
+        // Round already, and not by this file: Spotify's own round cover is left as it is.
+        if (!objc_getAssociatedObject(v, &kRoundedKey) && v.layer.cornerRadius >= size.width / 2) {
             if (!sg_cardArtwork) sg_cardArtwork = v;
             return;
         }
         UIView *outer = v;
         for (UIView *u = v; u && u != card && CGSizeEqualToSize(u.bounds.size, size); u = u.superview) {
-            roundView(u, size.width / 2);
-            u.clipsToBounds = YES;
+            if (u.layer.cornerRadius != radius) roundView(u, radius);
+            if (!u.clipsToBounds) u.clipsToBounds = YES;
+            if (!objc_getAssociatedObject(u, &kRoundedKey)) objc_setAssociatedObject(u, &kRoundedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             outer = u;
         }
         sg_cardArtwork = outer;
@@ -311,7 +330,125 @@ static BOOL edgesTo(UIView *bar, CGRect r, CGPoint origin) {
     return !CGRectIsNull(r) && setEdges(bar, CGRectGetMinX(r) - origin.x, CGRectGetMaxX(r) - origin.x);
 }
 
-// In the row the card keeps the cover, the title and play, as the Music app's does: the device and add
+#pragma mark - the Next button
+
+// The Player page's Next button (SGRKeyBarNextButton): Spotify's bar ends in play, the Music app's mini player in play
+// and Next. Spotify's row is a stack of the track's information and a stack of the buttons, play's item last; Next is
+// an item of the row's own after the buttons, as large as play's item, so the row makes room for it and the title gives
+// the room up. Not one of the buttons' stack: Spotify moves its items there by index, and Next among them put the add
+// button after play (9.1.90). It asks the player for the next track as the Live Activity's Next does.
+static NSString *const kPlayId = @"SPTNowPlayingPlayButton";
+static NSString *const kNextId = @"vitrine.nowplayingbar.next";
+static char kNextKey;
+
+// The smallest touch target a control may have, in points (Apple's Human Interface Guidelines). Play's item, which the
+// button is laid out as, is 44x40 pt in 9.1.90's bar.
+static const CGFloat kMinTouchTarget = 44;
+
+@interface SGRBarNextButton : UIButton
+// Play's item's size, which the stack lays the button out at.
+@property (nonatomic) CGSize itemSize;
+@end
+
+// The Next button last placed, for the hit test of the bar's page (the passthrough view's hook).
+static __weak UIView *sg_nextButton;
+
+@implementation SGRBarNextButton
+- (CGSize)intrinsicContentSize {
+    return self.itemSize;
+}
+
+// At least kMinTouchTarget each way about its middle, whatever its laid out size; the bar's page's hit test hands it
+// the touches its row's bounds keep from it (nextButtonHit).
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    CGRect bounds = self.bounds;
+    CGFloat dx = MIN(0, (bounds.size.width - kMinTouchTarget) / 2), dy = MIN(0, (bounds.size.height - kMinTouchTarget) / 2);
+    return CGRectContainsPoint(CGRectInset(bounds, dx, dy), point);
+}
+
+- (void)setItemSize:(CGSize)size {
+    if (CGSizeEqualToSize(size, _itemSize)) return;
+    _itemSize = size;
+    [self invalidateIntrinsicContentSize];
+}
+
+- (void)skip {
+    [(id<SPTPlayer>)SGPlayer() skipToNextTrackWithOptions:nil];
+}
+@end
+
+// forward.fill's point size, matched by eye to the pause glyph Spotify draws in the bar (9.1.90): at 17 it read heavier.
+static const CGFloat kNextGlyphSize = 15;
+
+// Next when `point`, in `host`'s coordinates, is within its touch target and it is showing in `host`; nil otherwise.
+// Spotify's row is 40 pt high, so a hit test that reaches Next only through the row never sees the target's top and
+// bottom 2 pt.
+static UIView *nextButtonHit(UIView *host, CGPoint point, UIEvent *event) {
+    UIView *next = sg_nextButton;
+    if (!next.window || ![next isDescendantOfView:host]) return nil;
+    // As UIKit's own hit test would: nothing hidden, faded out or closed to touches between Next and the host.
+    for (UIView *v = next; v; v = v == host ? nil : v.superview) {
+        if (v.hidden || v.alpha < 0.01 || !v.userInteractionEnabled) return nil;
+    }
+    return [next pointInside:[host convertPoint:point toView:next] withEvent:event] ? next : nil;
+}
+
+static SGRBarNextButton *makeNextButton(void) {
+    SGRBarNextButton *next = [SGRBarNextButton buttonWithType:UIButtonTypeSystem];
+    UIImageSymbolConfiguration *glyph = [UIImageSymbolConfiguration configurationWithPointSize:kNextGlyphSize weight:UIImageSymbolWeightRegular];
+    [next setImage:[UIImage systemImageNamed:@"forward.fill" withConfiguration:glyph] forState:UIControlStateNormal];
+    next.tintColor = SGRPrimary();
+    next.accessibilityIdentifier = kNextId;
+    next.accessibilityLabel = SGL(@"settings.gestures.action.next", @"Next track");
+    [next setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [next setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [next addTarget:next action:@selector(skip) forControlEvents:UIControlEventTouchUpInside];
+    return next;
+}
+
+// The button last in the row while the switch is on, out of it while it is off. In the minimized row tuckExtras hides
+// it with the device and add buttons.
+static void placeNextButton(UIView *bar) {
+    SGRBarNextButton *next = objc_getAssociatedObject(bar, &kNextKey);
+    if (!SGHidden(SGRKeyBarNextButton)) {
+        [next removeFromSuperview];
+        return;
+    }
+    __block UIView *play = nil;
+    SGForEachView(bar, ^(UIView *v) {
+        if (!play && [v.accessibilityIdentifier isEqualToString:kPlayId] && !inStrip(v, bar)) play = v;
+    });
+    UIView *item = play;
+    while (item.superview && item.superview != bar && ![item.superview isKindOfClass:UIStackView.class]) item = item.superview;
+    UIStackView *buttons = (UIStackView *)item.superview;
+    UIStackView *row = (UIStackView *)buttons.superview;
+    BOOL found = [buttons isKindOfClass:UIStackView.class] && [buttons.arrangedSubviews containsObject:item]
+        && [row isKindOfClass:UIStackView.class] && [row.arrangedSubviews containsObject:buttons];
+    if (!found) {
+        // A Next placed before Spotify changed its bar goes with it, so no button is left where it no longer belongs.
+        [next removeFromSuperview];
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ SGLog(@"now playing bar: play's button stack is not in a row stack (%@), so no Next button", play.class); });
+        return;
+    }
+    if (!next) {
+        next = makeNextButton();
+        objc_setAssociatedObject(bar, &kNextKey, next, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    sg_nextButton = next;
+    if (item.bounds.size.width >= 1) next.itemSize = item.bounds.size;
+    if (row.arrangedSubviews.lastObject == next) return;
+    [UIView performWithoutAnimation:^{
+        next.hidden = NO;
+        next.alpha = 1;
+        [row addArrangedSubview:next];
+        [row setCustomSpacing:0 afterView:buttons];
+    }];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ SGLog(@"now playing bar: Next after the buttons in %@", row.class); });
+}
+
+// In the row the card keeps the cover, the title and play, as the Music app's does: the device, add and Next
 // buttons stand aside while it is there and come back with the full card, the device button staying when the
 // Player page's Device button asks for it (SGRKeyBarInlineConnect). Only what this hid is shown again.
 static NSHashTable<UIView *> *sg_tucked;
@@ -331,7 +468,7 @@ static void tuckExtras(UIView *bar, BOOL tuck) {
     SGForEachView(bar, ^(UIView *v) {
         NSString *name = v.accessibilityIdentifier;
         BOOL connect = [name isEqualToString:@"Components.ConnectButtonOutputSwitcher"];
-        if ((!connect || keepConnect) && ![name isEqualToString:@"Components.UI.AddToButton"]) return;
+        if ((!connect || keepConnect) && ![name isEqualToString:@"Components.UI.AddToButton"] && ![name isEqualToString:kNextId]) return;
         // The stack's own item, so the stack closes the gap.
         UIView *item = v;
         while (item.superview && item.superview != bar && ![item.superview isKindOfClass:UIStackView.class]) item = item.superview;
@@ -633,6 +770,7 @@ static void styleNowPlayingBar(UIViewController *container) {
         dispatch_async(dispatch_get_main_queue(), ^{ [host setNeedsLayout]; });
     }
     if (strip.bounds.size.height < 1) strip = nil;
+    placeNextButton(bar);
     placeInline(container);
 
     CGRect frame = card ? SGFrameIn(card, container.view) : contentBounds(bar, container.view);
@@ -689,9 +827,12 @@ static void styleNowPlayingBar(UIViewController *container) {
 // one: the container's view keeps the screen's width, and took the touches meant for the tab bar's circles.
 // Only the container's view moves to the row, by a transform; Spotify's layout view above it stays at the
 // bar's old place and took every touch there (#70), so a touch on nothing of the moved bar's goes through.
+// Next's whole touch target is reached here too (nextButtonHit).
 %hook _TtC22NowPlaying_BarPageImplP33_CCC0D2EEA6D4725EECD8965E8C38C86D20TouchPassthroughView
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = %orig;
+    UIView *next = nextButtonHit((UIView *)self, point, event);
+    if (next) return next;
     UIView *moved = sg_inline;
     if (![moved isDescendantOfView:(UIView *)self] || (hit && [hit isDescendantOfView:moved])) return hit;
     UIView *inside = [moved hitTest:[(UIView *)self convertPoint:point toView:moved] withEvent:event];

@@ -255,8 +255,14 @@ UIViewController *SGPlayerSettingsPage(void) {
     // Buttons chips with its Shuffle and Repeat (the native look's are in its Hide on the player section, with their own keys).
     [sections addObject:native ? SGSection(nil, @[SGHideRow(SGL(@"settings.player.hide_video_switch.title", @"Switch to video"), SGL(@"settings.player.hide_video_switch.subtitle", @"The chip over the title of a song with a music video"), SGKeyHideVideoSwitch)])
                                : SGRPlayerButtonsSection()];
-    // The next track's artwork and lyrics, fetched ahead under either look (Core/SGOptionalWork.h).
-    [sections addObject:SGSection(nil, @[SGLoadAheadRow()])];
+    // Spotify's full screen cover a tap on the player's cover opens, under either look (Shared/Player/PlayerSettings.h);
+    // the next track's artwork and lyrics, fetched ahead under either look (Core/SGOptionalWork.h).
+    [sections addObject:SGSection(nil, @[
+        SGShownRow(SGL(@"settings.player.full_screen_cover.title", @"Full screen cover on tap"),
+                   SGL(@"settings.player.full_screen_cover.subtitle", @"A tap on the cover shows it alone. Off while Gestures is on."),
+                   SGKeyHideFullScreenCover),
+        SGLoadAheadRow(),
+    ])];
 
     [sections addObject:SGNotedSection(SGL(@"settings.lossless.header", @"Lossless"), @[
         SGOptionRow(SGL(@"settings.lossless.files.title", @"Lossless files"), SGL(@"settings.lossless.files.subtitle", @"Your own FLACs in place of Spotify's stream"), SGKeyLossless),

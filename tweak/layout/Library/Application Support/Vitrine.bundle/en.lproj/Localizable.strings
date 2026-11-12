@@ -1640,6 +1640,9 @@
 "settings.mod.version.title" = "Version";
 "settings.mod.whats_new.title" = "What's New";
 
+"settings.nowplayingbar.artwork_shape.circle" = "Circle";
+"settings.nowplayingbar.artwork_shape.rounded_square" = "Rounded square";
+"settings.nowplayingbar.artwork_shape.title" = "Artwork shape";
 "settings.nowplayingbar.bar_to_cover_animation.title" = "Bar to cover art animation";
 "settings.nowplayingbar.device_button.subtitle" = "Kept on the bar between the tabs";
 "settings.nowplayingbar.device_button.title" = "Device button when minimized";
@@ -1653,6 +1656,8 @@
 "settings.nowplayingbar.minimize.subtitle" = "Between two tabs as a page scrolls down";
 "settings.nowplayingbar.minimize.title" = "Minimize while scrolling";
 "settings.nowplayingbar.miniplayer_transition_animations.title" = "Mini player transition animations";
+"settings.nowplayingbar.next_button.subtitle" = "After play on the full now playing bar";
+"settings.nowplayingbar.next_button.title" = "Next button";
 "settings.nowplayingbar.queue_badge.title" = "Queue badge";
 "settings.nowplayingbar.save_button.title" = "Save button";
 "settings.nowplayingbar.spotify_flags.header" = "Spotify's flags";
@@ -1951,6 +1956,8 @@
 "settings.player.fluid.warp" = "Warp";
 "settings.player.follows_cover.title" = "Follow the cover";
 "settings.player.footer.v2" = "Fluid, Animated and Visualizer change with the next song. Still and Colors apply after you restart Spotify.";
+"settings.player.full_screen_cover.subtitle" = "A tap on the cover shows it alone. Off while Gestures is on.";
+"settings.player.full_screen_cover.title" = "Full screen cover on tap";
 "settings.player.gestures.title" = "Gestures";
 "settings.player.glass_header_buttons.title" = "Glass header buttons";
 "settings.player.glass_lyrics.title" = "Glass lyrics";

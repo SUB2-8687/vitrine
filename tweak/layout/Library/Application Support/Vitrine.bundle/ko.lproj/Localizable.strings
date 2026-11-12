@@ -1641,6 +1641,9 @@
 "settings.mod.version.title" = "버전";
 "settings.mod.whats_new.title" = "새로운 기능";
 
+"settings.nowplayingbar.artwork_shape.circle" = "원형";
+"settings.nowplayingbar.artwork_shape.rounded_square" = "둥근 사각형";
+"settings.nowplayingbar.artwork_shape.title" = "아트워크 모양";
 "settings.nowplayingbar.bar_to_cover_animation.title" = "막대에서 커버 아트로 전환 애니메이션";
 "settings.nowplayingbar.device_button.subtitle" = "탭 사이 막대에 유지";
 "settings.nowplayingbar.device_button.title" = "최소화된 막대의 기기 버튼";
@@ -1654,6 +1657,8 @@
 "settings.nowplayingbar.minimize.subtitle" = "페이지를 아래로 스크롤할 때 두 탭 사이에 배치";
 "settings.nowplayingbar.minimize.title" = "스크롤할 때 최소화";
 "settings.nowplayingbar.miniplayer_transition_animations.title" = "미니 플레이어 전환 애니메이션";
+"settings.nowplayingbar.next_button.subtitle" = "전체 재생 중 막대에서 재생 버튼 뒤에 표시";
+"settings.nowplayingbar.next_button.title" = "다음 곡 버튼";
 "settings.nowplayingbar.queue_badge.title" = "대기열 배지";
 "settings.nowplayingbar.save_button.title" = "저장 버튼";
 "settings.nowplayingbar.spotify_flags.header" = "Spotify 플래그";
@@ -1952,6 +1957,8 @@
 "settings.player.fluid.warp" = "왜곡";
 "settings.player.follows_cover.title" = "커버 색상 따르기";
 "settings.player.footer.v2" = "플루이드, 움직임, 비주얼라이저는 다음 노래부터 바뀝니다. 정지와 색상은 Spotify를 다시 시작한 후에 적용됩니다.";
+"settings.player.full_screen_cover.subtitle" = "커버를 탭하면 커버만 크게 보여 줍니다. 제스처가 켜져 있으면 작동하지 않습니다.";
+"settings.player.full_screen_cover.title" = "커버를 탭해 전체 화면으로 보기";
 "settings.player.gestures.title" = "제스처";
 "settings.player.glass_header_buttons.title" = "글래스 헤더 버튼";
 "settings.player.glass_lyrics.title" = "글래스 가사";

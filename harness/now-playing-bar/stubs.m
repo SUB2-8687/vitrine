@@ -14,6 +14,7 @@ __weak UIView *sgr_nowPlayingRoot;
 NSHashTable<UIView *> *sgr_nowPlayingPainted;
 
 BOOL SGRedesignedUI(void) { return NO; }
+NSString *SGL(NSString *key, NSString *english) { return english; }
 UIColor *SGRAccentColor(void) { return nil; }
 // The app's text size, which the harness changes; production reads UIApplication.preferredContentSizeCategory.
 // Catalyst's Mac idiom does not scale text, so the sizes are the phone's: the bar's two styles at Large, a point less

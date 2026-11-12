@@ -39,6 +39,19 @@ static NSUInteger sg_titleReads;
 static SPTPlayerState *sg_state;
 SPTPlayerState *SGPlayerState(void) { return sg_state; }
 
+// The player the Next button asks, a double that counts the skips it is asked for.
+@interface SGHarnessPlayer : NSObject
+@property (nonatomic) NSUInteger skips;
+@end
+@implementation SGHarnessPlayer
+- (id)skipToNextTrackWithOptions:(id)options {
+    self.skips++;
+    return nil;
+}
+@end
+static SGHarnessPlayer *sg_player;
+id SGPlayer(void) { return sg_player; }
+
 #include "NowPlayingBar.gen.m"
 
 #pragma mark - Spotify's page, a double
@@ -240,6 +253,138 @@ static void checkInlineArtist(void) {
     sg_inline = nil;
 }
 
+#pragma mark - the Next button and the artwork's shape
+
+// A setting as a fresh install has it: not stored at all.
+static void unset(NSString *key) {
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+    SGPrefsChanged();
+}
+
+// Spotify's button stack as 9.1.90 lays it out: the device, add and play buttons, each in an item of its own.
+static UIView *buttonItem(UIStackView *stack, NSString *identifier) {
+    UIView *item = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 44, 40)];
+    UIView *button = [[UIButton alloc] initWithFrame:item.bounds];
+    button.accessibilityIdentifier = identifier;
+    [item addSubview:button];
+    [stack addArrangedSubview:item];
+    return item;
+}
+
+static SGRBarNextButton *nextIn(UIStackView *stack) {
+    SGRBarNextButton *found = nil;
+    for (UIView *item in stack.arrangedSubviews) {
+        if (![item isKindOfClass:SGRBarNextButton.class]) continue;
+        if (found) HARNESS_FAIL(@"next button: two of them in the row");
+        found = (SGRBarNextButton *)item;
+    }
+    return found;
+}
+
+// Off unless set; on, one button after Spotify's buttons, last in the row and as large as play's item, Spotify's
+// buttons left as they were, that asks the player for the next track, hidden in the minimized row with the add button
+// and back with the full card; off again, gone from the row.
+static void checkNextButton(void) {
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 360, 56)];
+    UIStackView *stack = [[UIStackView alloc] initWithFrame:CGRectMake(172, 0, 132, 40)];
+    UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[[[UIView alloc] initWithFrame:CGRectMake(0, 0, 168, 40)], stack]];
+    row.frame = CGRectMake(48, 8, 304, 40);
+    [bar addSubview:row];
+    buttonItem(stack, @"Components.ConnectButtonOutputSwitcher");
+    UIView *add = buttonItem(stack, @"Components.UI.AddToButton");
+    UIView *play = buttonItem(stack, kPlayId);
+    NSArray<UIView *> *spotify = stack.arrangedSubviews;
+
+    unset(SGRKeyBarNextButton);
+    placeNextButton(bar);
+    if (nextIn(row)) HARNESS_FAIL(@"next button: shown with the switch unset");
+    sg_checks++;
+
+    SGSetEnabled(SGRKeyBarNextButton, YES);
+    placeNextButton(bar);
+    placeNextButton(bar);
+    SGRBarNextButton *next = nextIn(row);
+    if (!next || row.arrangedSubviews.lastObject != next || next.hidden || ![stack.arrangedSubviews isEqualToArray:spotify]) {
+        HARNESS_FAIL(@"next button: wanted it last in the row after Spotify's buttons %@, got %@ in %@, buttons %@",
+                     spotify, next, row.arrangedSubviews, stack.arrangedSubviews);
+    }
+    sg_checks++;
+
+    // Laid out at play's 44x40 in the 40 pt row, it still takes every touch of a 44x44 pt square about its middle
+    // through the hit test of the bar's page.
+    UIView *host = [(id)UIApplication.sharedApplication.delegate window].rootViewController.view;
+    [host addSubview:bar];
+    [bar layoutIfNeeded];
+    CGPoint mid = [next convertPoint:CGPointMake(CGRectGetMidX(next.bounds), CGRectGetMidY(next.bounds)) toView:bar];
+    CGFloat reach = 44.0 / 2 - 0.5;
+    for (int corner = 0; corner < 4; corner++) {
+        CGPoint p = CGPointMake(mid.x + (corner & 1 ? reach : -reach), mid.y + (corner & 2 ? reach : -reach));
+        if (nextButtonHit(bar, p, nil) != next) {
+            HARNESS_FAIL(@"next button: %@ outside its touch target (laid out at %@ in a row %.0f pt high); wanted 44x44 pt",
+                         NSStringFromCGPoint(p), NSStringFromCGRect([next convertRect:next.bounds toView:bar]), row.bounds.size.height);
+        }
+    }
+    sg_checks++;
+
+    sg_player = [SGHarnessPlayer new];
+    [next sendActionsForControlEvents:UIControlEventTouchUpInside];
+    if (sg_player.skips != 1) HARNESS_FAIL(@"next button: a tap asked for %lu skips", (unsigned long)sg_player.skips);
+    sg_player = nil;
+    sg_checks++;
+
+    tuckExtras(bar, YES);
+    if (!next.hidden || !add.hidden) HARNESS_FAIL(@"next button: in the row next hidden %d, add hidden %d", next.hidden, add.hidden);
+    tuckExtras(bar, NO);
+    if (next.hidden || add.hidden) HARNESS_FAIL(@"next button: back on the full card next hidden %d, add hidden %d", next.hidden, add.hidden);
+    sg_checks++;
+
+    SGSetEnabled(SGRKeyBarNextButton, NO);
+    placeNextButton(bar);
+    if (nextIn(row) || next.superview) HARNESS_FAIL(@"next button: still there with the switch off");
+    sg_checks++;
+
+    // On again, and then Spotify's bar no longer holds play in its button stack: the Next placed before goes.
+    SGSetEnabled(SGRKeyBarNextButton, YES);
+    placeNextButton(bar);
+    next = nextIn(row);
+    HARNESS_CHECK(next != nil);
+    [stack removeArrangedSubview:play];
+    [play removeFromSuperview];
+    [bar addSubview:play];
+    placeNextButton(bar);
+    if (next.superview || nextButtonHit(bar, mid, nil)) HARNESS_FAIL(@"next button: still in %@ after play left its stack", next.superview);
+    sg_checks++;
+    [bar removeFromSuperview];
+    unset(SGRKeyBarNextButton);
+}
+
+// The cover's two views of Spotify's, the outer one plain and the image's own with Spotify's 4pt corners, as rounded
+// for each shape: a circle unless set, 8pt corners for Rounded square, and back, on the same card as the choice changes.
+static void checkArtworkShape(void) {
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 360, 56)];
+    UIView *outer = [[UIView alloc] initWithFrame:CGRectMake(8, 8, 40, 40)];
+    UIView *image = [[UIView alloc] initWithFrame:outer.bounds];
+    image.layer.cornerRadius = 4;
+    [outer addSubview:image];
+    [card addSubview:outer];
+    sg_cardArtwork = nil;
+    struct { NSInteger shape; BOOL stored; CGFloat radius; } steps[] = {
+        {0, NO, 20}, {SGRBarArtworkShapeRoundedSquare, YES, 8}, {SGRBarArtworkShapeCircle, YES, 20},
+    };
+    for (size_t i = 0; i < sizeof steps / sizeof *steps; i++) {
+        if (steps[i].stored) SGSetInt(SGRKeyBarArtworkShape, steps[i].shape);
+        else unset(SGRKeyBarArtworkShape);
+        restyleCardContent(card);
+        CGFloat want = steps[i].radius;
+        if (outer.layer.cornerRadius != want || image.layer.cornerRadius != want || sg_cardArtwork != outer) {
+            HARNESS_FAIL(@"artwork shape %ld (stored %d): wanted %.0fpt corners on the cover, got outer %.1f, image %.1f, artwork %@",
+                         (long)steps[i].shape, steps[i].stored, want, outer.layer.cornerRadius, image.layer.cornerRadius, sg_cardArtwork);
+        }
+        sg_checks++;
+    }
+    unset(SGRKeyBarArtworkShape);
+}
+
 static void run(void) {
     SPTPlayerTrack *plain = makeTrack(@"Stay High", @"Juice WRLD"), *dotted = makeTrack(@"Rock • Roll", @"The Band");
     SPTPlayerTrack *shorter = makeTrack(@"Rock", @"Roll Crew");
@@ -302,6 +447,8 @@ static void run(void) {
 
     checkInlineArtist();
     checkTextSize();
+    checkNextButton();
+    checkArtworkShape();
 
     printf("[harness] now-playing-bar: %lu checks passed\n", (unsigned long)sg_checks);
     fflush(stdout);

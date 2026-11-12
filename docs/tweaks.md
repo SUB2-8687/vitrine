@@ -709,6 +709,12 @@ Shared:
                   block stays out of it unless the sheet itself is shown (SGPlayerMenuReplaced). Switch to video,
                   the chip over the title of a song with a music video, is hidden under either look on request
                   (VideoSwitch.x, spotifyglass.hide.videoSwitch), by its identifier in FloatingElementsUnit.
+                  Full screen cover on tap (spotifyglass.hide.fullScreenCover, shown unless switched off) is the
+                  player's single tap on the cover, which opens Spotify's full screen cover, as a switch of its own:
+                  off, each look's handleTap hook on CoverArtTiltView (PlayerGestures.x) returns before Spotify's, as
+                  it does while Gestures is on (the tap is then half of a double tap), the native look's on the
+                  player's cover only. Spotify's cover_art_tilt_enabled flag is left alone: with it off the cover has
+                  no CoverArtTiltView, which the redesign's cover rounding and the native hold to play faster hang on.
                   The sleep timer (SleepTimer.m, set from the Live Activity) pauses Spotify at a time, at the end of
                   the track or at the end of the album or playlist, the last track of it found by the tracks to come
                   that are neither queued by hand nor autoplay's (SPTPlayerTrack's provider), or by the next one
@@ -1132,7 +1138,16 @@ Redesigned:
                   the bar half way `turns`, a minimize from inside Spotify's own animations `nested`, every frame of
                   the move sampled `motion`), the scroll's steps checked by harness/tabbar/minimize-check.c
     NowPlayingBar/ the glass now playing bar (NowPlayingBar.x), with Spotify's device button on it hidden on request
-                  (BarConnect.x, its own key and its own row on the Player page, apart from the native look's). Above the
+                  (BarConnect.x, its own key and its own row on the Player page, apart from the native look's). On
+                  request a Next button of the mod's stands after Spotify's button stack, last in the row that holds
+                  the track's information and that stack, as large as play's item (its touch target at least 44x44 pt,
+                  the part outside Spotify's 40 pt row handed to it by the page's hit test), and asks the player for the next
+                  track (among Spotify's buttons it made Spotify, which moves them by index, put add after play); it stands aside in the minimized row with
+                  the device and add buttons. The cover is a circle, or a rounded square with 8 pt corners (Artwork
+                  shape): standing 8 pt in from the card's 24 pt corner, a corner of any radius stays inside the card's
+                  curve, so the cover keeps Spotify's 40 pt (the jadetheda fork shrank it for its fully round 56 pt
+                  capsule). The views this file rounded are marked, so a change of shape rounds them again, and
+                  SGRNowPlayingArtworkFrameIn hands the morph the radius shown (harness/now-playing-bar/). Above the
                   tab bar the card is exactly as wide as the glass tab row, split tabs included, like the Music app's mini
                   player (SGRTabBarGlassRow in Navbar.h, posted at most once a run loop turn when the row's edges change);
                   in a regular width or right-to-left layout it keeps Spotify's edges, and a Jam never puts it inline. The card's text is the Music
@@ -1753,7 +1768,8 @@ one row saying why not), and last under either Clear Downloaded Covers and Artis
 SGArtworkCacheRow): their size measured off the main queue, and after an alert with Cancel only the store's own clip
 files (SGMotionStoreClear, a clip in use left in place) and the album answers file (SGMotionCacheClear) removed; a
 transfer or lookup begun before it delivers to its own caller but keeps and starts nothing; songs, a chosen cover,
-edits and lyrics are untouched; harness/artwork-clear/. Spotify's podcast, audiobook and artwork flags stay in All flags. Player: Gestures, Blocked artists (with the count on the row), Sleep timer's Fade-out duration and Load ahead (spotifyglass.loadAhead, on
+edits and lyrics are untouched; harness/artwork-clear/. Spotify's podcast, audiobook and artwork flags stay in All flags. Player: Gestures, Blocked artists (with the count on the row), Sleep timer's Fade-out duration, Full screen cover on tap (a tap on the player's cover opens Spotify's full screen
+cover; `spotifyglass.hide.fullScreenCover`, shown until switched off, live) and Load ahead (spotifyglass.loadAhead, on
 until switched off: the next track's artwork and lyrics are prepared ahead; off, only that advance work stops, the current
 track is untouched, and a change applies at once), which work with either look, including below iOS 17;
 in the native look also Now playing bar (its device button and its flags), Queue & devices, and
@@ -1816,7 +1832,11 @@ blurring the cover again off the main thread, and Animated and Visualizer's Flui
 and Mini player: Apple Music style (the tab bar's minimize on scroll), Device button (the now playing bar keeps
 Spotify's device button in that minimized row, off by default), Artist under the title when minimized
 (`spotifyglass.redesign.inlinePlayer.artist`, off: in that row the artist as a second line, only when both lines fit
-the bar with 6 pt to spare, the full bar unchanged; harness/now-playing-bar/), the device button hidden on the full bar, and the
+the bar with 6 pt to spare, the full bar unchanged; harness/now-playing-bar/), Next button
+(`spotifyglass.redesign.nowPlayingBar.nextButton`, off: a forward button after play on the full bar that skips to the next
+track, hidden in the minimized row; live), Artwork shape (`spotifyglass.redesign.nowPlayingBar.artworkShape`, Circle unless
+set, or Rounded square with 8 pt corners; live, and the player's open and close morph from the shape shown;
+harness/now-playing-bar/), the device button hidden on the full bar, and the
 like button hidden (Spotify's own flag ios-feature-nowplayingbar.add_button forced off),
 checked in the simulator against harness/player/ (`settings`). Vibrations, a page of its own under either
 look opened from the main page (the row reads out which of the two are on), leads with a preview (Shared/Haptics/SGVibrationsPreview.m): rings of dots that a tap sends a crest across, out
