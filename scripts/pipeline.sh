@@ -126,14 +126,17 @@ echo "    $TWEAK_DEB"
 FILES=("$TWEAK_DEB")
 [ "$WITH_FLEX" = 1 ] && FILES+=("$FLEX_DEB")
 
-# The Live Activity (Shared/LiveActivity) draws in a widget extension of its own.
+# Source-built Live Activity and share-sheet action extensions.
 if xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
   EXT_DIR="$ROOT/out/extension"
   unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
   # Built again only when what it is made from changed: its sources, the host's Info.plist or Xcode.
   EXT_STAMP="$( { cat "$ROOT/scripts/build-extension.sh" "$ROOT"/extension/LiveActivity/* \
+    "$ROOT"/extension/OpenInVitrine/*.{m,plist} "$ROOT"/extension/OpenInVitrine/*.lproj/*.strings \
+    "$ROOT"/tweak/Sources/Shared/Navigation/LinkURL.{h,m} \
     "$ROOT"/tweak/Sources/Shared/LiveActivity/*.swift "$ROOT/out/.info.plist"; xcodebuild -version; } | shasum | cut -d' ' -f1)"
   if [ "$(cat "$EXT_DIR/.stamp" 2>/dev/null)" = "$EXT_STAMP" ] && [ -d "$EXT_DIR/SpotifyGlassLiveActivity.appex" ] \
+     && [ -d "$EXT_DIR/OpenInVitrine.appex" ] \
      && [ -e "$EXT_DIR/app/Metadata.appintents" ]; then
     echo "==> SpotifyGlassLiveActivity.appex is up to date"
   else
@@ -142,9 +145,9 @@ if xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
     echo "$EXT_STAMP" > "$EXT_DIR/.stamp"
   fi
   rm -f "$ROOT/out/.info.plist"
-  FILES+=("$EXT_DIR/SpotifyGlassLiveActivity.appex")
+  FILES+=("$EXT_DIR/SpotifyGlassLiveActivity.appex" "$EXT_DIR/OpenInVitrine.appex")
 else
-  echo "==> no Xcode selected: building without the Live Activity extension"
+  echo "==> no Xcode selected: building without the Live Activity and Open in Vitrine extensions"
 fi
 
 # Spotify's widget reads what the app writes through App Group suites the re-signed IPA is not entitled
@@ -163,6 +166,19 @@ FILES+=("$GROUPS_DYLIB")
 OVERLAY="$ROOT/out/.overlay.plist"
 unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
 python3 -B "$ROOT/scripts/merge-overlay.py" "$ROOT/plist/liquid-glass.plist" "$ROOT/out/.info.plist" "$OVERLAY"
+python3 -B - "$ROOT/out/.info.plist" "$OVERLAY" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as f:
+    host = plistlib.load(f)
+with open(sys.argv[2], 'rb') as f:
+    overlay = plistlib.load(f)
+types = list(host.get('CFBundleURLTypes', []))
+if not any('vitrine' in item.get('CFBundleURLSchemes', []) for item in types):
+    types.append({'CFBundleURLName': 'vitrine', 'CFBundleURLSchemes': ['vitrine']})
+overlay['CFBundleURLTypes'] = types
+with open(sys.argv[2], 'wb') as f:
+    plistlib.dump(overlay, f)
+PY
 rm -f "$ROOT/out/.info.plist"
 
 echo "==> injecting"

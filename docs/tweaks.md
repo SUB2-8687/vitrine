@@ -658,6 +658,27 @@ Shared:
     Navigation/   the page transition fix (PageTransition.x), opening a spotify: link (Links.x), and either look's
                   Add a Tab sheet (AddTabSheet.m) with the icons a tab can wear, Encore's glyphs or SF Symbols
                   (TabIcons.m). The sheet runs in the simulator in harness/addtab/
+                  Inbound links use the vitrine: scheme: vitrine:track:<id>, vitrine://track/<id>,
+                  vitrine://open.spotify.com/track/<id>, or vitrine://https://<Spotify share URL>.
+                  The public-page allowlist is track, album, artist, playlist, show, episode (22-character
+                  base62 IDs) and user profiles (user/<id>, one URI-unreserved token, up to 255 characters).
+                  HTTPS open.spotify.com paths may have an intl-xx locale prefix or embed prefix; page
+                  queries, including ?si=, are discarded. Only public HTTPS socialsession/<22-character
+                  base62 ID> invitations reach Spotify's own Jam join UI; raw Jam/session action URIs,
+                  internal, debug, webview, settings, account/auth, download, add-to-playlist and unknown
+                  destinations are rejected. Safari Eevee wrappers must contain a validated HTTPS share URL.
+                  Short links resolve off main using HEAD, a five-second timeout, and exactly
+                  open.spotify.com, spotify.link or spotify.app.link at every hop. Only one resolution
+                  runs at a time: a newer inbound URL cancels and supersedes the older one. No link history
+                  is kept. URLs are limited to 4 KiB UTF-8 and shared text to 64 KiB; the source-built
+                  Open in Vitrine share action scans off main and processes at most eight shared items
+                  and eight providers. Its links use the same public allowlist as the app. Unsupported
+                  dispatcher versions retain Spotify's original handlers and cold-start inputs.
+                  A plain HTTPS link opened in Safari shows Spotify's web page, whose "Open app" button
+                  cannot reach a re-signed app: use the share sheet or a Safari Open-in-Spotify extension.
+                  The share-sheet handoff relies on iOS behavior that must be confirmed on a device.
+                  A different app can register vitrine: too; sideload signing does not reliably provide
+                  app groups, so this scheme does not authenticate which app receives the handoff.
     Player/       the player's open and close announced (PlayerEvents.x), what the player is doing read through
                   one hook for every feature that wants it (PlayerState.x, which also names the up-next track, SGPlayerUpNextIn, and tells its
                   observers when it changes), the last track played for the settings

@@ -3,9 +3,17 @@
 #import "Core/SGCore.h"
 #import "Headers/SPTLinkDispatcherImplementation.h"
 #import "Links.h"
+#import "InboundLinks.h"
 #import <objc/message.h>
+#import <objc/runtime.h>
 
 static __weak SPTLinkDispatcherImplementation *sg_linkDispatcher;
+static SGInboundLinks *sg_inboundLinks;
+static char sg_consumedContextsKey, sg_consumedActivitiesKey;
+
+static BOOL acceptInbound(NSURL *url) {
+    return [sg_inboundLinks acceptURL:url];
+}
 
 id SGLinkDispatcher(void) {
     return sg_linkDispatcher;
@@ -98,30 +106,120 @@ SGLinkRoute SGSpotifyURIRoute(NSURL *uri, NSString **via) {
     }
 }
 
-NSURL *SGSpotifyURIFromText(NSString *text) {
-    NSString *trimmed = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (!trimmed.length) return nil;
-    NSURLComponents *parts = [NSURLComponents componentsWithString:trimmed];
-    NSString *host = parts.host.lowercaseString;
-    if ([parts.scheme.lowercaseString hasPrefix:@"http"] && [host isEqualToString:@"open.spotify.com"]) {
-        NSMutableArray<NSString *> *path = [NSMutableArray array];
-        for (NSString *piece in [parts.path componentsSeparatedByString:@"/"]) {
-            if (piece.length) [path addObject:piece];
-        }
-        if (path.count && [path.firstObject hasPrefix:@"intl-"]) [path removeObjectAtIndex:0];
-        if (path.count >= 2) return [NSURL URLWithString:[@"spotify:" stringByAppendingString:[path componentsJoinedByString:@":"]]];
-    }
-    return [NSURL URLWithString:trimmed];
+// Authentication and accessory callbacks use Spotify's other schemes; their existing handlers stay.
+static BOOL isInboundLink(NSURL *url) {
+    return [@[@"spotify", @"vitrine", @"https", @"http"] containsObject:url.scheme.lowercaseString];
 }
+
+static BOOL isRegisteredCallback(NSURL *url) {
+    for (NSDictionary *type in NSBundle.mainBundle.infoDictionary[@"CFBundleURLTypes"])
+        for (NSString *scheme in type[@"CFBundleURLSchemes"])
+            if ([scheme.lowercaseString isEqualToString:url.scheme.lowercaseString]) return YES;
+    return NO;
+}
+
+static BOOL (*originalOpenURL)(id, SEL, UIApplication *, NSURL *, NSDictionary *);
+static BOOL inboundOpenURL(id self, SEL cmd, UIApplication *app, NSURL *url, NSDictionary *options) {
+    if (isInboundLink(url)) return acceptInbound(url);
+    return isRegisteredCallback(url) && originalOpenURL(self, cmd, app, url, options);
+}
+
+static BOOL (*originalActivity)(id, SEL, UIApplication *, NSUserActivity *, id);
+static BOOL inboundActivity(id self, SEL cmd, UIApplication *app, NSUserActivity *activity, id restore) {
+    if ([activity.activityType isEqualToString:NSUserActivityTypeBrowsingWeb]) return acceptInbound(activity.webpageURL);
+    return originalActivity(self, cmd, app, activity, restore);
+}
+
+static NSSet<UIOpenURLContext *> *consumeLinkContexts(NSSet<UIOpenURLContext *> *contexts) {
+    NSMutableSet *callbacks = [NSMutableSet set];
+    for (UIOpenURLContext *context in contexts) {
+        NSURL *url = context.URL;
+        if (isInboundLink(url)) acceptInbound(url);
+        else if (isRegisteredCallback(url)) [callbacks addObject:context];
+    }
+    return callbacks;
+}
+
+static void replaceDelegateMethod(Class cls, SEL sel, IMP replacement, IMP *original) {
+    if (*original) return;
+    Method method = class_getInstanceMethod(cls, sel);
+    if (!method) return;
+    *original = method_getImplementation(method);
+    if (!class_addMethod(cls, sel, replacement, method_getTypeEncoding(method)))
+        class_replaceMethod(cls, sel, replacement, method_getTypeEncoding(method));
+}
+
+%hook UIApplication
+- (void)setDelegate:(id)delegate {
+    if (delegate) {
+        Class cls = object_getClass(delegate);
+        replaceDelegateMethod(cls, @selector(application:openURL:options:), (IMP)inboundOpenURL, (IMP *)&originalOpenURL);
+        replaceDelegateMethod(cls, @selector(application:continueUserActivity:restorationHandler:), (IMP)inboundActivity, (IMP *)&originalActivity);
+    }
+    %orig;
+}
+%end
+
+// A cold scene receives its links in connection options, before the dispatcher is necessarily ready.
+%hook UISceneConnectionOptions
+- (NSSet<UIOpenURLContext *> *)URLContexts {
+    NSSet *consumed = objc_getAssociatedObject(self, &sg_consumedContextsKey);
+    if (consumed) return consumed;
+    NSSet *contexts = %orig;
+    NSSet *callbacks = consumeLinkContexts(contexts);
+    objc_setAssociatedObject(self, &sg_consumedContextsKey, callbacks, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return callbacks;
+}
+- (NSSet<NSUserActivity *> *)userActivities {
+    NSSet *consumed = objc_getAssociatedObject(self, &sg_consumedActivitiesKey);
+    if (consumed) return consumed;
+    NSSet *activities = %orig;
+    NSMutableSet *remaining = [NSMutableSet set];
+    for (NSUserActivity *activity in activities) {
+        if ([activity.activityType isEqualToString:NSUserActivityTypeBrowsingWeb]) acceptInbound(activity.webpageURL);
+        else [remaining addObject:activity];
+    }
+    objc_setAssociatedObject(self, &sg_consumedActivitiesKey, remaining, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return remaining;
+}
+%end
 
 %hook SPTLinkDispatcherImplementation
 - (void)setMainUILoaded:(BOOL)loaded {
     %orig;
     sg_linkDispatcher = (SPTLinkDispatcherImplementation *)self;
+    [sg_inboundLinks setReady:loaded];
 }
+
+%end
+
+// UIKit installs Spotify's scene delegate without calling UIScene.setDelegate:.
+@interface SGSpotifySceneDelegate : UIResponder <UIWindowSceneDelegate>
+@end
+
+%group SGSceneLinks
+%hook SGSpotifySceneDelegate
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    NSSet *callbacks = consumeLinkContexts(contexts);
+    if (callbacks.count) %orig(scene, callbacks);
+}
+- (void)scene:(UIScene *)scene continueUserActivity:(NSUserActivity *)activity {
+    if ([activity.activityType isEqualToString:NSUserActivityTypeBrowsingWeb]) acceptInbound(activity.webpageURL);
+    else %orig;
+}
+%end
 %end
 
 %ctor {
+    if (!SGSupportsSpotifyLinkDispatch(NSClassFromString(@"SPTLinkDispatcherImplementation"),
+                                      NSClassFromString(@"SPTUBINavigationReason"))) {
+        SGLog(@"links: dispatcher unsupported; original inbound handlers retained");
+        return;
+    }
+    sg_inboundLinks = [[SGInboundLinks alloc] initWithResolver:^id<SGLinkCancellation>(NSURL *url, SGLinkResolved completion) {
+        return SGResolveSpotifyPublicLink(url, completion);
+    } opener:^BOOL(NSURL *url) { return SGOpenSpotifyURI(url); }];
     %init;
+    %init(SGSceneLinks, SGSpotifySceneDelegate = NSClassFromString(@"MusicApp_ContainerWiring.SpotifySceneDelegate"));
     SGRequireClasses(@[@"SPTLinkDispatcherImplementation"]);
 }

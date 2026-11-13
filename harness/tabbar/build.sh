@@ -15,7 +15,7 @@ xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-ar
     -I"$SRC" -I"$SRC/Redesigned/Navbar" -I"$SRC/Redesigned/NowPlayingBar" -I"$SRC/Redesigned/Kit" -I"$SRC/Shared/Navigation" -I"$OUT/gen" -isysroot "$SDK" \
     -Wno-deprecated-declarations \
     "$(dirname "$0")/main.m" "$(dirname "$0")/stubs.m" "$(dirname "$0")/touch.m" "$(dirname "$0")/navsettings.m" \
-    "$OUT"/gen/*.m \
+    "$OUT"/gen/*.m "$SRC"/Shared/Navigation/LinkURL.m "$SRC"/Shared/Navigation/InboundLinks.m \
     "$SRC"/Redesigned/Navbar/NavbarSettings.m "$SRC"/Shared/Navigation/AddTabSheet.m "$SRC"/Redesigned/Kit/SGRPagePreview.m "$SRC"/Redesigned/Kit/SGRPalette.m \
     "$SRC"/Settings/SGPage.m "$SRC"/Settings/SGModPage.m "$SRC"/Settings/SGSettingsSearch.m "$SRC"/Settings/SGSettingsIndex.m "$SRC"/Settings/SGGlowSwitch.m \
     "$SRC"/Settings/SGSourcesPage.m \
