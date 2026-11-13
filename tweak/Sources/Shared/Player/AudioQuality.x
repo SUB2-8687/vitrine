@@ -497,4 +497,11 @@ static SGAudioQualityWatcher *sg_watcher;
     // Posted on main as the player opens or closes; the details are only up while it is open.
     [NSNotificationCenter.defaultCenter addObserverForName:SGPlayerTransitionNotification object:nil queue:nil
                                                 usingBlock:^(NSNotification *note) { [sg_panel close]; }];
+    // The unit's first layout can come before its times have theirs, and opening the player does not lay the unit
+    // out again on its own (seen on an iPhone 13 Pro, 9.1.90): once the player is up, the badge is placed again.
+    [NSNotificationCenter.defaultCenter addObserverForName:SGPlayerTransitionEndedNotification object:nil queue:nil
+                                                usingBlock:^(NSNotification *note) {
+        if (!sg_on) return;
+        for (UIView *unit in sg_units.allObjects) [unit setNeedsLayout];
+    }];
 }
