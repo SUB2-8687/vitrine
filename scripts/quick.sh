@@ -40,6 +40,10 @@ if [ ! -f "$CACHE/.from" ] || [ "$IPA" -nt "$CACHE/.from" ] || [ "$(cat "$CACHE/
 fi
 APP="$(ls -d "$CACHE"/Payload/*.app | head -1)"
 
+if [ "${WIREGUARD:-0}" = 1 ]; then
+  python3 -B "$ROOT/scripts/spotify-transport-scan.py" "$APP" --wireguard-compatible
+fi
+
 # A build with FLEX carries the phone driver (tweak/Makefile, SG_DRIVER). Theos rebuilds by file times
 # alone, so a change of the flag cleans first.
 DRIVER=0

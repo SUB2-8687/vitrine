@@ -34,6 +34,9 @@
 #import "Shared/Player/PlayerSettings.h"
 #import "Shared/Sing/Sing.h"
 #import "Shared/Haptics/Haptics.h"
+#if SG_WIREGUARD
+#import "Shared/WireGuard/SGWGSettingsController.h"
+#endif
 #import "App/About/About.h"
 #import "App/Onboarding/Onboarding.h"
 #import "Redesigned/Album/Album.h"
@@ -191,6 +194,10 @@ static UIViewController *modSettingsPage(void) {
                 namedFor(@"listeningstats"),
                 SGL(@"settings.search.listening_stats.keywords", @"statistics history top songs streaks charts")),
     ]];
+#if SG_WIREGUARD
+    [features addObject:pageRow(SGL(@"settings.wireguard.title", @"In-app WireGuard / Proxy"), @"network", UIColor.systemTealColor,
+                               ^UIViewController *{ return [SGWGSettingsController new]; })];
+#endif
     [sections addObject:SGSection(nil, features)];
 
     SGModRow *mod = foundBy(pageRow(SGL(@"settings.main.mod.title", @"Mod"), @"info.circle", SGColorRGB(0x7D7D81), ^UIViewController *{ return SGAboutPage(); }),

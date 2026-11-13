@@ -7,13 +7,27 @@
 // LiveContainer a dylib it dlopens. There it is expected to be loaded and bound before any %ctor runs
 // (not yet confirmed by a LiveContainer log); if it is not, the log says so and nothing is rebound.
 //
-// Threading: call from a %ctor, before Spotify has run; the slots are written without a lock.
+// Installers are serialized. Call-through pointers are filled before publishing a slot.
 #import <Foundation/Foundation.h>
 #import <stdatomic.h>
 
 // Returns YES when at least one slot named `symbol` (without the leading underscore) was repointed.
 // `original` receives what the first slot held, which is what the replacement calls on.
 BOOL SGRebindImport(const char *symbol, void *replacement, void **original);
+
+struct mach_header_64;
+typedef struct {
+    BOOL inspected;
+    NSUInteger expected, installed, deferred;
+} SGImportSlots;
+// Opt-in image-scoped accounting. Already guarded slots (including a registered
+// call-through chain) count as installed. Capture the previous implementation
+// through original when composing hooks; distinct predecessors cannot share one
+// call-through pointer and are left unpatched.
+// an unbound or unwritable slot never counts as success. Legacy callers retain
+// SGRebindImport's any-new-slot behavior.
+SGImportSlots SGRebindImageImport(const struct mach_header_64 *header, intptr_t slide,
+                                 const char *symbol, void *replacement, void **original);
 
 // Installation only, before Spotify runs. An app-bundled hooker is not a jailbreak.
 BOOL SGJailbroken(void);

@@ -1,0 +1,178 @@
+# EXPERIMENTAL app-local WireGuard / proxy
+
+**Routes the inspected Spotify paths through the tunnel/proxy and blocks
+installed guarded paths when it cannot. It is not a leak-proof or device-wide
+VPN.** Do not use this experimental feature as a security boundary for all
+traffic from the app or device.
+
+`WIREGUARD=0` (also unset) excludes its sources, Go archive, extra frameworks,
+license resource and Mod Settings row. Ordinary builds do not require Go.
+Mode changes invalidate the link output without recompiling the settings source;
+default → enabled → default works without cleaning, retaining the output path
+used by `make quick`. A default build **drops all enforcement despite any saved runtime opt-in**.
+
+When compiled in, it remains off until the user imports a profile or saves a
+proxy, explicitly enables it, then restarts. Import never enables it. It applies
+to both Vitrine looks. Proxy routing needs iOS 17+ and the Network.framework
+proxy APIs; Vitrine's ordinary deployment floor is unchanged.
+
+## Ownership and readiness
+
+`Shared/WireGuard/SGWGCore.m` owns the launch state, Keychain, listener and
+Foundation hooks. `SGWGAdmission.m` validates the inspected build/images.
+`SGWGNative.m` installs Spotify-image import guards through `Core/SGRebind`.
+`SGWGTransport.m` observes delegates, without enforcing routing.
+`SGWGSettingsController.m` owns the form/recovery notice; `App/ModSettings.x`
+only supplies its row. No audio/render-thread hooks or logging are added.
+
+A saved opt-in arms the feature **before** checking capabilities. Installed
+guards remain armed even if another guard cannot install. Readiness is
+published atomically only after session guards, native-slot completeness,
+version/build/both image UUIDs, proxy APIs and engine/proxy startup pass.
+An absent or deferred native slot prevents readiness. The extended rebinder
+counts every matching slot. Permitted `sendto`/`sendmsg` traffic calls the captured
+predecessor, preserving Connect's multicast relay in either installation order.
+The rebinder recognizes registered call-through chains on readiness refresh;
+the existing `SGRebindImport` wrapper retains its other callers' behavior.
+Image add/remove callbacks revoke readiness, then
+recheck on the serial utility queue. Deferred slots are rechecked periodically.
+This does not intercept pre-initializer traffic or make dyld updates a
+transaction with arbitrary app traffic.
+
+Guards that can install without newer proxy APIs continue denying on
+unsupported systems. An unhookable entry point is **not** magically protected:
+the UI reports incomplete guards, not a working VPN.
+
+The UI distinguishes inspected-path guards installed, engine started, and
+handshake age (no handshake means health unconfirmed). Engine startup alone is
+not evidence of a healthy tunnel. A recovery notice offers **Turn off in-app
+VPN**, effective next launch; it does not disable current enforcement and is
+not relied on for enforcement.
+
+## Hook inventory and failure boundary
+
+All hooks below are omitted when runtime opt-in is off.
+
+| Owner / entry | Routing or denial |
+| --- | --- |
+| Core: `+[NSURLSessionConfiguration defaultSessionConfiguration]`, `ephemeralSessionConfiguration`, `backgroundSessionConfigurationWithIdentifier:` | Apply proxy with failover disabled and local-address/availability URL protocols. Missing proxy APIs or unavailable readiness blocks covered web loads. Background transfers run outside URLProtocol and are **not covered**. |
+| Core: `+[NSURLSession sessionWithConfiguration:]`, `sessionWithConfiguration:delegate:delegateQueue:`, `sharedSession` | Copy/reapply configuration at creation; shared session is a guarded replacement. |
+| Core: `-[NSURLSession initWithConfiguration:delegate:delegateQueue:delegateDispatchQueue:]` and its actual local-session implementation | Reapply to the designated initializer's copied configuration, preserving delegates/queues and raw init ownership. Full return/argument encodings must match. |
+| Core: `+[NSData dataWithContentsOfURL:]`, `dataWithContentsOfURL:options:error:`, applicable real class-cluster `initWithContentsOfURL:` / `initWithContentsOfURL:options:error:` implementations | HTTP(S) uses a guarded session. Non-web URLs preserve original behavior. Preserve mutable results, init ownership and errors. Main-thread or armed-unavailable loads fail immediately. Background synchronous loads have one eight-second deadline, independent completion queue, synchronized terminal state and cancellation on timeout. Do not call synchronous loading APIs from a render thread. |
+| Core: `-[NSMutableURLRequest setAssumesHTTP3Capable:]`, `-[NSURLRequest assumesHTTP3Capable]` | Force false only with matching full ABI, including BOOL argument/return. TCP proxying does not carry QUIC. |
+| Core: local-address URL protocol | Reject HTTP(S) literal IPs, localhost/`.localhost`/`.local` names that CFNetwork might exempt. This lexical check is **not an SSRF boundary**. |
+| Native: imported `nw_connection_create` in Spotify and SpotifyShared | Copy TCP parameters, attach non-failover proxy context, preserve original endpoint and TLS identity. Unready, non-TCP or missing APIs use a denied loopback endpoint, not the requested remote address. Local discovery is exempt. |
+| Native: imported `getaddrinfo` | Remote names use tunnel DNS only when usable; otherwise fail. Numeric/local names retain the original resolver. External-proxy mode has no engine DNS and denies remote-name lookup. |
+| Native: imported `connect` | **Deny all remote BSD TCP/UDP**, including while the tunnel is healthy. No caller-fd SOCKS handshake, flag mutation or relay remains. Invalid sockaddr lengths return `EINVAL`. Local destinations retain original behavior. |
+| Native: imported `sendto`, `sendmsg` | Deny remote datagrams, including port 53. Validate sockaddr lengths before casts and suppress SIGPIPE for allowed sends; failure to set the socket option fails the send. |
+| Transport: `URLSession:task:didCompleteWithError:` and `URLSession:dataTask:didReceiveData:` on `SPTCoreURLSessionDataDelegate`, `_TtC26Connectivity_HttpClientKit20HttpClientURLSession`, `SPTDataLoaderService` | Count status/error category/bytes, then forward. Full ABI mismatch skips observation, not routing guards. |
+
+Uncovered paths include background sessions, web sign-in, AVURLAsset,
+pre-initializer traffic/existing sockets, imports in other images, unhooked
+network APIs, local-network exemptions and playback on other Connect devices.
+Local native exemptions include loopback, link-local and multicast, not
+arbitrary RFC1918 addresses. WebSocket behavior is not certified by URLProtocol.
+There is no system VPN, Network Extension, TUN, route change or VPN entitlement.
+The engine's UDP socket and Apple's framework sockets are not rebound.
+
+BSD denial may prevent Spotify playback. Do not add a transparent relay merely
+to make a playback test pass; record the limitation until a separately reviewed
+design addresses caller-fd ownership and asynchronous semantics.
+
+## Exact admission
+
+Ordinary Vitrine supports 9.1.78, 9.1.88 and 9.1.90. Only
+`tweak/Sources/Shared/WireGuard/SGWGTargets.inc` admits WireGuard targets:
+
+| Version / build | Evidence |
+| --- | --- |
+| 9.1.78 / 9.1.88 | No WireGuard transport acceptance; rejected by this feature. |
+| 9.1.90 / 919002269 | Local static IPA scan: main `fbce22c17e1b3e0d9be866ff9291943e`, shared `2e074234cfc63f0e9255c9881824167a`. |
+| 9.1.94 / 919401928 | Fork static evidence only: main `1dfddfa139c03735b9a5fdfa475f4700`, shared `2c12ca8c48ad33f8af6569c084a6324f`. Not Vitrine playback certification. |
+
+Both runtime and preflight validate version, **CFBundleVersion and both UUIDs**.
+Unlisted/future versions are rejected. Preflight also requires original bundle
+ID, decrypted thin arm64 Mach-O, delegate selectors and native imports.
+ZIP and extracted-app reads are bounded to 1 MiB for Info.plist and 512 MiB per
+executable. Enabled `make quick` validates the actual cached app before building
+or installing, even when its source IPA has been moved away.
+Static presence cannot prove runtime ABI, import-slot installation or playback.
+Simulator platform conversion does not relax production admission.
+
+## Credentials and engine boundary
+
+Profiles/passwords use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
+Locked/unavailable Keychain results retry on a utility timer without foreground
+UI; missing, malformed or permanent errors stay blocked. Authenticated proxies
+never silently substitute empty credentials. Passwords are bound to normalized
+(kind, host, port, username), cleared on identity changes. HTTP CONNECT sends
+credentials without proxy-hop TLS; prefer HTTPS or WireGuard on untrusted links.
+Origin TLS and HTTPS-proxy system trust are unchanged.
+
+Clipboard-originated profile data is cleared before validation, including
+failures. Temporary document copies are removed. No automatic enable follows
+import. The parser rejects scripts, unknown/duplicate fields, invalid keys,
+multiple peers, missing default routes/DNS and profiles over 64 KiB.
+
+The loopback listener uses random per-launch authentication, at most 32 clients
+awaiting authentication, a three-second auth deadline and immediate excess
+rejection. After authentication, destination names are resolved through tunnel
+DNS; **every** candidate must be public unicast under the engine policy before
+any connection is made. Dial uses those exact validated addresses, not a second
+hostname lookup. Private, loopback, link-local, unspecified, multicast and
+restricted special-use ranges are refused. Trusted profile DNS servers are a
+separate resolver configuration, not permitted client TCP destinations.
+Endpoint hostnames necessarily use host DNS before the tunnel exists.
+
+Decoded keys/PSK and generated UAPI reside in mutable byte buffers and are
+cleared after `IpcSetOperation`, including failed startup. This does not promise
+erasure of every transient Foundation/parser/upstream WireGuard copy or of the
+live engine's necessary session keys.
+
+Diagnostics store categories/counters, not URLs, keys or headers. Copied text is
+redacted. A user-triggered country check displays the exit IP; never capture a
+profile/key in logs, screenshots or test reports.
+
+## Building and verification
+
+`WireGuard/go.mod` pins the exact Go release (currently **1.27.4**).
+`build-ios.sh` and CI enforce that version with `GOTOOLCHAIN=local`; no automatic
+toolchain upgrade. Dependencies come from `go.mod`/`go.sum`, never prebuilt
+libraries. Use an isolated official darwin-arm64 toolchain with its published
+SHA-256 verified when Go is not installed; remove its caches afterwards.
+
+```sh
+(cd WireGuard && go mod verify && go test ./...)
+python3 -B harness/wireguard/test_transport_scan.py
+python3 -B scripts/spotify-transport-scan.py ipa/Spotify-9.1.90.ipa --wireguard-compatible
+python3 -B harness/wireguard/run_macos.py --live-profile /path/to/private.conf --expect-country US
+bash WireGuard/build-ios.sh
+(cd tweak && /usr/bin/lockf -k /tmp/vitrine-build.lock env -u MAKELEVEL THEOS=$HOME/theos gmake)
+python3 -B harness/wireguard/check-build-mode.py disabled
+(cd tweak && /usr/bin/lockf -k /tmp/vitrine-build.lock env -u MAKELEVEL THEOS=$HOME/theos WIREGUARD=1 gmake)
+python3 -B harness/wireguard/check-build-mode.py enabled
+(cd tweak && /usr/bin/lockf -k /tmp/vitrine-build.lock env -u MAKELEVEL THEOS=$HOME/theos gmake)
+python3 -B harness/wireguard/check-build-mode.py disabled
+bash harness/wireguard/check-connect-chain.sh
+python3 -B scripts/check-strings.py --sync
+```
+
+The macOS harness uses the user's real Proton US profile, copies it only into a
+temporary directory, compares the Mac's direct exit with the tunnel's US exit,
+checks handshake/HTTPS/ranges/Foundation paths, then injects bad endpoint and
+peer-key faults and checks a direct sentinel for zero hits. Spotify admission
+and native rebinding are test doubles in that harness: they are not evidence
+of real Spotify playback. No synthesized WireGuard test peer is retained.
+External-proxy fixtures remain separate from provider testing.
+
+Device/simulator acceptance must use a clone, never the original Vitrine
+simulator. Import, enable, restart, country check, uncached Free-account
+playback/skip and broken-profile recovery all require actual interaction.
+Go tests and successful compile-only fixtures do not certify those outcomes.
+
+Third-party license inventory and provenance: `WireGuard/UPSTREAM.md` and
+`WireGuard/THIRD_PARTY_LICENSES.txt`. The eight modules are MIT, Apache-2.0 or
+BSD-3-Clause, compatible with GPL-3.0 with notices/corresponding source retained.
+Windows-only Wintun is not linked into the iOS/macOS library. CI pins Theos and
+third-party actions, uses read-only repository permissions, and publishes no
+provider profile. English/Korean use the existing Localizable.strings table.

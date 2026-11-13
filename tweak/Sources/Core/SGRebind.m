@@ -8,9 +8,21 @@
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
 #import <stdatomic.h>
+#import <os/lock.h>
 #import <string.h>
 #import "SGRebind.h"
 #import "SGLog.h"
+
+static os_unfair_lock importLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary<NSValue *, NSValue *> *importSuccessors;
+
+static BOOL importChainContains(void *head, void *replacement) {
+    while (head) {
+        if (head == replacement) return YES;
+        head = [importSuccessors[[NSValue valueWithPointer:head]] pointerValue];
+    }
+    return NO;
+}
 
 // The slide from the image's own __TEXT, so it cannot come from a different dyld index than the header.
 static BOOL imageSlide(const struct mach_header_64 *header, intptr_t *slide) {
@@ -84,9 +96,8 @@ static BOOL writeSlot(void **slot, void *value, BOOL readOnly) {
     return YES;
 }
 
-BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
-    intptr_t slide = 0;
-    const struct mach_header_64 *header = spotifyImage(&slide);
+static BOOL rebindImage(const struct mach_header_64 *header, intptr_t slide,
+                        const char *symbol, void *replacement, void **original, SGImportSlots *stats) {
     if (!header) return NO;
 
     const struct segment_command_64 *linkedit = NULL;
@@ -102,7 +113,8 @@ BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
             dysymtab = (const struct dysymtab_command *)command;
         }
     }
-    if (!linkedit || !symtab || !dysymtab || !dysymtab->nindirectsyms) return NO;
+    if (!linkedit || !symtab || !dysymtab) return NO;
+    if (stats) stats->inspected = YES;
 
     uintptr_t base = (uintptr_t)slide + (uintptr_t)(linkedit->vmaddr - linkedit->fileoff);
     const struct nlist_64 *symbols = (const struct nlist_64 *)(base + symtab->symoff);
@@ -137,21 +149,54 @@ BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
             for (uint64_t k = 0; k < count; k++) {
                 uint64_t entry = (uint64_t)section->reserved1 + k;
                 if (entry >= dysymtab->nindirectsyms || indirect[entry] != wanted) continue;
-                if (slots[k] == replacement) continue;
+                if (stats) stats->expected++;
+                if (importChainContains(slots[k], replacement)) {
+                    if (stats) stats->installed++;
+                    continue;
+                }
                 void *held = slots[k];
                 // Bit 63 marks a chained-fixup bind dyld has not applied; it would overwrite the slot later.
                 if ((uintptr_t)held >> 63) {
                     unbound = YES;
+                    if (stats) stats->deferred++;
                     continue;
                 }
-                if (!writeSlot(&slots[k], replacement, readOnly)) continue;
-                if (original && !*original) *original = held;
+                if (stats && original && *original && *original != held) continue;
+                BOOL captured = original && !*original;
+                if (captured) *original = held;
+                if (!writeSlot(&slots[k], replacement, readOnly)) {
+                    if (captured) *original = NULL;
+                    continue;
+                }
+                if (original && *original) {
+                    if (!importSuccessors) importSuccessors = [NSMutableDictionary dictionary];
+                    importSuccessors[[NSValue valueWithPointer:replacement]] = [NSValue valueWithPointer:*original];
+                }
+                if (stats) stats->installed++;
                 rebound = YES;
             }
         }
     }
     if (unbound) SGLog(@"rebind: %s is not bound yet, left as it is", symbol);
     return rebound;
+}
+
+BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
+    os_unfair_lock_lock(&importLock);
+    intptr_t slide = 0;
+    const struct mach_header_64 *header = spotifyImage(&slide);
+    BOOL rebound = rebindImage(header, slide, symbol, replacement, original, NULL);
+    os_unfair_lock_unlock(&importLock);
+    return rebound;
+}
+
+SGImportSlots SGRebindImageImport(const struct mach_header_64 *header, intptr_t slide,
+                                 const char *symbol, void *replacement, void **original) {
+    os_unfair_lock_lock(&importLock);
+    SGImportSlots slots = {0};
+    rebindImage(header, slide, symbol, replacement, original, &slots);
+    os_unfair_lock_unlock(&importLock);
+    return slots;
 }
 
 #pragma mark - the jailbreak's hooker

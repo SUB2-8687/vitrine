@@ -16,6 +16,10 @@ on:
         description: "Remove every app extension (PlugIns/) from the IPA"
         type: boolean
         default: false
+      enable_wireguard:
+        description: "Include opt-in app-local WireGuard / proxy (inspected Spotify IPA only)"
+        type: boolean
+        default: false
       bundle_id:
         description: "Bundle ID must match the signing App ID; extension IDs follow it (empty keeps Spotify's ID)"
         default: ""
@@ -39,6 +43,18 @@ jobs:
       - uses: ./.github/actions/setup-theos
         with:
           brew: aria2
+
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        if: inputs.enable_wireguard
+        with:
+          go-version-file: WireGuard/go.mod
+          cache-dependency-path: WireGuard/go.sum
+
+      - name: Verify pinned Go release
+        if: inputs.enable_wireguard
+        env:
+          GOTOOLCHAIN: local
+        run: test "$(go env GOVERSION)" = "go$(awk '$1 == "go" {print $2}' WireGuard/go.mod)"
 
       - name: Install cyan
         run: python3 -m pip install --break-system-packages git+https://github.com/asdfzxcvbn/pyzule-rw.git
@@ -92,6 +108,7 @@ jobs:
       - name: Build IPA
         env:
           BUNDLE_ID: ${{ inputs.bundle_id }}
+          WIREGUARD: ${{ inputs.enable_wireguard && '1' || '0' }}
           MAKEFLAGS: -k
         run: |
           set -o pipefail
