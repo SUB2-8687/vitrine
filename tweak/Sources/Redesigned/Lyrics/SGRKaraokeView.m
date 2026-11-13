@@ -3120,8 +3120,7 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     if (!track.length || !language.length) return;
     SGRAutoTranslationSuppress(track, language);
     SGLyricsDeleteTranslationWithCompletion(track, language, ^(NSError *error) {
-        if (!error) SGRTranslationChanged(track, language, kTranslationRemoved);
-        else {
+        if (error) {
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:SGL(@"settings.lyricstools.menu.translation.remove", @"Remove Translation")
                 message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.ok", @"OK") style:UIAlertActionStyleCancel handler:nil]];
@@ -3129,6 +3128,7 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
         }
     });
     SGRForgetTranslationJob(track, language);
+    SGRTranslationChanged(track, language, kTranslationRemoved);
 }
 
 // A translation of this song started, stopped, was saved or was removed, from this view or the other. Its lines are
@@ -3138,7 +3138,14 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     NSString *language = SGLyricsGeminiLanguage();
     if (![note.userInfo[kTranslationLanguage] isEqual:language]) [self offerExtras];
     else if (note.userInfo[kTranslationRemoved]) {
-        [self timeLines];   // synced again from what is saved, which keeps the AI's answers
+        // Removal owns the live state immediately; disk completion must not clear a newer answer.
+        for (SGKaraokeLine *line in _lines) {
+            if (!line.translationMade) continue;
+            line.translation = nil;
+            line.translationMade = NO;
+        }
+        [self countTranslations];
+        [self offerExtras];
         [self restyle];
     } else if (note.userInfo[kTranslationLines]) {
         [self loadSavedTranslationThen:^{
