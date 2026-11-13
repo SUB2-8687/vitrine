@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0-beta.28](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.27...v1.0.0-beta.28) (2026-11-13)
+
+
+### Features
+
+* AI 콘텐츠 배지와 가사 첫 배치 강조 보정 ([959c99a](https://github.com/oneulddu/vitrine/commit/959c99aa80b93f9972f2457da0c94e23e8b4e445))
+* Connect 기기 음량 막대와 음량 막대 진동 ([5de22f2](https://github.com/oneulddu/vitrine/commit/5de22f22c98b14b881ac63962be9830331a32329))
+* vitrine 링크·공유 시트로 Spotify 링크 열기 ([0ac287d](https://github.com/oneulddu/vitrine/commit/0ac287d70b3a306cb4121cd8e3ee6d68272b8bd5))
+* 가사 매칭 개선과 영화 OST 제목 재검색 ([012ffc0](https://github.com/oneulddu/vitrine/commit/012ffc011fd378eebecfcaf0e7f0230236780240))
+* 가사 번역 영구 보관과 내보내기·가져오기 ([af47d31](https://github.com/oneulddu/vitrine/commit/af47d314b6a11be0976dd602ba0eee84dea295e0))
+* 대기열에 최근 재생 기록 표시 ([fc1ecb5](https://github.com/oneulddu/vitrine/commit/fc1ecb5e6f424d59a13bd2a4e07bc1201d3c89cc))
+* 미니 플레이어 다음 곡·커버 모양·커버 탭 설정 ([1514bbd](https://github.com/oneulddu/vitrine/commit/1514bbdbf8be7a6f917a06b58429d86adf97b9fd))
+* 앱 전용 WireGuard·프록시 실험 기능(WIREGUARD=1 빌드) ([ad63926](https://github.com/oneulddu/vitrine/commit/ad6392688f2a8a3f16cf553a0cde7508a4ee0cde))
+* 잠금 화면 가사에 아트워크 전체 어둡게 옵션 추가 ([77e084a](https://github.com/oneulddu/vitrine/commit/77e084ada8851bfb5037fc243d033cc5de6b9fa2))
+* 탈옥 환경 오디오 후킹을 ElleKit 인라인 훅으로 설치 ([238cee3](https://github.com/oneulddu/vitrine/commit/238cee3f34341f5340754ba8bc55597b78d13f6b))
+* 플레이리스트 추천 곡·스크롤 제목 숨기기 설정 ([ad4271a](https://github.com/oneulddu/vitrine/commit/ad4271a984e1776c263832b1d6a95ce062f6c005))
+* 플레이어 음질 표시 배지 ([711276b](https://github.com/oneulddu/vitrine/commit/711276b1d9a617f5c95735399718cc31157d709c))
+* 한국어 번역 보완과 IPA 확장 제거 옵션 ([a516c02](https://github.com/oneulddu/vitrine/commit/a516c028325dd45a98ef14acf70296f7583d7fc0))
+
+
+### Fixes
+
+* 동영상 전환 버튼 숨기기가 적용되지 않던 문제 ([741a4cd](https://github.com/oneulddu/vitrine/commit/741a4cdb4c03dbd1101b8e2d30dd17c104ac0460))
+* 번역 제거 후 가사 화면이 바로 돌아오지 않던 문제 ([b496b72](https://github.com/oneulddu/vitrine/commit/b496b7261910728df1ff78877a4c9445b235f752))
+* 햅틱 엔진 정지·오류 후 복구 ([452d3cb](https://github.com/oneulddu/vitrine/commit/452d3cbd2e4fa4b95671932b20c83357d09f5b4c))
+
 ## [1.0.0-beta.27](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.26...v1.0.0-beta.27) (2026-11-06)
 
 
