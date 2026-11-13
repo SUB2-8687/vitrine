@@ -26,6 +26,7 @@
 #import "Redesigned/Kit/SGRRefinements.h"
 #import "Shared/Haptics/Haptics.h"
 #import "Shared/Lyrics/Lyrics.h"
+#import "Shared/Player/AudioQuality.h"
 #import "Player.h"
 #import "PlayerMix.h"
 
@@ -488,6 +489,9 @@ BOOL SGRSeekTapLands(UIView *unit, UISlider *slider, CGPoint point) {
     CGRect bounds = slider.bounds;
     CGRect thumb = [slider thumbRectForBounds:bounds trackRect:[slider trackRectForBounds:bounds] value:slider.value];
     if (CGRectContainsPoint(CGRectInset([unit convertRect:thumb fromView:slider], -kThumbSlop, -kThumbSlop), point)) return NO;
+    // The audio quality badge between the times opens its details.
+    UIView *badge = SGAudioQualityShownBadge(unit);
+    if (badge && [badge pointInside:[unit convertPoint:point toView:badge] withEvent:nil]) return NO;
     for (UIView *time in @[SGRFindByIdentifier(unit, @"now-playing-time-take-label", &kTakeTimeKey) ?: NSNull.null,
                            SGRFindByIdentifier(unit, @"now-playing-time-remaning-label", &kRemainingTimeKey) ?: NSNull.null]) {
         if ([time isKindOfClass:UIView.class] && !time.hidden && CGRectContainsPoint([unit convertRect:time.bounds fromView:time], point)) return NO;
@@ -761,6 +765,7 @@ static void durationLaidOut(UIViewController *unit) {
     UILabel *taken = monospaced(host, @"now-playing-time-take-label-internal", &kTakeKey);
     monospaced(host, @"now-playing-time-remaning-label-internal", &kRemainingKey);
     keepScrubLook(host);
+    SGAudioQualityPlaceBadge(host);
     // Whether Spotify's font has digits of one width shows in the descriptor's feature settings.
     if (!taken) return;
     static dispatch_once_t once;

@@ -21,3 +21,6 @@ pathlib.Path(sys.argv[2]).write_text("\n\n".join(functions) + "\n")
 PY
 xcrun clang -fobjc-arc -I"$OUT" "$HERE/upcoming-tracks-check.m" -framework Foundation -o "$OUT/check"
 "$OUT/check"
+# The audio quality badge's rules, read from the same player reports, compiled from their own file as it ships.
+xcrun clang -fobjc-arc -I"$SRC" "$HERE/audio-quality-check.m" "$SRC/Shared/Player/AudioQualityRules.m" -framework Foundation -o "$OUT/quality"
+"$OUT/quality"

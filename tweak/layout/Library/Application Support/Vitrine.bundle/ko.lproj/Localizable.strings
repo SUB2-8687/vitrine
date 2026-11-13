@@ -22,6 +22,27 @@
 
 "common.save" = "저장";
 
+"player.audio_quality.accessibility" = "오디오 품질, %@";
+"player.audio_quality.hardware_rate" = "출력";
+"player.audio_quality.hint" = "자세한 정보를 표시합니다";
+"player.audio_quality.khz" = "%@kHz";
+"player.audio_quality.no" = "아니요";
+"player.audio_quality.playing_rate" = "샘플레이트";
+"player.audio_quality.quality" = "음질";
+"player.audio_quality.resampled" = "리샘플링";
+"player.audio_quality.source" = "소스";
+"player.audio_quality.source.cached" = "캐시";
+"player.audio_quality.source.downloaded" = "다운로드됨";
+"player.audio_quality.source.local_file" = "로컬 파일";
+"player.audio_quality.source.streamed" = "스트리밍";
+"player.audio_quality.tier.high" = "높음";
+"player.audio_quality.tier.lossless" = "무손실";
+"player.audio_quality.tier.lossless_24" = "무손실 24비트";
+"player.audio_quality.tier.low" = "낮음";
+"player.audio_quality.tier.normal" = "보통";
+"player.audio_quality.tier.very_high" = "매우 높음";
+"player.audio_quality.title" = "오디오 품질";
+"player.audio_quality.yes" = "예";
 "player.speed_pitch.animated_artwork" = "움직이는 아트워크";
 "player.speed_pitch.collapsed" = "접힘";
 "player.speed_pitch.expanded" = "펼쳐짐";
@@ -1915,6 +1936,9 @@
 
 "settings.player.artwork.header" = "아트워크";
 "settings.player.artwork_background.title" = "아트워크 배경";
+"settings.player.audio_quality.footer" = "바로 적용됩니다. 배지를 탭하면 샘플레이트와 곡을 어디서 가져왔는지 볼 수 있습니다. 무손실 파일이 켜져 있어도 내 파일이 아니라 Spotify가 스트리밍하는 음질을 표시합니다.";
+"settings.player.audio_quality.subtitle" = "Spotify가 재생 중인 곡의 음질을 진행 막대 아래에 표시합니다";
+"settings.player.audio_quality.title" = "오디오 품질";
 "settings.player.background.a11y" = "배경";
 "settings.player.background.animated" = "움직임";
 "settings.player.background.colors" = "색상";

@@ -13,6 +13,7 @@
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/LyricsMeanings/Meanings.h"
 #import "Shared/Player/PlayerSettings.h"
+#import "Shared/Player/AudioQuality.h"
 #import "Shared/Sing/Sing.h"
 #import "Native/Appearance/Appearance.h"
 #import "Native/Navbar/Navbar.h"
@@ -263,6 +264,14 @@ UIViewController *SGPlayerSettingsPage(void) {
                    SGKeyHideFullScreenCover),
         SGLoadAheadRow(),
     ])];
+    // The audio quality badge under the progress bar, under either look and at once (Shared/Player/AudioQuality.h).
+    SGModRow *quality = SGOptionRow(SGL(@"settings.player.audio_quality.title", @"Audio quality"),
+                                    SGL(@"settings.player.audio_quality.subtitle", @"The quality Spotify plays the song in, under the progress bar"),
+                                    SGKeyPlayerAudioQuality);
+    quality.changed = ^(BOOL on) { SGAudioQualitySettingChanged(); };
+    [sections addObject:SGNotedSection(nil, @[quality],
+        SGL(@"settings.player.audio_quality.footer", @"Applies at once. Tap the badge for the sample rate and where the song comes from. "
+            @"With Lossless files on, it still shows what Spotify streams, not your file."))];
 
     [sections addObject:SGNotedSection(SGL(@"settings.lossless.header", @"Lossless"), @[
         SGOptionRow(SGL(@"settings.lossless.files.title", @"Lossless files"), SGL(@"settings.lossless.files.subtitle", @"Your own FLACs in place of Spotify's stream"), SGKeyLossless),

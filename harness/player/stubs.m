@@ -469,6 +469,11 @@ CGRect SGRPlayerLyricLineIn(UIView *view) { return CGRectNull; }
 void SGRPlayerMenuWatch(UIView *button) {}
 UIControl *SGRSystemMenuFront(UIView *button) { return nil; }
 
+// The audio quality badge (Shared/Player/AudioQuality.x), which this harness does not build: its switch is off until
+// switched on, and off the badge is never placed, so no tap near the progress bar is the badge's.
+void SGAudioQualityPlaceBadge(UIView *unitView) {}
+UIView *SGAudioQualityShownBadge(UIView *unitView) { return nil; }
+
 // Cydia Substrate's hook (substrate.h here), as the runtime does it: the class gets its own copy of an inherited
 // method, so its superclass is left alone.
 void MSHookMessageEx(Class _class, SEL message, IMP hook, IMP *old) {

@@ -35,7 +35,8 @@ static NSDictionary *quality(NSDictionary *p, NSString **error) {
                 result[[NSString stringWithFormat:@"origin_name_%lld", o]] = [name description] ?: @"nil";
             }
         }
-        for (NSString *key in @[@"bitrateLevel", @"targetBitrateLevel", @"targetBitrateAvailable", @"fileOrigin", @"hifiStatus", @"qualityRestrictionReason", @"highestAvailableQuality"]) {
+        for (NSString *key in @[@"bitrateLevel", @"targetBitrateLevel", @"targetBitrateAvailable", @"fileOrigin", @"hifiStatus", @"qualityRestrictionReason", @"highestAvailableQuality",
+                                @"strategy", @"playingSampleRateHz", @"hardwareSampleRateHz", @"isResampled"]) {
             @try { result[[@"q_" stringByAppendingString:key]] = [[q valueForKey:key] description] ?: @"nil"; } @catch (NSException *e) { result[[@"q_" stringByAppendingString:key]] = @"?"; }
         }
     });

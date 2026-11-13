@@ -9,6 +9,13 @@ The Logos observer hooks and UIKit are not compiled. Checks cover malformed stat
 values, track filtering, URI forms (including empty strings), ordering, duplicates, the
 50-row early stop and an unlimited list. Temporary outputs are removed on exit.
 
+The same script then compiles `Shared/Player/AudioQualityRules.m` as it ships with
+`audio-quality-check.m`: each bitrateLevel's badge text (Low to Lossless 24-bit, nothing for 0, 7
+and unknown levels), the lossless glyph for 5 and 6 only, nothing with the switch off, while another
+device plays or for a podcast, an ad, a local file or no track, the source named for each strategy,
+the sample rates as written, the details dismissed on a skip, on no tier or when the badge goes, and
+a badge taking taps only while neither it nor a view above it is hidden or faded out.
+
 ## Repeat transitions without a simulator
 
 Run `sh harness/player/repeat-check.sh` from the repository root. It extracts

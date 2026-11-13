@@ -748,7 +748,43 @@ Shared:
                   times a second while Spotify plays; Spotify pauses, the gain is held down from its end until that
                   pause and back a second later, at once on a cancel or a later time. It stands aside while the mod's
                   own timer runs and while Spotify's own Fade out flag (its DuckHandlerImpl's duck) is forced on.
-                  Tested on the Mac against harness/sleep-timer/, the gain in the simulator against harness/speed/
+                  Tested on the Mac against harness/sleep-timer/, the gain in the simulator against harness/speed/.
+                  Audio quality (the Player page, under either look, spotifyglass.player.audioQuality, off until
+                  switched on, followed at once) shows the quality of the song playing the way the Music app shows
+                  Lossless: a small capsule in semibold caption type and the secondary label color, centered under the
+                  progress bar between the two times and on their middle (AudioQuality.x, AudioQualityRules.m). It reads
+                  Spotify's own report for the file it plays, SPTPlayerState's playbackQuality, on every player report
+                  (playerStateDidReport:, since a quality that changes within a song does not change the track), and
+                  only its bitrateLevel: 5 is Lossless and 6 Lossless 24-bit, with a waveform glyph before them, and
+                  4 to 1 are Very high, High, Normal and Low in Spotify's own words, without one. Never the quality
+                  asked for or the highest available. Nothing shows for level 0 or 7 (petrel, unknown), anything but a
+                  spotify:track: (a podcast, an ad, a local file), while another device plays
+                  (SGPlayerPlaybackIsLocal), while the window scene is landscape (an iPad's regular-height landscape
+                  too), while the times are hidden (the lyrics' Hide the controls fades it with them) or where it does
+                  not fit between them. Off, the looks' layout passes return at once and remember nothing; switched on,
+                  the units on screen holding the times are laid out once again so the badge comes without a restart. The tier is the one reported with the
+                  track's own URI, and in 9.1.90 a skipped-to track first reports 0, so the badge goes until its own
+                  level comes. Each look places it from its duration unit's
+                  layout (Redesigned/Player/PlayerControls.x for NowPlaying_ModesImpl's and the AI DJ's,
+                  Native/Player/Player.x for NowPlaying_ModesImpl's and a Free account's ReinventFree
+                  DurationElementsUnit), as a drawn subview of the unit's view, so the unit's alpha and transforms
+                  carry over and the times and slider never move; the redesign's lowered times while scrubbing leave
+                  it where it is, and 9.1.90's time row has no scrub label in the middle. The controls' unit lies over
+                  the bottom of the time row, so the badge takes no touches itself: a tap recognizer on the view holding
+                  the units accepts only touches on a badge that draws (shown, and neither it nor a view above it hidden
+                  or under UIKit's 0.01 alpha floor; 4 pt around it), cancels no touches of the views under it, and
+                  the redesign's tap to seek leaves that spot alone only while the badge draws. The tap opens a
+                  popover (SGPresentPopover) with the tier, the playing and output sample rates, whether it is
+                  resampled (only once both rates are reported) and the source by strategy (best_matching and
+                  backend_advised streamed, offlined_file downloaded, cached_file cached, local_file a local file).
+                  The popover is held weakly with the track it was opened for: it follows that track's later reports
+                  (a rate reported late fills in) and is dismissed on a skip, when nothing is shown any more (another
+                  device, the switch off), when its badge stops being shown or leaves the window, and as the player
+                  opens or closes (SGPlayerTransitionNotification). VoiceOver reads one element, "Audio quality, Lossless 24-bit",
+                  with a hint. The mod's own Lossless files are not claimed: their replacement state is not
+                  trustworthy enough for a badge, so with them on it still says what Spotify streams. Each change of
+                  the report is logged as `audio quality:` with every field. The rules are checked on the Mac by
+                  harness/player/audio-quality-check.m (run by upcoming-tracks-check.sh)
     AudioEffects/ the audio effects on Spotify's sound (AudioEffects.h has the keys and the page's calls): a render
                   notify on the music's RemoteIO unit (SGPlayerMusicOutput, Shared/Player) runs each finished buffer through the mod's own engine, re-blocked to 1024 frames one block late,
                   in place (AudioEffects.x, SGDSPEngine.m), then hands it, mixed to mono, to one reader that only
@@ -1790,9 +1826,10 @@ SGArtworkCacheRow): their size measured off the main queue, and after an alert w
 files (SGMotionStoreClear, a clip in use left in place) and the album answers file (SGMotionCacheClear) removed; a
 transfer or lookup begun before it delivers to its own caller but keeps and starts nothing; songs, a chosen cover,
 edits and lyrics are untouched; harness/artwork-clear/. Spotify's podcast, audiobook and artwork flags stay in All flags. Player: Gestures, Blocked artists (with the count on the row), Sleep timer's Fade-out duration, Full screen cover on tap (a tap on the player's cover opens Spotify's full screen
-cover; `spotifyglass.hide.fullScreenCover`, shown until switched off, live) and Load ahead (spotifyglass.loadAhead, on
+cover; `spotifyglass.hide.fullScreenCover`, shown until switched off, live), Load ahead (spotifyglass.loadAhead, on
 until switched off: the next track's artwork and lyrics are prepared ahead; off, only that advance work stops, the current
-track is untouched, and a change applies at once), which work with either look, including below iOS 17;
+track is untouched, and a change applies at once) and Audio quality (the badge under the progress bar,
+`spotifyglass.player.audioQuality`, off until switched on, live; Shared/Player/AudioQuality.h), which work with either look, including below iOS 17;
 in the native look also Now playing bar (its device button and its flags), Queue & devices, and
 Spotify's own player screen (artwork background, glass header buttons, Disable Canvas and the sheet,
 header, slider and sticky header flags, the cards under the player and the lyrics preview and player

@@ -24,6 +24,7 @@
 #import "Native/Appearance/Repaint.h"
 #import "NowPlaying.h"
 #import "Native/Appearance/Appearance.h"
+#import "Shared/Player/AudioQuality.h"
 
 static const CGFloat kButtonMin = 36, kButtonMax = 48;
 static const CGFloat kArtRadius = 12;
@@ -226,6 +227,7 @@ static UIFont *timeFont(void) {
 %hook _TtC20NowPlaying_ModesImpl19DurationElementUnit
 - (void)viewDidLayoutSubviews {
     %orig;
+    SGAudioQualityPlaceBadge(((UIViewController *)self).viewIfLoaded);
     UIView *host = backdropOn() ? ((UIViewController *)self).viewIfLoaded : nil;
     if (!host) return;
     SGForEachView(host, ^(UIView *view) {
@@ -233,6 +235,14 @@ static UIFont *timeFont(void) {
         if (![view isKindOfClass:UILabel.class] || label.font.pointSize > 11 || label.font == timeFont()) return;
         label.font = timeFont();
     });
+}
+%end
+
+// A Free account's player is the Reinvented Free mode's, whose duration unit is a class of its own with the same times.
+%hook _TtC32ReinventFree_ReinventFreeNpvImpl20DurationElementsUnit
+- (void)viewDidLayoutSubviews {
+    %orig;
+    SGAudioQualityPlaceBadge(((UIViewController *)self).viewIfLoaded);
 }
 %end
 
@@ -246,5 +256,6 @@ static UIFont *timeFont(void) {
         @"_TtC35CreativeWorkCommons_CoverArtTiltKit16CoverArtTiltView",
         @"_TtC22Lyrics_NPVContainerKit19LyricsContainerView",
         @"_TtC20NowPlaying_ModesImpl19DurationElementUnit",
+        @"_TtC32ReinventFree_ReinventFreeNpvImpl20DurationElementsUnit",
     ]);
 }

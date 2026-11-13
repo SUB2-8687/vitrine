@@ -22,6 +22,28 @@
 
 "common.save" = "Save";
 
+"player.audio_quality.accessibility" = "Audio quality, %@";
+"player.audio_quality.hardware_rate" = "Output";
+"player.audio_quality.hint" = "Shows the details";
+"player.audio_quality.khz" = "%@ kHz";
+"player.audio_quality.no" = "No";
+"player.audio_quality.playing_rate" = "Sample rate";
+"player.audio_quality.quality" = "Quality";
+"player.audio_quality.resampled" = "Resampled";
+"player.audio_quality.source" = "Source";
+"player.audio_quality.source.cached" = "Cached";
+"player.audio_quality.source.downloaded" = "Downloaded";
+"player.audio_quality.source.local_file" = "Local file";
+"player.audio_quality.source.streamed" = "Streamed";
+"player.audio_quality.tier.high" = "High";
+"player.audio_quality.tier.lossless" = "Lossless";
+"player.audio_quality.tier.lossless_24" = "Lossless 24-bit";
+"player.audio_quality.tier.low" = "Low";
+"player.audio_quality.tier.normal" = "Normal";
+"player.audio_quality.tier.very_high" = "Very high";
+"player.audio_quality.title" = "Audio Quality";
+"player.audio_quality.yes" = "Yes";
+
 "player.speed_pitch.animated_artwork" = "Animated artwork";
 "player.speed_pitch.collapsed" = "Collapsed";
 "player.speed_pitch.expanded" = "Expanded";
@@ -1914,6 +1936,9 @@
 
 "settings.player.artwork.header" = "Artwork";
 "settings.player.artwork_background.title" = "Artwork background";
+"settings.player.audio_quality.footer" = "Applies at once. Tap the badge for the sample rate and where the song comes from. With Lossless files on, it still shows what Spotify streams, not your file.";
+"settings.player.audio_quality.subtitle" = "The quality Spotify plays the song in, under the progress bar";
+"settings.player.audio_quality.title" = "Audio quality";
 "settings.player.background.a11y" = "Background";
 "settings.player.background.animated" = "Animated";
 "settings.player.background.colors" = "Colors";
