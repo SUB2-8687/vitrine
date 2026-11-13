@@ -689,6 +689,28 @@ Shared:
                   file at another rate can have two RemoteIO units running at once: SpeedPitch.x keeps a record
                   per unit (its own mixer, sample time, largest slice and formats; AudioOutputUnitStop and
                   AudioComponentInstanceDispose rebound too, a disposed unit forgotten after its render in progress)
+                  on sideloaded installs. A jailbreak's ElleKit/Substrate, found in jailbreak paths before
+                  process symbols and never counted from an app bundle, installs stop/dispose/start inline
+                  instead, without writing Spotify's import page. All three must take before any replacement
+                  acquires an output; the speed hook is optional and comes last. Only callers in Spotify's
+                  own __TEXT (also under LiveContainer) enter the processors, all others pass through.
+                  Hooker and bundle paths are canonicalized before containment checks, including /var
+                  versus /private/var; roothide's .jbroot remains a jailbreak. ElleKit/Substrate may
+                  patch before returning the trampoline: its out parameter is private until return,
+                  then release-published. A replacement acquire-loads publication and, until ready,
+                  returns kAudioUnitErr_CannotDoInCurrentContext without performing the operation.
+                  Installation is synchronous at tweak load: SpeedPitch's unconditional constructor
+                  calls rebind before %init; the AudioEffects, Haptics and Sing constructors can reach
+                  the same dispatch_once earlier through SGPlayerWatchMusicOutput. Later registrations
+                  cannot install again. In supported launch-time injection this precedes Spotify's
+                  output creation/start, so no live Spotify output has a Stop/Dispose to lose in the
+                  publication window. The error guard is a last resort, not an active-playback strategy.
+                  Late injection into an already-playing process is not supported; constructor timing
+                  does not prove that a LiveContainer host or unrelated framework has no audio of its own.
+                  It never waits or calls the captured symbol address, which is now patched and would
+                  recurse. After publication even a partially installed group passes through safely.
+                  The address range is prepared during installation, never on render; refused-page diagnostics
+                  are capped at three. SpeedPitch keeps the same output record
                   and names one the music's (SGPlayerMusicOutput), the one Spotify started or connected last, or
                   one with sound when that one has had none for a second; speed and pitch, Karaoke's stage, the audio
                   effects and Music Haptics follow it (SGPlayerWatchMusicOutput), and the other plays as Spotify

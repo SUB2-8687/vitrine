@@ -1,7 +1,13 @@
+#import <dlfcn.h>
+#if __has_feature(ptrauth_calls)
+#import <ptrauth.h>
+#endif
 #import <mach/mach.h>
 #import <mach-o/dyld.h>
+#import <mach-o/getsect.h>
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
+#import <stdatomic.h>
 #import <string.h>
 #import "SGRebind.h"
 #import "SGLog.h"
@@ -42,8 +48,22 @@ static const struct mach_header_64 *spotifyImage(intptr_t *slide) {
     return NULL;
 }
 
-// Writes one pointer, making its page writable first; a page dyld made read only after binding
-// (__DATA_CONST, __AUTH_CONST) is copied and made read only again.
+static NSString *protectionOf(vm_address_t address) {
+    vm_address_t region = address;
+    vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    kern_return_t result = vm_region_64(mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64,
+                                       (vm_region_info_t)&info, &count, &object);
+    if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
+    if (result != KERN_SUCCESS) return @"unknown";
+    if (region > address) return @"unmapped";
+    return [NSString stringWithFormat:@"now %d, at most %d, shared %d", info.protection, info.max_protection, info.shared];
+}
+
+// Never remap a refused page: replacing the mapping can unmap Spotify's imports and kill launch.
+// A page dyld made read only after binding is copied and made read only again.
 static BOOL writeSlot(void **slot, void *value, BOOL readOnly) {
     vm_size_t page = vm_page_size;
     vm_address_t start = (vm_address_t)slot & ~(page - 1);
@@ -54,7 +74,9 @@ static BOOL writeSlot(void **slot, void *value, BOOL readOnly) {
         if (retry == KERN_SUCCESS) result = KERN_SUCCESS;
     }
     if (result != KERN_SUCCESS) {
-        SGLog(@"rebind: vm_protect failed (%d)", result);
+        static atomic_uint logged;
+        if (atomic_fetch_add_explicit(&logged, 1, memory_order_relaxed) < 3)
+            SGLog(@"rebind: vm_protect failed (%d), the page %@", result, protectionOf(start));
         return NO;
     }
     *slot = value;
@@ -130,4 +152,91 @@ BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
     }
     if (unbound) SGLog(@"rebind: %s is not bound yet, left as it is", symbol);
     return rebound;
+}
+
+#pragma mark - the jailbreak's hooker
+
+typedef void (*SGMSHookFunction)(void *symbol, void *replacement, void **original);
+static uintptr_t spotifyTextStart, spotifyTextEnd;
+
+static SGMSHookFunction hooker(void) {
+    static SGMSHookFunction found;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const char *paths[] = {"/var/jb/usr/lib/libellekit.dylib", "/var/jb/usr/lib/libsubstrate.dylib",
+                               "/usr/lib/libellekit.dylib", "/usr/lib/libsubstrate.dylib"};
+        for (size_t i = 0; !found && i < sizeof paths / sizeof *paths; i++) {
+            void *handle = dlopen(paths[i], RTLD_NOW);
+            if (handle) {
+                found = (SGMSHookFunction)dlsym(handle, "MSHookFunction");
+                if (!found) dlclose(handle);
+            }
+        }
+        if (!found) found = (SGMSHookFunction)dlsym(RTLD_DEFAULT, "MSHookFunction");
+        SGLog(@"rebind: MSHookFunction %@", found ? @"is there" : @"is not there");
+    });
+    return found;
+}
+
+static NSString *canonicalHookPath(NSString *path) {
+    path = path.stringByResolvingSymlinksInPath.stringByStandardizingPath;
+    // dyld and NSBundle can spell the same container with different /private prefixes.
+    if ([path hasPrefix:@"/private/var/"] || [path isEqualToString:@"/private/var"])
+        path = [path substringFromIndex:@"/private".length];
+    return path;
+}
+
+BOOL SGJailbroken(void) {
+    static BOOL jailbroken;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SGMSHookFunction hook = hooker();
+        Dl_info info;
+        if (!hook || !dladdr((const void *)hook, &info) || !info.dli_fname) return;
+        NSString *image = canonicalHookPath([NSString stringWithUTF8String:info.dli_fname]);
+        NSString *bundle = canonicalHookPath(NSBundle.mainBundle.bundlePath);
+        // LiveContainer's app lives under /mobile/Containers; roothide's .jbroot under
+        // /var/containers/Bundle/Application is deliberately not excluded.
+        jailbroken = !(bundle.length && [image hasPrefix:[bundle stringByAppendingString:@"/"]])
+                     && ![image containsString:@"/mobile/Containers/"];
+        SGLog(@"rebind: MSHookFunction comes from %@, %@", image, jailbroken ? @"the jailbreak's" : @"the app's own: no jailbreak");
+    });
+    return jailbroken;
+}
+
+BOOL SGHookFunctionInline(SGInlineHook *hook) {
+    if (!SGJailbroken()) return NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        intptr_t slide = 0;
+        const struct mach_header_64 *header = spotifyImage(&slide);
+        if (!header) return;
+        unsigned long size = 0;
+        spotifyTextStart = (uintptr_t)getsegmentdata(header, SEG_TEXT, &size);
+        spotifyTextEnd = spotifyTextStart + size;
+    });
+    if (spotifyTextStart == spotifyTextEnd) return NO;
+    void *trampoline = NULL;
+    hooker()(hook->function, hook->replacement, &trampoline);
+    *hook->original = trampoline;
+    atomic_store_explicit(&hook->published, true, memory_order_release);
+    return trampoline != NULL;
+}
+
+void *SGInlineHookOriginal(const SGInlineHook *hook) {
+    return atomic_load_explicit(&hook->published, memory_order_acquire) ? *hook->original : NULL;
+}
+
+BOOL SGHookFunctionsInline(SGInlineHook *hooks, size_t count) {
+    for (size_t i = 0; i < count; i++)
+        if (!SGHookFunctionInline(&hooks[i])) return NO;
+    return YES;
+}
+
+BOOL SGCalledFromMainExecutable(void *returnAddress) {
+#if __has_feature(ptrauth_calls)
+    returnAddress = ptrauth_strip(returnAddress, ptrauth_key_return_address);
+#endif
+    uintptr_t address = (uintptr_t)returnAddress;
+    return address >= spotifyTextStart && address < spotifyTextEnd;
 }

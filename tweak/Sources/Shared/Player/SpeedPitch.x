@@ -63,7 +63,7 @@
 #import <pthread.h>
 #import <stdatomic.h>
 #import "Core/SGCore.h"
-#import "Core/SGRebind.h"
+#import "Core/SGAudioInline.h"
 #import "Headers/SPTPlayer.h"
 #import "PlayerState.h"
 #import "SpeedPitch.h"
@@ -133,7 +133,7 @@ static pthread_mutex_t sg_processingChanges = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t sg_outputsLock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
 static dispatch_queue_t sg_outputsQueue;
 static SGPlayerOutputWatcher sg_watchers[kMaxWatchers];
-static BOOL sg_reachable;                    // Spotify's AudioOutputUnitStart could be rebound
+static BOOL sg_reachable;                    // Spotify's AudioOutputUnitStart could be rebound or hooked
 static _Atomic(SGPlayerOutputEffects) sg_outputEffects;
 static _Atomic(SGPlayerOutputProcessor) sg_outputReader;
 // Under sg_outputsLock. Coefficients are made off render for each hardware rate.
@@ -1317,6 +1317,62 @@ BOOL SGPlayerMusicClientFormat(AudioStreamBasicDescription *format) {
     return read;
 }
 
+// Inline hooks see framework and tweak calls too. Until the complete lifecycle is installed,
+// even Spotify calls pass through; a partially installed hook must not acquire an output.
+// MSHookFunction may patch before returning its trampoline. During that window the operation
+// fails explicitly: no wait, no false success and no call to the now-patched symbol (recursion).
+static atomic_bool sg_inlineReady;
+#define SG_INLINE_SPOTIFY (atomic_load_explicit(&sg_inlineReady, memory_order_acquire) && \
+                          SGCalledFromMainExecutable(__builtin_return_address(0)))
+
+static OSStatus inlineSetProperty(AudioUnit, AudioUnitPropertyID, AudioUnitScope, AudioUnitElement, const void *, UInt32);
+static OSStatus inlineStartOutput(AudioUnit);
+static OSStatus inlineStopOutput(AudioUnit);
+static OSStatus inlineDisposeUnit(AudioComponentInstance);
+enum { kInlineStop, kInlineDispose, kInlineStart, kInlineProperty };
+static SGInlineHook sg_inlineHooks[] = {
+    {.function = (void *)AudioOutputUnitStop, .replacement = (void *)inlineStopOutput, .original = (void **)&sg_stopOutput},
+    {.function = (void *)AudioComponentInstanceDispose, .replacement = (void *)inlineDisposeUnit, .original = (void **)&sg_dispose},
+    {.function = (void *)AudioOutputUnitStart, .replacement = (void *)inlineStartOutput, .original = (void **)&sg_startOutput},
+    {.function = (void *)AudioUnitSetProperty, .replacement = (void *)inlineSetProperty, .original = (void **)&sg_setProperty},
+};
+
+static OSStatus inlineSetProperty(AudioUnit unit, AudioUnitPropertyID property, AudioUnitScope scope,
+                                  AudioUnitElement element, const void *data, UInt32 size) {
+    SG_AUDIO_INLINE_ORIGINAL(original, &sg_inlineHooks[kInlineProperty], __typeof__(sg_setProperty));
+    return SG_INLINE_SPOTIFY ? setProperty(unit, property, scope, element, data, size)
+                            : original(unit, property, scope, element, data, size);
+}
+
+static OSStatus inlineStartOutput(AudioUnit unit) {
+    SG_AUDIO_INLINE_ORIGINAL(original, &sg_inlineHooks[kInlineStart], __typeof__(sg_startOutput));
+    return SG_INLINE_SPOTIFY ? startOutput(unit) : original(unit);
+}
+
+static OSStatus inlineStopOutput(AudioUnit unit) {
+    SG_AUDIO_INLINE_ORIGINAL(original, &sg_inlineHooks[kInlineStop], __typeof__(sg_stopOutput));
+    return SG_INLINE_SPOTIFY ? stopOutput(unit) : original(unit);
+}
+
+static OSStatus inlineDisposeUnit(AudioComponentInstance unit) {
+    SG_AUDIO_INLINE_ORIGINAL(original, &sg_inlineHooks[kInlineDispose], __typeof__(sg_dispose));
+    return SG_INLINE_SPOTIFY ? disposeUnit(unit) : original(unit);
+}
+
+static BOOL hookInline(void) {
+    if (!SGHookFunctionsInline(sg_inlineHooks, kInlineProperty)) return NO;
+    SGHookFunctionInline(&sg_inlineHooks[kInlineProperty]);
+    atomic_store_explicit(&sg_inlineReady, true, memory_order_release);
+    SGLog(@"audio: Spotify's output reached through the jailbreak's hooks (speed %@)", sg_setProperty ? @"too" : @"not");
+    return YES;
+}
+
+// Synchronous launch installation, not lazy playback work: our unconditional %ctor calls this
+// before %init. AudioEffects/Haptics/Sing may get here first from their own %ctors through
+// SGPlayerWatchMusicOutput. dispatch_once makes later registrations installation-free.
+// Supported launch injection therefore precedes Spotify's output creation/start: there is no
+// live Spotify Stop/Dispose to lose during trampoline publication. The error guard is only a
+// last resort for foreign callers; late injection into an already-playing process is unsupported.
 static void rebind(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -1324,6 +1380,14 @@ static void rebind(void) {
         mach_timebase_info(&timebase);
         sg_secondsPerTick = (double)timebase.numer / timebase.denom / 1e9;
         sg_outputsQueue = dispatch_queue_create("spotifyglass.outputs", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
+        // Choose one installation mechanism, so a writable speed slot cannot take over before
+        // a read-only lifecycle slot fails. Non-jailbroken installs keep the original rebind path.
+        if (SGJailbroken()) {
+            sg_reachable = hookInline();
+            if (!sg_reachable) SGLog(@"audio: the jailbreak's output hooks did not all take, its output cannot be reached");
+            else if (!sg_setProperty) SGLog(@"redesign speed: AudioUnitSetProperty could not be hooked, the menu offers pitch only");
+            return;
+        }
         if (!SGRebindImport("AudioUnitSetProperty", setProperty, (void **)&sg_setProperty) || !sg_setProperty) {
             sg_setProperty = NULL;
             SGLog(@"redesign speed: Spotify does not import AudioUnitSetProperty, the menu offers pitch only");

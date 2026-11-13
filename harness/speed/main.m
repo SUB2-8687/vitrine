@@ -24,6 +24,9 @@
 #import <AVFoundation/AVFoundation.h>
 #import <stdatomic.h>
 
+// No songs are kept here: exercise the real speed path without the per-song persistence owner.
+void SGSpeedPitchSongValuesChanged(NSString *control) {}
+
 double SGPlayerSpeed(void);
 void SGSetPlayerSpeed(double speed);
 void SGSetPlayerPitch(float semitones);

@@ -17,6 +17,9 @@
 #import <stdatomic.h>
 #import "Shared/AudioEffects/AudioEffects.h"
 
+// No songs are kept here: exercise the real audio chain without the per-song persistence owner.
+void SGSpeedPitchSongValuesChanged(NSString *control) {}
+
 static const float kAmplitude = 0.25f;
 
 // SpeedPitch.x hooks Spotify's player state; this stands in for it.
