@@ -2,11 +2,10 @@
 //
 // The switch is the chip Spotify puts over the track's title for a song with a music video, Switch to
 // video and, once switched, Switch to audio. Its accessibility identifier is nowplaying-npv-musicvideos-switch:
-// in 9.1.78's strings it sits between NowPlaying_ElementsKit's AudioVideoSwitchButtonAdapter and the
-// sNowPlayingMusicVideosSwitchToVideo and ...SwitchToAudio strings, and no recorded tree shows it yet. The
-// chips are FloatingElementsUnit's (Redesigned/Player/PlayerLyrics.x), a unit of Spotify's player that both
-// looks keep, so its pass looks for it there. It goes by alpha, not hidden, since it may sit in one of
-// Spotify's stacks (AGENTS.md), and takes no touches and says nothing to VoiceOver.
+// the chips are FloatingElementsUnit's (Redesigned/Player/PlayerLyrics.x), a unit of Spotify's player
+// that both looks keep. Remove the chip on every layout pass where it is found: Spotify can restore
+// its alpha with its own fades or re-add it later. Detaching it also removes its touches and VoiceOver
+// presence, without setting hidden on Spotify's stacks (AGENTS.md).
 #import "Core/SGCore.h"
 #import "PlayerSettings.h"
 
@@ -25,6 +24,8 @@ static UIView *switchIn(UIView *root, int depth) {
 %hook _TtC20NowPlaying_ModesImpl20FloatingElementsUnit
 - (void)viewDidLayoutSubviews {
     %orig;
+    // Read on each pass so the switch applies without a relaunch; off, Spotify's chip is left alone.
+    if (!SGHidden(SGKeyHideVideoSwitch)) return;
     UIView *videoSwitch = switchIn(((UIViewController *)self).viewIfLoaded, 0);
     if (!videoSwitch) return;
     static BOOL logged;
@@ -32,14 +33,11 @@ static UIView *switchIn(UIView *root, int depth) {
         logged = YES;
         SGLog(@"player: Switch to video hidden, %@ %@", NSStringFromClass(videoSwitch.class), NSStringFromCGRect(videoSwitch.frame));
     }
-    videoSwitch.alpha = 0;
-    videoSwitch.userInteractionEnabled = NO;
-    videoSwitch.accessibilityElementsHidden = YES;
+    [videoSwitch removeFromSuperview];
 }
 %end
 
 %ctor {
-    if (!SGHidden(SGKeyHideVideoSwitch)) return;
     %init;
     SGRequireClasses(@[@"_TtC20NowPlaying_ModesImpl20FloatingElementsUnit"]);
 }

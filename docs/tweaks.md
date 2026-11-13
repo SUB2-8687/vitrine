@@ -772,7 +772,9 @@ Shared:
                   sheet as the system menu (Redesigned/ContextMenu), whose own items stand in for the block, so the
                   block stays out of it unless the sheet itself is shown (SGPlayerMenuReplaced). Switch to video,
                   the chip over the title of a song with a music video, is hidden under either look on request
-                  (VideoSwitch.x, spotifyglass.hide.videoSwitch), by its identifier in FloatingElementsUnit.
+                  (VideoSwitch.x, spotifyglass.hide.videoSwitch), removed from its superview by its identifier
+                  on each FloatingElementsUnit layout pass where Spotify adds it; off leaves Spotify untouched.
+                  The switch is read on every pass, so it applies from the player's next layout without a relaunch.
                   Full screen cover on tap (spotifyglass.hide.fullScreenCover, shown unless switched off) is the
                   player's single tap on the cover, which opens Spotify's full screen cover, as a switch of its own:
                   off, each look's handleTap hook on CoverArtTiltView (PlayerGestures.x) returns before Spotify's, as
