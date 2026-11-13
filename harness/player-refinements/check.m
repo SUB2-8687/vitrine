@@ -280,7 +280,12 @@ static NSString *shownNow(UIButton *button, UIView *animation) {
                    : [glyph.image.description containsString:@"star"] ? @"star"
                    : [glyph.image.description containsString:@"checkmark"] ? @"checkmark" : glyph.image.description;
     BOOL accent = [glyph.tintColor isEqual:SGRAccent()] && [glyph.accessibilityIdentifier isEqualToString:SGRPlainCheckIdentifier];
-    BOOL primary = [glyph.tintColor isEqual:SGRPrimary()] && !glyph.accessibilityIdentifier;
+    // UIKit can expose the symbol's identifier when the view's own identifier is unset.
+    UIImageView *reference = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"star"]];
+    reference.accessibilityIdentifier = nil;
+    BOOL unmarked = glyph.accessibilityIdentifier == reference.accessibilityIdentifier
+        || [glyph.accessibilityIdentifier isEqualToString:reference.accessibilityIdentifier];
+    BOOL primary = [glyph.tintColor isEqual:SGRPrimary()] && unmarked;
     return [name stringByAppendingString:accent ? @" accent" : primary ? @" primary" : @" ?"];
 }
 
@@ -295,7 +300,8 @@ static void expectShown(UIButton *button, UIView *animation, BOOL saved, NSStrin
     CGRect frame = button.frame;
     button.selected = saved;
     NSString *got = shown(button, animation);
-    CHECK([got isEqualToString:want], @"%@: shows %@, want %@", what, got, want);
+    CHECK([got isEqualToString:want], @"%@: shows %@, want %@ (tint %@, primary %@, identifier %@)", what, got, want,
+          glyphIn(button).tintColor, SGRPrimary(), glyphIn(button).accessibilityIdentifier);
     CHECK(button.isSelected == saved && CGRectEqualToRect(button.frame, frame) && [button.accessibilityLabel isEqualToString:@"Add to Liked Songs"]
           && button.userInteractionEnabled, @"%@: the button is no longer Spotify's", what);
 }
