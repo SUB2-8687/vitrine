@@ -747,6 +747,7 @@
 
 "settings.home.cards_from.title" = "Cards from";
 "settings.home.dj.title" = "DJ";
+"settings.home.filter" = "Filter Home";
 "settings.home.gradient.color.title" = "Color";
 "settings.home.gradient.header" = "Gradient";
 "settings.home.gradient.height.medium" = "Medium";
@@ -808,6 +809,8 @@
 "settings.home.shelves.none" = "None seen yet";
 "settings.home.shelves.note" = "The shelves Home has shown in the last 30 days. A shelf is known by its heading, so one Spotify names differently in another language is listed again.";
 "settings.home.shortcuts.title" = "Shortcuts";
+"settings.home.show_all" = "Show all";
+"settings.home.show_all.titled" = "Show all · %@";
 "settings.home.song_suggestions.subtitle" = "Spotify's carousel of songs to try, when Home offers one";
 "settings.home.song_suggestions.title" = "Song suggestions";
 "settings.home.title" = "Home";
@@ -839,6 +842,7 @@
 "settings.karaoke.computeunits.title" = "Runs on";
 "settings.karaoke.error.format_not_stereo" = "Spotify's output is not 44.1 kHz stereo, which the voice model needs, so the song plays as it is.";
 "settings.karaoke.error.needs_model" = "Karaoke needs its voice model, which is downloaded from Mod Settings > Karaoke (%@).";
+"settings.karaoke.error.no_memory_song" = "Karaoke could not set aside memory for the song.";
 "settings.karaoke.error.os_unsupported" = "Karaoke needs iOS 18, the first its voice model runs on. This iPhone has iOS %@.";
 "settings.karaoke.error.output_not_staged" = "Spotify's output could not be taken over, so Karaoke cannot reach its sound.";
 "settings.karaoke.error.output_unreachable" = "Spotify's output could not be reached.";
@@ -918,6 +922,7 @@
 "settings.karaoke.note.download_offline" = "The iPhone is offline. The voice model's download carries on from %.0f%% of %@ once it is online again.";
 "settings.karaoke.note.download_progress" = "The voice model is coming in, %.0f%% of %@. Karaoke starts once it is checked.";
 "settings.karaoke.note.download_waiting_wifi" = "The voice model's download waits for Wi-Fi, as %@ is a lot of a cellular plan, and carries on from %.0f%% once the iPhone is on Wi-Fi. The Voice model row on the Karaoke page can let it use cellular.";
+"settings.karaoke.note.elsewhere" = "Spotify plays, but this iPhone has not played any of it for 3 s (it plays on another device), and Karaoke works on what this iPhone plays itself. It starts once the song plays here.";
 "settings.karaoke.note.error_toggle_hint" = " Switch Karaoke off and on again to try again.";
 "settings.karaoke.note.loads_on_open" = "The voice model loads once Spotify is open.";
 "settings.karaoke.note.low_memory_cpu" = "Too little memory is left for the Neural Engine copy, so Karaoke runs on the CPU alone.";
@@ -925,12 +930,17 @@
 "settings.karaoke.note.neural_failed_cpu" = "The Neural Engine could not load the voice model, so Karaoke runs on the CPU alone.";
 "settings.karaoke.note.neural_timeout_cpu" = "The Neural Engine did not load the voice model in %.0f minutes, so Karaoke runs on the CPU alone.";
 "settings.karaoke.note.no_neural_engine" = "This iPhone has no Neural Engine Karaoke can use, so it runs on the CPU.";
+"settings.karaoke.note.not_a_song" = "Karaoke turns down the vocals of songs, and what plays now is not one, so it plays as it is.";
+"settings.karaoke.note.over_airplay" = "Karaoke does not run over AirPlay, whose delay changes as it plays, so the song plays as it is.";
 "settings.karaoke.note.preparing_background" = "After an update, the iPhone prepares the voice model for the Neural Engine once, which takes about a minute. Vitrine does it now, in the background, so Karaoke starts at full speed when it is switched on (%.0f s so far).";
 "settings.karaoke.note.preparing_first_time" = "Preparing for the Neural Engine, first time only (%.0f s so far). Karaoke runs on the CPU until then.";
 "settings.karaoke.note.processing_lag" = "The voice model takes %.1f s for every 1.5 s of song on this iPhone, so the vocals stay in until it catches up. %@";
 "settings.karaoke.note.ready_to_play" = "The voice model is ready, and Karaoke starts once Spotify plays a song. %@";
 "settings.karaoke.note.resting" = "The vocals are as sung and Spatial voice is off, so the song plays as it is and the voice model rests. Karaoke starts again when the level moves, Spatial voice goes on, or the Karaoke page opens.";
 "settings.karaoke.note.running_on_neural" = "Karaoke runs on the Neural Engine.";
+"settings.karaoke.note.stopped_behind" = "Karaoke could not keep up with this song on this iPhone, so it plays as it is. Karaoke tries again with the next song.";
+"settings.karaoke.note.stopped_for_good" = "Karaoke could not keep up on this iPhone %d times in a row, so it stopped and songs play as they are. Switch Karaoke off and on, or choose another Runs on, to try again.";
+"settings.karaoke.note.stopped_memory" = "Karaoke stopped to free memory, so the song plays as it is. It loads the voice model again with the next song if there is room, or switch Karaoke off and on.";
 "settings.karaoke.note.thermal_throttled" = "The iPhone is hot, so Karaoke has let go of the voice model and the song plays as it is. Karaoke loads it again once the iPhone cools. Ignore heat warnings keeps Karaoke going.";
 "settings.karaoke.prepareahead.subtitle" = "Readies the Neural Engine in the background after Vitrine or iOS updates, so Karaoke starts at full speed";
 "settings.karaoke.prepareahead.title" = "Prepare after updates";
@@ -1043,6 +1053,7 @@
 "settings.liveactivity.fadeout.title" = "Fade-out duration";
 "settings.liveactivity.missing.alert.message" = "iOS shows a Live Activity only for an app that says it has one, and only Vitrine's IPA build writes that into Spotify. This Spotify was put together another way, such as with Vitrine's .deb injected by hand, so iOS turns the card down. Build the IPA with Vitrine to get it.";
 "settings.liveactivity.missing.alert.title" = "Live Activity is missing";
+"settings.liveactivity.missing.extension.message" = "This IPA does not contain Vitrine's Live Activity extension, so Live Activity cannot run. If it was built without app extensions, rebuild without NO_PLUGINS=1 (turn off Remove every app extension in CI).";
 "settings.liveactivity.missing.subtitle" = "Tap for why";
 "settings.liveactivity.missing.title" = "Missing from this install";
 "settings.liveactivity.preview.a11y.hint" = "Shows the next step";
@@ -1074,6 +1085,10 @@
 "settings.liveactivity.shows.choice.lyrics" = "Lyrics";
 "settings.liveactivity.shows.choice.queue" = "Queue";
 "settings.liveactivity.shows.title" = "Shows";
+"settings.liveactivity.sleep.end_of_album" = "Spotify will pause at the end of this album or playlist.";
+"settings.liveactivity.sleep.end_of_track" = "Spotify will pause at the end of this track.";
+"settings.liveactivity.sleep.in_minutes" = "Spotify will pause in %ld minutes.";
+"settings.liveactivity.sleep.off" = "The sleep timer is off.";
 "settings.liveactivity.sleeptimer.footer" = "How long the sound fades before a sleep timer pauses Spotify: the one set from the Timer tab, the Sleep Timer shortcut or Control Center, and Spotify's own from the player's ⋯ menu.";
 "settings.liveactivity.sleeptimer.header" = "Sleep timer";
 "settings.liveactivity.textsize.choice.large" = "Large";
@@ -1239,6 +1254,7 @@
 "settings.lyrics.card.share" = "Share";
 "settings.lyrics.card.share.label" = "Share lyric card";
 "settings.lyrics.card.title" = "Lyric Card";
+"settings.lyrics.credit.from" = "Lyrics from %@";
 "settings.lyrics.delay.format" = "%ld ms";
 "settings.lyrics.delay.title" = "Delay";
 "settings.lyrics.display.header" = "Display";
@@ -1275,6 +1291,8 @@
 "settings.lyrics.language_rules.title" = "Clear language rules…";
 "settings.lyrics.lockscreen_lyrics.subtitle" = "Current line in place of the artist";
 "settings.lyrics.lockscreen_lyrics.title" = "Lock screen lyrics";
+"settings.lyrics.meaning.by_community" = "Genius community";
+"settings.lyrics.meaning.by_editors" = "Genius editors";
 "settings.lyrics.meaning.error.translate" = "Couldn't translate";
 "settings.lyrics.meaning.genius" = "View on Genius";
 "settings.lyrics.meaning.next" = "Next";
@@ -1489,12 +1507,16 @@
 "settings.lyricstools.menu.claude.subtitle" = "Sends the lyrics to Anthropic";
 "settings.lyricstools.menu.deepl" = "Translate with DeepL";
 "settings.lyricstools.menu.deepl.subtitle" = "Sends the lyrics to DeepL";
+"settings.lyricstools.menu.gemini" = "Translate with Gemini";
+"settings.lyricstools.menu.gemini.subtitle" = "Sends the lyrics to Google";
 "settings.lyricstools.menu.google" = "Translate with Google";
 "settings.lyricstools.menu.google.subtitle" = "Sends the lyrics to Google Translate";
+"settings.lyricstools.menu.intelligence" = "Translate with Apple Intelligence";
 "settings.lyricstools.menu.label" = "Lyrics options";
 "settings.lyricstools.menu.notes" = "Explain References";
 "settings.lyricstools.menu.notes.hide" = "Hide Cultural Notes";
 "settings.lyricstools.menu.notes.subtitle" = "Notes under the lines that need them";
+"settings.lyricstools.menu.ondevice.subtitle" = "Apple's Translate, on this iPhone";
 "settings.lyricstools.menu.openai" = "Translate with your AI service";
 "settings.lyricstools.menu.openai.subtitle" = "Sends the lyrics to the service you set";
 "settings.lyricstools.menu.pronounce" = "Write Pronunciation";
@@ -1694,10 +1716,24 @@
 "settings.onboarding.ads.title" = "No ads";
 "settings.onboarding.look.heading" = "Pick your look.";
 "settings.onboarding.look.native" = "Native";
+"settings.onboarding.look.native.subtitle" = "More options, still looks like Spotify.";
+"settings.onboarding.look.redesigned" = "Redesigned";
+"settings.onboarding.look.redesigned.subtitle" = "Looks like Apple Music. Better lyrics, Live Activity.";
+"settings.onboarding.look.redesigned.untested" = "Looks like Apple Music. Untested on iOS %@.";
 "settings.onboarding.look.redesigned_only" = "Apple Music style lyrics, the redesigned player and the glass tab bar come with the redesign only.";
+"settings.onboarding.report_bug" = "Report a bug";
+"settings.onboarding.restart" = "Restart Spotify";
 "settings.onboarding.settings_hint" = "Hold Home to open settings.";
+"settings.onboarding.split_tabs.subtitle" = "Any tab, Queue for one, on a bar of its own at the trailing end.\nMod Settings > Tab bar > Split Tabs";
 "settings.onboarding.split_tabs.title" = "Split Tabs";
+"settings.onboarding.start" = "Start listening";
+"settings.onboarding.tips.airpods.text" = "Nod twice or shake your head to control the music, with a chime. Either look.\nMod Settings > AirPods gestures";
+"settings.onboarding.tips.airpods.text_live" = "Nod twice or shake your head to control the music, with a chime; and the track on the lock screen. Either look.\nMod Settings > AirPods gestures, Live Activity";
+"settings.onboarding.tips.airpods.title" = "AirPods gestures";
+"settings.onboarding.tips.airpods.title_live" = "AirPods gestures, Live Activity";
 "settings.onboarding.tips.heading" = "Easy to miss";
+"settings.onboarding.tips.lyrics.native" = "Your choice of sources, and lyrics even where Spotify has none.\nMod Settings > Lyrics";
+"settings.onboarding.tips.lyrics.redesigned" = "A live preview of the look, your choice of sources, and lyrics even where Spotify has none.\nMod Settings > Lyrics";
 
 "settings.page.info.a11y" = "About this setting";
 "settings.page.locked.alert.message" = "Another switch is forcing this flag, so the row shows what it forces instead of taking a value of its own.";
@@ -2010,6 +2046,8 @@
 "settings.player.hide_on_player.header" = "Hide on the player";
 "settings.player.hide_video_switch.subtitle" = "The chip over the title of a song with a music video";
 "settings.player.hide_video_switch.title" = "Switch to video";
+"settings.player.landscape.pause" = "Pause";
+"settings.player.landscape.play" = "Play";
 "settings.player.landscape.subtitle" = "Turn your iPhone while the player is open, even with the lyrics closed.";
 "settings.player.landscape.title" = "Landscape player";
 "settings.player.like_dislike.subtitle" = "Off and locked while Switch with the star is on: the star takes their place";
@@ -2023,6 +2061,9 @@
 "settings.player.lyrics_line.choice.translation" = "Translation";
 "settings.player.lyrics_line.subtitle" = "A line without a translation shows the original";
 "settings.player.lyrics_line.title" = "Lyrics line";
+"settings.player.menu.show_animated" = "Show Animated Artwork";
+"settings.player.menu.show_fluid" = "Show Fluid Artwork";
+"settings.player.menu.show_visualizer" = "Show Visualizer";
 "settings.player.mini_player.footer" = "Apple Music style moves the now playing bar in between two tabs as you scroll down.";
 "settings.player.mini_player.header" = "Mini player";
 "settings.player.motion_low_data.subtitle" = "Up to about 7 MB a song. Applies to animated artwork throughout Vitrine.";
@@ -2480,6 +2521,7 @@
 "settings.tabbar.item.shown.a11y" = "Shown";
 "settings.tabbar.labels.icons_and_names" = "Icons and names";
 "settings.tabbar.labels.icons_only" = "Icons only";
+"settings.tabbar.minimized.hint" = "Shows all tabs";
 "settings.tabbar.placement.apart" = "Apart, on the right";
 "settings.tabbar.preset.albums" = "Albums";
 "settings.tabbar.preset.artists" = "Artists";
@@ -2792,6 +2834,14 @@
 "settings.visualizer.style.choice.nebula" = "Nebula";
 "settings.visualizer.style.choice.poster" = "Poster";
 "settings.visualizer.subtitle.title" = "Whole line";
+
+"settings.whatsnew.continue" = "Continue";
+"settings.whatsnew.kind.features" = "Features";
+"settings.whatsnew.kind.fixes" = "Fixes";
+"settings.whatsnew.kind.performance" = "Performance";
+"settings.whatsnew.kind.reverts" = "Reverts";
+"settings.whatsnew.title" = "What's New in Vitrine";
+"settings.whatsnew.version" = "Version %s";
 
 "settings.workshop.audio_presets.title" = "Audio presets";
 "settings.workshop.free_fonts.title" = "Free fonts";

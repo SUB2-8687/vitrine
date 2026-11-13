@@ -32,6 +32,10 @@ static NSString *sentTranslation, *sentLine;
 
 BOOL SGLyricsPiPActive(void) { return NO; }
 NSNotificationName const SGLyricsPiPDidChangeNotification = @"harness.pip";
+// The card runs as on an IPA build with its extension; the settings page that checks the bundle is not built here.
+BOOL SGLiveActivityAllowedByInstall(void) { return YES; }
+// No string tables here: English, as SGL gives without one.
+NSString *SGL(NSString *key, NSString *english) { return english; }
 BOOL SGKaraokeLooking(NSString *track) { return NO; }
 NSArray *SGPlayerUpcomingTracks(SPTPlayerState *state, NSUInteger limit) { return @[]; }
 id SGPlayerAdvanceRepeat(id player, id options) { return nil; }

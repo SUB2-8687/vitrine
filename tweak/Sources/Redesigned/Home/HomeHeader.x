@@ -175,7 +175,7 @@ static NSArray<UIMenuElement *> *menuElements(void) {
     UIControl *showAll = SGRHomeTopPicksShowAll(&title);
     if (showAll) {
         __weak UIControl *weakShowAll = showAll;
-        [more addObject:[UIAction actionWithTitle:title.length ? [NSString stringWithFormat:@"Show all · %@", title] : @"Show all"
+        [more addObject:[UIAction actionWithTitle:title.length ? [NSString stringWithFormat:SGL(@"settings.home.show_all.titled", @"Show all · %@"), title] : SGL(@"settings.home.show_all", @"Show all")
                                             image:[UIImage systemImageNamed:@"rectangle.stack"] identifier:nil handler:^(UIAction *a) {
             if (weakShowAll) SGRActivate(weakShowAll);
         }]];
@@ -210,7 +210,7 @@ static SGRHomePillButtons *buttonsIn(UIView *header) {
     SGRHomePillButtons *buttons = objc_getAssociatedObject(header, &kButtonsKey);
     if (!buttons) {
         buttons = [SGRHomePillButtons new];
-        buttons.filter = pillButton(@"line.3.horizontal.decrease", @"Filter Home");
+        buttons.filter = pillButton(@"line.3.horizontal.decrease", SGL(@"settings.home.filter", @"Filter Home"));
         buttons.filter.menu = [UIMenu menuWithChildren:@[[UIDeferredMenuElement elementWithUncachedProvider:^(void (^completion)(NSArray<UIMenuElement *> *)) {
             completion(menuElements());
         }]]];

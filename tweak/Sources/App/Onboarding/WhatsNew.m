@@ -28,6 +28,16 @@ static NSString *symbolFor(NSString *kind) {
     return symbols[kind] ?: @"circle.fill";
 }
 
+static NSString *titleFor(NSString *kind) {
+    NSDictionary<NSString *, NSString *> *titles = @{
+        @"Features": SGL(@"settings.whatsnew.kind.features", @"Features"),
+        @"Fixes": SGL(@"settings.whatsnew.kind.fixes", @"Fixes"),
+        @"Performance": SGL(@"settings.whatsnew.kind.performance", @"Performance"),
+        @"Reverts": SGL(@"settings.whatsnew.kind.reverts", @"Reverts"),
+    };
+    return titles[kind] ?: kind;
+}
+
 static UILabel *label(NSString *text, UIFontTextStyle style, UIFontWeight weight, UIColor *color) {
     UILabel *view = [UILabel new];
     view.text = text;
@@ -75,10 +85,10 @@ static UILabel *label(NSString *text, UIFontTextStyle style, UIFontWeight weight
     // iOS 26 gives a sheet its own material; before it the sheet takes the mod's page color.
     if (@available(iOS 26.0, *)) {} else self.view.backgroundColor = SGPageBackground();
 
-    UILabel *title = label(@"What's New in Vitrine", UIFontTextStyleLargeTitle, UIFontWeightBold, UIColor.whiteColor);
+    UILabel *title = label(SGL(@"settings.whatsnew.title", @"What's New in Vitrine"), UIFontTextStyleLargeTitle, UIFontWeightBold, UIColor.whiteColor);
     title.textAlignment = NSTextAlignmentCenter;
     title.accessibilityTraits = UIAccessibilityTraitHeader;
-    UILabel *version = label([NSString stringWithFormat:@"Version %s", SG_VERSION], UIFontTextStyleSubheadline, UIFontWeightRegular, SGGrey());
+    UILabel *version = label([NSString stringWithFormat:SGL(@"settings.whatsnew.version", @"Version %s"), SG_VERSION], UIFontTextStyleSubheadline, UIFontWeightRegular, SGGrey());
     version.textAlignment = NSTextAlignmentCenter;
 
     UIStackView *column = [[UIStackView alloc] initWithArrangedSubviews:@[title, version]];
@@ -89,7 +99,7 @@ static UILabel *label(NSString *text, UIFontTextStyle style, UIFontWeight weight
     for (SGUpdateChange *change in SGWhatsNewChanges()) {
         if (![change.kind isEqualToString:kind]) {
             kind = change.kind;
-            UILabel *heading = label(kind, UIFontTextStyleTitle3, UIFontWeightSemibold, UIColor.whiteColor);
+            UILabel *heading = label(titleFor(kind), UIFontTextStyleTitle3, UIFontWeightSemibold, UIColor.whiteColor);
             heading.accessibilityTraits = UIAccessibilityTraitHeader;
             if (column.arrangedSubviews.count > 2) [column setCustomSpacing:28 afterView:column.arrangedSubviews.lastObject];
             [column addArrangedSubview:heading];
@@ -107,7 +117,7 @@ static UILabel *label(NSString *text, UIFontTextStyle style, UIFontWeight weight
     [scroll addSubview:column];
     [self.view addSubview:scroll];
 
-    UIButton *done = SGOnboardingButton(@"Continue");
+    UIButton *done = SGOnboardingButton(SGL(@"settings.whatsnew.continue", @"Continue"));
     __weak typeof(self) weakSelf = self;
     [done addAction:[UIAction actionWithHandler:^(UIAction *action) {
         [weakSelf dismissViewControllerAnimated:YES completion:nil];

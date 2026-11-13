@@ -368,7 +368,7 @@ static BOOL adFree(void) {
     UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
     config.contentInsets = NSDirectionalEdgeInsetsMake(4, 32, 4, 0);
     config.baseForegroundColor = SGGreen();
-    config.attributedTitle = [[NSAttributedString alloc] initWithString:@"Report a bug" attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]}];
+    config.attributedTitle = [[NSAttributedString alloc] initWithString:SGL(@"settings.onboarding.report_bug", @"Report a bug") attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold]}];
     _report = [UIButton buttonWithConfiguration:config primaryAction:[UIAction actionWithHandler:^(UIAction *action) {
         SGOpenURL([SGRepoURL stringByAppendingString:@"/issues"]);
     }]];
@@ -402,26 +402,28 @@ static BOOL adFree(void) {
     [_column setCustomSpacing:_note.hidden ? 32 : 12 afterView:_legacy];
     // The tips of the picked look: Split Tabs is the redesign's bar's, and the lyrics preview the redesign's page's.
     _splitTip.hidden = !_redesigned.selected;
-    _lyricsTip.text = [(_redesigned.selected ? @"A live preview of the look, your choice of sources, and lyrics even where Spotify has none."
-                                             : @"Your choice of sources, and lyrics even where Spotify has none.")
-                       stringByAppendingString:@"\nMod Settings > Lyrics"];
+    _lyricsTip.text = _redesigned.selected
+        ? SGL(@"settings.onboarding.tips.lyrics.redesigned", @"A live preview of the look, your choice of sources, and lyrics even where Spotify has none.\nMod Settings > Lyrics")
+        : SGL(@"settings.onboarding.tips.lyrics.native", @"Your choice of sources, and lyrics even where Spotify has none.\nMod Settings > Lyrics");
 }
 
 // What people miss in Mod Settings, as pointers only: the tour has no way into a page but holding Home.
 - (UIView *)tipsView {
     UIStackView *split = cardRow(@"rectangle.split.2x1", SGL(@"settings.onboarding.split_tabs.title", @"Split Tabs"),
-                                 @"Any tab, Queue for one, on a bar of its own at the trailing end.\nMod Settings > Tab bar > Split Tabs", nil);
+                                 SGL(@"settings.onboarding.split_tabs.subtitle", @"Any tab, Queue for one, on a bar of its own at the trailing end.\nMod Settings > Tab bar > Split Tabs"), nil);
     _splitTip = split;
     UIStackView *lyrics = cardRow(@"quote.bubble", SGL(@"settings.main.lyrics.title", @"Lyrics"), @"", nil);
     // The row's text stack is its last arranged view, the gray line that stack's; updateNote writes the look's.
     _lyricsTip = (UILabel *)((UIStackView *)lyrics.arrangedSubviews.lastObject).arrangedSubviews.lastObject;
     BOOL liveActivity = NO;
     if (@available(iOS 17.0, *)) liveActivity = YES;
-    UIStackView *airPods = cardRow(@"airpods.pro", liveActivity ? @"AirPods gestures, Live Activity" : @"AirPods gestures",
-                                   liveActivity ? @"Nod twice or shake your head to control the music, with a chime; and the track on the "
-                                                  @"lock screen. Either look.\nMod Settings > AirPods gestures, Live Activity"
-                                                : @"Nod twice or shake your head to control the music, with a chime. Either look."
-                                                  @"\nMod Settings > AirPods gestures", nil);
+    UIStackView *airPods = cardRow(@"airpods.pro",
+                                   liveActivity ? SGL(@"settings.onboarding.tips.airpods.title_live", @"AirPods gestures, Live Activity")
+                                                : SGL(@"settings.onboarding.tips.airpods.title", @"AirPods gestures"),
+                                   liveActivity ? SGL(@"settings.onboarding.tips.airpods.text_live", @"Nod twice or shake your head to control the music, with a chime; and the track on the "
+                                                                                                       @"lock screen. Either look.\nMod Settings > AirPods gestures, Live Activity")
+                                                : SGL(@"settings.onboarding.tips.airpods.text", @"Nod twice or shake your head to control the music, with a chime. Either look."
+                                                                                                  @"\nMod Settings > AirPods gestures"), nil);
     return tipsCard(@[split, lyrics, airPods]);
 }
 
@@ -442,10 +444,10 @@ static BOOL adFree(void) {
     heading.textColor = UIColor.whiteColor;
     heading.numberOfLines = 0;
 
-    NSString *redesign = glass ? @"Looks like Apple Music. Better lyrics, Live Activity."
-                               : [NSString stringWithFormat:@"Looks like Apple Music. Untested on iOS %@.", UIDevice.currentDevice.systemVersion];
-    _redesigned = [[SGLookCard alloc] initWithSymbol:@"sparkles" title:@"Redesigned" subtitle:redesign];
-    _legacy = [[SGLookCard alloc] initWithSymbol:@"slider.horizontal.3" title:SGL(@"settings.onboarding.look.native", @"Native") subtitle:@"More options, still looks like Spotify."];
+    NSString *redesign = glass ? SGL(@"settings.onboarding.look.redesigned.subtitle", @"Looks like Apple Music. Better lyrics, Live Activity.")
+                               : [NSString stringWithFormat:SGL(@"settings.onboarding.look.redesigned.untested", @"Looks like Apple Music. Untested on iOS %@."), UIDevice.currentDevice.systemVersion];
+    _redesigned = [[SGLookCard alloc] initWithSymbol:@"sparkles" title:SGL(@"settings.onboarding.look.redesigned", @"Redesigned") subtitle:redesign];
+    _legacy = [[SGLookCard alloc] initWithSymbol:@"slider.horizontal.3" title:SGL(@"settings.onboarding.look.native", @"Native") subtitle:SGL(@"settings.onboarding.look.native.subtitle", @"More options, still looks like Spotify.")];
     for (SGLookCard *card in @[_redesigned, _legacy]) [card addTarget:self action:@selector(picked:) forControlEvents:UIControlEventTouchUpInside];
     // The first launch offers the redesign where it is at home; below iOS 26 it waits to be asked for.
     // The tour again from the Mod page shows the stored look.
@@ -459,13 +461,13 @@ static BOOL adFree(void) {
     _ads = [UISwitch new];
     _ads.onTintColor = SGGreen();
     _ads.on = adFree();
-    _adsCard = [[SGLookCard alloc] initWithSymbol:@"speaker.slash" title:@"No ads"
-                                         subtitle:@"No ads, no Premium upsells, and Premium spoofed." accessory:_ads];
+    _adsCard = [[SGLookCard alloc] initWithSymbol:@"speaker.slash" title:SGL(@"settings.onboarding.ads.title", @"No ads")
+                                         subtitle:SGL(@"settings.onboarding.ads.subtitle", @"No ads, no Premium upsells, and Premium spoofed.") accessory:_ads];
     [_adsCard addTarget:self action:@selector(toggleAds) forControlEvents:UIControlEventTouchUpInside];
     _adsCard.isAccessibilityElement = YES;
     _adsCard.accessibilityLabel = SGL(@"settings.onboarding.ads.title", @"No ads");
     _adsCard.accessibilityHint = SGL(@"settings.onboarding.ads.subtitle", @"No ads, no Premium upsells, and Premium spoofed.");
-    _adsCard.accessibilityValue = _ads.on ? @"On" : @"Off";
+    _adsCard.accessibilityValue = _ads.on ? SGL(@"common.on", @"On") : SGL(@"common.off", @"Off");
     if (@available(iOS 17.0, *)) _adsCard.accessibilityTraits = UIAccessibilityTraitToggleButton;
     else _adsCard.accessibilityTraits = UIAccessibilityTraitButton;
     UILabel *adsText = [UILabel new];
@@ -501,7 +503,7 @@ static BOOL adFree(void) {
     [scroll addSubview:column];
     [self.view addSubview:scroll];
 
-    _primary = SGOnboardingButton(@"Start listening");
+    _primary = SGOnboardingButton(SGL(@"settings.onboarding.start", @"Start listening"));
     [_primary addTarget:self action:@selector(finish) forControlEvents:UIControlEventTouchUpInside];
     UILabel *footer = [UILabel new];
     footer.text = SGL(@"settings.onboarding.settings_hint", @"Hold Home to open settings.");
@@ -579,7 +581,7 @@ static BOOL adFree(void) {
 
 - (void)toggleAds {
     [_ads setOn:!_ads.on animated:YES];
-    _adsCard.accessibilityValue = _ads.on ? @"On" : @"Off";
+    _adsCard.accessibilityValue = _ads.on ? SGL(@"common.on", @"On") : SGL(@"common.off", @"Off");
     [self refresh];
 }
 
@@ -591,7 +593,7 @@ static BOOL adFree(void) {
 
 - (void)refresh {
     UIButtonConfiguration *config = _primary.configuration;
-    NSString *title = self.needsRestart ? @"Restart Spotify" : @"Start listening";
+    NSString *title = self.needsRestart ? SGL(@"settings.onboarding.restart", @"Restart Spotify") : SGL(@"settings.onboarding.start", @"Start listening");
     config.attributedTitle = [[NSAttributedString alloc] initWithString:title attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold]}];
     _primary.configuration = config;
 }

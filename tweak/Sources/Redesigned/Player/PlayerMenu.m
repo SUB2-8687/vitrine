@@ -241,9 +241,9 @@ static NSArray<UIMenuElement *> *playerItems(void) {
     if (SGPlayerMenuOffersAnimatedArtwork()) {
         // Buttons named for what they do, not checkmarks: the HIG's changeable label for a toggled item.
         NSArray<NSArray *> *backgrounds = @[
-            @[@(SGRPlayerBackgroundFluid), @"Show Fluid Artwork", @"drop"],
-            @[@(SGRPlayerBackgroundAnimated), @"Show Animated Artwork", @"play.rectangle.on.rectangle"],
-            @[@(SGRPlayerBackgroundVisualiser), @"Show Visualizer", @"waveform"],
+            @[@(SGRPlayerBackgroundFluid), SGL(@"settings.player.menu.show_fluid", @"Show Fluid Artwork"), @"drop"],
+            @[@(SGRPlayerBackgroundAnimated), SGL(@"settings.player.menu.show_animated", @"Show Animated Artwork"), @"play.rectangle.on.rectangle"],
+            @[@(SGRPlayerBackgroundVisualiser), SGL(@"settings.player.menu.show_visualizer", @"Show Visualizer"), @"waveform"],
         ];
         SGRPlayerBackgroundKind current = SGRPlayerBackground();
         for (NSArray *background in backgrounds) {

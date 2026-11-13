@@ -12,9 +12,9 @@ static const NSUInteger kKeptTranslations = 24;
 
 static NSString *authorName(SGLyricsMeaningAuthor author) {
     switch (author) {
-        case SGLyricsMeaningByArtist: return @"From the artist";
-        case SGLyricsMeaningByEditors: return @"Genius editors";
-        case SGLyricsMeaningByCommunity: return @"Genius community";
+        case SGLyricsMeaningByArtist: return SGL(@"settings.lyrics.meanings.choice.artist", @"From the artist");
+        case SGLyricsMeaningByEditors: return SGL(@"settings.lyrics.meaning.by_editors", @"Genius editors");
+        case SGLyricsMeaningByCommunity: return SGL(@"settings.lyrics.meaning.by_community", @"Genius community");
     }
     return nil;
 }

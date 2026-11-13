@@ -447,13 +447,13 @@ static void runAction(NSString *action) {
 // What a shortcut set the sleep timer to, for Siri to say.
 static NSString *sleepTimerText(void) {
     switch (SGSleepTimerCurrentMode()) {
-        case SGSleepTimerEndOfTrack: return @"Spotify will pause at the end of this track.";
-        case SGSleepTimerEndOfAlbum: return @"Spotify will pause at the end of this album or playlist.";
+        case SGSleepTimerEndOfTrack: return SGL(@"settings.liveactivity.sleep.end_of_track", @"Spotify will pause at the end of this track.");
+        case SGSleepTimerEndOfAlbum: return SGL(@"settings.liveactivity.sleep.end_of_album", @"Spotify will pause at the end of this album or playlist.");
         case SGSleepTimerAtTime: {
             NSInteger minutes = lround(SGSleepTimerEnd().timeIntervalSinceNow / 60);
-            return [NSString stringWithFormat:@"Spotify will pause in %ld minutes.", (long)minutes];
+            return [NSString stringWithFormat:SGL(@"settings.liveactivity.sleep.in_minutes", @"Spotify will pause in %ld minutes."), (long)minutes];
         }
-        default: return @"The sleep timer is off.";
+        default: return SGL(@"settings.liveactivity.sleep.off", @"The sleep timer is off.");
     }
 }
 
@@ -506,7 +506,7 @@ void SGSetLiveActivityEnabled(BOOL on) {
         sg_translationRevision++;
         // A sleep timer runs on its own clock (SleepTimer.m) and stays set: the shortcut and the control set it
         // with the card off, and a card switched back on shows it from its first tick.
-        if (!on || SGLyricsPiPActive()) {
+        if (!on || !SGLiveActivityAllowedByInstall() || SGLyricsPiPActive()) {
             [SGLiveActivityBridge end];
             SGLog(@"live activity: off");
             return;
@@ -561,7 +561,7 @@ void SGSetLiveActivityEnabled(BOOL on) {
         // It was the redesign's alone until it moved to Shared/; whoever had it on keeps it on.
         SGMigrateKey(SGKeyLiveActivityWas, SGKeyLiveActivity);
         SGMigrateKey(SGKeyLiveActivityViewWas, SGKeyLiveActivityView);
-        BOOL on = SGFlag(SGKeyLiveActivity, NO);
+        BOOL on = SGFlag(SGKeyLiveActivity, NO) && SGLiveActivityAllowedByInstall();
         [NSNotificationCenter.defaultCenter addObserverForName:SGLyricsPiPDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (SGLyricsPiPActive()) sg_pipResumePending = YES;

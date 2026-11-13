@@ -2045,6 +2045,10 @@ hide switches against harness/tabbar/ (`navsettings`).
 
 ## Localization
 
+For `make build`, `make release` or `make install`, `NO_PLUGINS=1` (pipeline `--no-plugins`, CI `remove_plugins`, default off) skips building the Live Activity and Open in Vitrine extensions and removes all PlugIns and .appex bundles before signing, including Spotify's widgets, Siri intents and notification service; leave it off to retain those features.
+
+After injection and extension handling, `scripts/pipeline.sh` runs `scripts/patch-infoplist-ko.py` before signing to set the overlay's Korean motion prompt inside existing `ko*.lproj` directories only, preserving other entries and binary/text format; an app with no Korean localization is left unchanged with a warning, and the Connect/Cast prompt is added only when Spotify has no base or localized local-network wording. Live Activity requires both the Info.plist declaration and Vitrine's bundled extension; without the extension, its switch is hidden and its runtime polling stays off even with a saved enabled preference.
+
 Mod Settings and every page, sheet and alert it opens read their words from `Vitrine.bundle`
 (`tweak/layout/Library/Application Support/Vitrine.bundle`): `en.lproj` and `ko.lproj`, each a `Localizable.strings`.
 Theos puts the bundle in the .deb, so a jailbreak installs it under `/Library/Application Support` (or `/var/jb`), and

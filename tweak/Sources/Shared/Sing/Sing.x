@@ -482,7 +482,7 @@ static void apply(void) {
     if (on && !engine) {
         engine = SGSingEngineCreate();
         if (!engine) {
-            sg_setupError = @"Karaoke could not set aside memory for the song.";
+            sg_setupError = SGL(@"settings.karaoke.error.no_memory_song", @"Karaoke could not set aside memory for the song.");
             return;
         }
         SGSingEngineSetLevel(engine, SGSingLevel());
@@ -734,7 +734,10 @@ NSString *SGSingStatusDetail(void) {
                    @"Ignore heat warnings keeps Karaoke going.");
         case SGSingStateFailed: {
             SGSingEngine *engine = atomic_load(&sg_engine);
-            if (sg_stopped ?: sg_refused) return sg_stopped ?: sg_refused;
+            if (sg_stopped) return sg_stopped;
+            if (sg_refused) return sg_refused == kOverAirPlay ? SGL(@"settings.karaoke.note.over_airplay", @"Karaoke does not run over AirPlay, whose delay changes as it plays, so the song plays as it is.")
+                : sg_refused == kElsewhere ? SGL(@"settings.karaoke.note.elsewhere", @"Spotify plays, but this iPhone has not played any of it for 3 s (it plays on another device), and Karaoke works on what this iPhone plays itself. It starts once the song plays here.")
+                : SGL(@"settings.karaoke.note.not_a_song", @"Karaoke turns down the vocals of songs, and what plays now is not one, so it plays as it is.");
             NSString *error = SGSingLoaderError() ?: (engine ? SGSingEngineError(engine) : sg_setupError);
             if (SGSingLoaderError()) return [error stringByAppendingString:SGL(@"settings.karaoke.note.error_toggle_hint", @" Switch Karaoke off and on again to try again.")];
             if (error) return error;
@@ -1064,9 +1067,8 @@ static void tick(void) {
     if (engine && SGSingOn() && !sg_stopped && SGSingEngineGaveUp(engine)) {
         BOOL forGood = ++sg_giveUps >= kGiveUpsKept;
         sg_stopKind = forGood ? SGSingStopForGood : SGSingStopBehind;
-        sg_stopped = forGood ? [NSString stringWithFormat:@"Karaoke could not keep up on this iPhone %d times in a row, so it stopped and songs play as they are. "
-                                                          @"Switch Karaoke off and on, or choose another Runs on, to try again.", sg_giveUps]
-                             : @"Karaoke could not keep up with this song on this iPhone, so it plays as it is. Karaoke tries again with the next song.";
+        sg_stopped = forGood ? [NSString stringWithFormat:SGL(@"settings.karaoke.note.stopped_for_good", @"Karaoke could not keep up on this iPhone %d times in a row, so it stopped and songs play as they are. Switch Karaoke off and on, or choose another Runs on, to try again."), sg_giveUps]
+                             : SGL(@"settings.karaoke.note.stopped_behind", @"Karaoke could not keep up with this song on this iPhone, so it plays as it is. Karaoke tries again with the next song.");
         SGLog(@"sing: stopped, the vocals fell short for 8 s, %d in a row%@; %@", sg_giveUps, forGood ? @", so until switched off and on" : @"",
               SGSingStatusDetail());
         apply();
@@ -1315,8 +1317,7 @@ static void readHeat(void) {
             // Over a stop for falling behind, which would load the model again with the next track whatever the memory.
             if (!SGSingOn() || (sg_stopped && sg_stopKind != SGSingStopBehind)) return;
             sg_stopKind = SGSingStopMemory;
-            sg_stopped = @"Karaoke stopped to free memory, so the song plays as it is. It loads the voice model again with the next song if there is room, "
-                         @"or switch Karaoke off and on.";
+            sg_stopped = SGL(@"settings.karaoke.note.stopped_memory", @"Karaoke stopped to free memory, so the song plays as it is. It loads the voice model again with the next song if there is room, or switch Karaoke off and on.");
             apply();
             announce();
         }];

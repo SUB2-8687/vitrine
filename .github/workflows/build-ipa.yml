@@ -12,6 +12,10 @@ on:
         default: artifacts
         type: choice
         options: [artifacts, filebin, both]
+      remove_plugins:
+        description: "Remove every app extension (PlugIns/) from the IPA"
+        type: boolean
+        default: false
       bundle_id:
         description: "Bundle ID must match the signing App ID; extension IDs follow it (empty keeps Spotify's ID)"
         default: ""
@@ -91,7 +95,7 @@ jobs:
           MAKEFLAGS: -k
         run: |
           set -o pipefail
-          if make release IPA=ipa/spotify.ipa 2>&1 | tee "$RUNNER_TEMP/ipa-build.log"; then
+          if make release IPA=ipa/spotify.ipa NO_PLUGINS=${{ inputs.remove_plugins && '1' || '0' }} 2>&1 | tee "$RUNNER_TEMP/ipa-build.log"; then
             exit 0
           else
             status=$?
@@ -116,6 +120,20 @@ jobs:
                       print(f"::error::{escape(line)}")
           PY
           exit "$status"
+
+      - name: Verify app extensions removed
+        if: inputs.remove_plugins
+        run: |
+          python3 -B - <<'PY'
+          from pathlib import Path
+          import zipfile
+          for ipa in Path("out").glob("*.ipa"):
+              with zipfile.ZipFile(ipa) as archive:
+                  if any(part == "PlugIns" or part.endswith(".appex")
+                         for name in archive.namelist() for part in name.split("/")):
+                      raise SystemExit(f"{ipa} still contains an app extension")
+              print(f"{ipa}: no app extensions")
+          PY
 
       - run: ccache --show-stats
 

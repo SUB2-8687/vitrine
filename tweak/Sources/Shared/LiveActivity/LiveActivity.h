@@ -90,6 +90,5 @@ void SGSetLiveActivityEnabled(BOOL on);
 // The Live Activity page: a preview of the card (SGLiveActivityPreview.m), its switch, which view it shows, the
 // lyrics' options and the card's.
 UIViewController *SGLiveActivitySettingsPage(void);
-// Whether this install lets Spotify start a Live Activity: NSSupportsLiveActivities, which only Vitrine's IPA
-// build writes into Info.plist. Without it iOS turns every one down.
+// Requires both NSSupportsLiveActivities and Vitrine's bundled Live Activity extension.
 BOOL SGLiveActivityAllowedByInstall(void);

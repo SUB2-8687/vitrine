@@ -64,15 +64,28 @@ static SGModRow *menuRow(NSString *title, NSString *key, NSArray<NSString *> *na
     });
 }
 
-BOOL SGLiveActivityAllowedByInstall(void) {
-    return [[NSBundle.mainBundle objectForInfoDictionaryKey:@"NSSupportsLiveActivities"] boolValue];
+static BOOL hasActivityExtension(void) {
+    static BOOL present;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *path = [NSBundle.mainBundle.builtInPlugInsPath stringByAppendingPathComponent:@"SpotifyGlassLiveActivity.appex"];
+        BOOL directory = NO;
+        present = path && [NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&directory] && directory;
+    });
+    return present;
 }
 
-// At the top while the install lacks the key, saying why nothing shows and what to do.
+BOOL SGLiveActivityAllowedByInstall(void) {
+    return hasActivityExtension() && [[NSBundle.mainBundle objectForInfoDictionaryKey:@"NSSupportsLiveActivities"] boolValue];
+}
+
+// At the top while the install lacks the declaration or extension.
 static SGModRow *missingRow(void) {
     SGModRow *row = SGWarningRow(SGL(@"settings.liveactivity.missing.title", @"Missing from this install"), SGL(@"settings.liveactivity.missing.subtitle", @"Tap for why"), ^{
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:SGL(@"settings.liveactivity.missing.alert.title", @"Live Activity is missing")
-            message:SGL(@"settings.liveactivity.missing.alert.message", @"iOS shows a Live Activity only for an app that says it has one, and only Vitrine's IPA build writes that into Spotify. This Spotify was put together another way, such as with Vitrine's .deb injected by hand, so iOS turns the card down. Build the IPA with Vitrine to get it.")
+            message:!hasActivityExtension()
+                ? SGL(@"settings.liveactivity.missing.extension.message", @"This IPA does not contain Vitrine's Live Activity extension, so Live Activity cannot run. If it was built without app extensions, rebuild without NO_PLUGINS=1 (turn off Remove every app extension in CI).")
+                : SGL(@"settings.liveactivity.missing.alert.message", @"iOS shows a Live Activity only for an app that says it has one, and only Vitrine's IPA build writes that into Spotify. This Spotify was put together another way, such as with Vitrine's .deb injected by hand, so iOS turns the card down. Build the IPA with Vitrine to get it.")
             preferredStyle:UIAlertControllerStyleAlert];
         alert.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
         [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.ok", @"OK") style:UIAlertActionStyleCancel handler:nil]];
@@ -89,6 +102,7 @@ UIViewController *SGLiveActivitySettingsPage(void) {
 
     SGModRow *on = SGOptionRow(SGL(@"settings.liveactivity.title", @"Live Activity"), nil, SGKeyLiveActivity);
     on.changed = ^(BOOL value) { SGSetLiveActivityEnabled(value); };
+    on.visible = ^BOOL { return SGLiveActivityAllowedByInstall(); };
     SGModRow *view = SGChoiceRow(SGL(@"settings.liveactivity.shows.title", @"Shows"), nil, SGKeyLiveActivityView, viewNames(), SGLiveActivityLyrics);
     // The lyrics view's own rows, shown while it is picked.
     SGModRow *without = menuRow(SGL(@"settings.liveactivity.withoutlyrics.title", @"Without lyrics"), SGKeyLiveActivityWithoutLyrics, @[SGL(@"settings.liveactivity.withoutlyrics.choice.note", @"Note"), SGL(@"settings.liveactivity.withoutlyrics.choice.track", @"Track")], SGLiveActivityWithoutLyricsNote, preview);

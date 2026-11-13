@@ -286,7 +286,7 @@ static UIButton *controlButton(NSString *symbol, CGFloat size, NSString *label, 
     [self updateTitleForState:state];
     [_play setImage:[UIImage systemImageNamed:state.isPaused ? @"play.fill" : @"pause.fill" withConfiguration:
         [UIImageSymbolConfiguration configurationWithPointSize:30 weight:UIImageSymbolWeightBold]] forState:UIControlStateNormal];
-    _play.accessibilityLabel = state.isPaused ? @"Play" : @"Pause";
+    _play.accessibilityLabel = state.isPaused ? SGL(@"settings.player.landscape.play", @"Play") : SGL(@"settings.player.landscape.pause", @"Pause");
     _field.motionHeld = state.isPaused;
     // A pause brings the controls back and keeps them; playing again, from here or anywhere, starts the
     // clock. The tap on the play button cannot: the state saying so arrives a beat after it.

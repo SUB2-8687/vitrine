@@ -2825,18 +2825,18 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
             [translators addObject:action];
         };
         if (onDevice) {
-            offer(@"Translate on iPhone", @"translate", @"Apple's Translate, on this iPhone",
+            offer(SGL(@"settings.translation.ondevice.title", @"Translate on iPhone"), @"translate", SGL(@"settings.lyricstools.menu.ondevice.subtitle", @"Apple's Translate, on this iPhone"),
                   ^(NSArray<SGKaraokeLine *> *lines, NSString *track, NSString *to, SGRTranslated progress, SGRTranslated done) {
                 [SGOnDeviceTranslation translate:textsOf(lines) to:to from:weakSelf done:done];
             });
         }
         if (intelligence) {
-            offer(@"Translate with Apple Intelligence", @"apple.intelligence", @"On this iPhone",
+            offer(SGL(@"settings.lyricstools.menu.intelligence", @"Translate with Apple Intelligence"), @"apple.intelligence", SGL(@"settings.lyrics.auto_translation.intelligence.note", @"On this iPhone"),
                   ^(NSArray<SGKaraokeLine *> *lines, NSString *track, NSString *to, SGRTranslated progress, SGRTranslated done) {
                 [SGOnDeviceTranslation translateWithAppleIntelligence:textsOf(lines) to:to song:SGLyricsSongName(track) progress:^(NSArray<NSString *> *soFar) { progress(soFar, nil); } done:done];
             });
         }
-        if (gemini) offer(@"Translate with Gemini", @"sparkles", @"Sends the lyrics to Google", ^(NSArray<SGKaraokeLine *> *lines, NSString *track, NSString *to, SGRTranslated progress, SGRTranslated done) {
+        if (gemini) offer(SGL(@"settings.lyricstools.menu.gemini", @"Translate with Gemini"), @"sparkles", SGL(@"settings.lyricstools.menu.gemini.subtitle", @"Sends the lyrics to Google"), ^(NSArray<SGKaraokeLine *> *lines, NSString *track, NSString *to, SGRTranslated progress, SGRTranslated done) {
             SGLyricsTranslateWithGemini(track, lines, to, done);
         });
         if (deepl) offer(SGL(@"settings.lyricstools.menu.deepl", @"Translate with DeepL"), @"character.book.closed",
@@ -3576,7 +3576,7 @@ static NSString *breakName(NSInteger line, NSArray<SGKaraokeLine *> *lines) {
 - (void)creditTo:(NSString *)source {
     _creditSource = source;
     BOOL shown = source.length && (_crediting || SGLyricsCreditRequired(source));
-    NSString *text = shown ? [NSString stringWithFormat:@"Lyrics from %@", source] : nil;
+    NSString *text = shown ? [NSString stringWithFormat:SGL(@"settings.lyrics.credit.from", @"Lyrics from %@"), source] : nil;
     _creditLinks = shown ? SGLyricsCreditLinks(source) : nil;
     _credit.accessibilityTraits = _creditLinks.count ? UIAccessibilityTraitLink : UIAccessibilityTraitStaticText;
     if (text == _credit.text || [text isEqualToString:_credit.text]) return;

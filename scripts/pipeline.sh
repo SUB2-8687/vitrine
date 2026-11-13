@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the spotifyglass tweak and injects it (plus FLEX) into a decrypted Spotify IPA.
 #
-#   scripts/pipeline.sh <decrypted.ipa> [-o out.ipa] [--no-flex] [--pixie] [--install] [--name N] [--icon P.png] [--keep-watch]
+#   scripts/pipeline.sh <decrypted.ipa> [-o out.ipa] [--no-flex] [--pixie] [--install] [--name N] [--icon P.png] [--keep-watch] [--no-plugins]
 #   (or: make build / make install)
 #
 # --keep-watch keeps Spotify's Apple Watch app, untested. Only its arm64 build is decrypted in an IPA dumped on an
@@ -32,7 +32,7 @@ FLEX_DEB="$ROOT/vendor/com.hopeless.autoflex_0.0.1_iphoneos-arm.deb"
 # reads that App ID out of the profile and can do it safely.
 BUNDLE_ID="${BUNDLE_ID:-}"
 
-IN="" OUT="" WITH_FLEX=1 INSTALL=0 NAME="" ICON="" KEEP_WATCH="" PIXIE=0
+IN="" OUT="" WITH_FLEX=1 INSTALL=0 NAME="" ICON="" KEEP_WATCH="" PIXIE=0 NO_PLUGINS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) OUT="$2"; shift 2 ;;
@@ -42,6 +42,7 @@ while [ $# -gt 0 ]; do
     --pixie) PIXIE=1; shift ;;
     --install) INSTALL=1; shift ;;
     --keep-watch) KEEP_WATCH=1; shift ;;
+    --no-plugins) NO_PLUGINS=1; shift ;;
     -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) IN="$1"; shift ;;
   esac
@@ -127,7 +128,9 @@ FILES=("$TWEAK_DEB")
 [ "$WITH_FLEX" = 1 ] && FILES+=("$FLEX_DEB")
 
 # Source-built Live Activity and share-sheet action extensions.
-if xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
+if [ "$NO_PLUGINS" = 1 ]; then
+  echo "==> --no-plugins: not building Live Activity or Open in Vitrine extensions"
+elif xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
   EXT_DIR="$ROOT/out/extension"
   unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
   # Built again only when what it is made from changed: its sources, the host's Info.plist or Xcode.
@@ -204,6 +207,9 @@ if [ -n "$KEEP_WATCH" ]; then
 fi
 # The widget reads the App Group suites; Siri (IntentsExtension) and the notification service sign in
 # with the credentials the app keeps in the keychain (extension/AppGroups/AppGroups.m, issue #60).
+if [ "$NO_PLUGINS" = 1 ]; then
+  bash "$ROOT/scripts/remove-plugins.sh" "$OUT"
+else
 PATCH="$(mktemp -d)"
 EXT_BINS=()
 for EXT in WidgetExtension IntentsExtension NotificationServiceExtension; do
@@ -226,6 +232,11 @@ if [ ${#EXT_BINS[@]} -gt 0 ]; then
   (cd "$PATCH" && zip -q "$OUT_ABS" "${EXT_BINS[@]}")
 fi
 rm -rf "$PATCH"
+
+fi
+# Localized InfoPlist.strings wins over the overlay's English permission text.
+echo "==> Korean permission prompts (ko InfoPlist.strings)"
+python3 -B "$ROOT/scripts/patch-infoplist-ko.py" "$OUT" "$APP_DIR" "$IN"
 
 shopt -s nullglob
 ICONS=("$ROOT"/icons/*.png)
