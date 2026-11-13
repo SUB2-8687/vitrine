@@ -1,4 +1,5 @@
 #import "Core/SGCore.h"
+#import "Settings/SGPageStyle.h"
 #import "Shared/AnimatedArtwork/SGMotionCatalog.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Album.h"
@@ -79,6 +80,7 @@ SGRAlbumNotesPlace SGRAlbumNotesWhere(void) {
     navigation.sheetPresentationController.detents = @[UISheetPresentationControllerDetent.mediumDetent,
                                                        UISheetPresentationControllerDetent.largeDetent];
     SGPresentDark(navigation);
+    [SGTopController() presentViewController:navigation animated:YES completion:nil];
 }
 @end
 

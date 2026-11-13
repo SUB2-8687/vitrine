@@ -35,10 +35,14 @@
         [page.selected removeAllIndexes]; [page.tableView reloadData];
     });
 }
+- (void)show:(UIViewController *)controller {
+    SGPresentDark(controller);
+    [self presentViewController:controller animated:YES completion:nil];
+}
 - (void)message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:self.title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.ok", @"OK") style:UIAlertActionStyleCancel handler:nil]];
-    SGPresentDark(alert);
+    [self show:alert];
 }
 - (void)finish:(NSError *)error {
     _busy = NO;
@@ -110,7 +114,7 @@
             if (![NSFileManager.defaultManager removeItemAtURL:files.firstObject.URLByDeletingLastPathComponent error:&cleanup])
                 [self message:cleanup.localizedDescription];
         };
-        SGPresentDark(sheet);
+        [self show:sheet];
     });
 }
 - (void)confirmDelete:(BOOL)all {
@@ -124,7 +128,7 @@
         self.busy = YES; [self.tableView reloadData];
         SGSavedRemove(selection, all, ^(NSError *error) { [self finish:error]; });
     }]];
-    SGPresentDark(alert);
+    [self show:alert];
 }
 - (void)tableView:(UITableView *)table didSelectRowAtIndexPath:(NSIndexPath *)path {
     [table deselectRowAtIndexPath:path animated:YES];
@@ -151,7 +155,7 @@
         case 1: [self export:[self selection]]; break;
         case 2: {
             UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeJSON, UTTypeZIP] asCopy:YES];
-            picker.delegate = self; SGPresentDark(picker); break;
+            picker.delegate = self; [self show:picker]; break;
         }
         case 3: {
             _busy = YES; [table reloadData];
@@ -168,7 +172,7 @@
             [alert addAction:[UIAlertAction actionWithTitle:SGL(@"settings.translation.library.restoreaction", @"Restore") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
                 self.busy = YES; SGSavedRestore(record, ^(NSError *error) { [self finish:error]; });
             }]];
-            SGPresentDark(alert); break;
+            [self show:alert]; break;
         }
         case 5: [self confirmDelete:NO]; break;
         case 6: [self confirmDelete:YES]; break;
@@ -201,9 +205,9 @@
                     [self message:result]; [self reload];
                 });
             }]];
-        SGPresentDark(alert);
+        [self show:alert];
     });
 }
 @end
 
-UIViewController *SGSavedTranslationsPage(void) { return [SGTranslationLibraryPage new]; }
+UIViewController *SGSavedTranslationsPage(void) { return [[SGTranslationLibraryPage alloc] initWithStyle:UITableViewStyleInsetGrouped]; }

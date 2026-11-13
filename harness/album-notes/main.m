@@ -3,6 +3,7 @@
 #import "Shared/AnimatedArtwork/SGMotionCatalog.h"
 #import "Redesigned/Album/AlbumNotes.h"
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 @interface MockRetrievalListStructuredDataView : UIView @end
 @implementation MockRetrievalListStructuredDataView @end
@@ -22,6 +23,16 @@ void SGRRestoreCell(UICollectionViewCell *cell, const void *key) {
     objc_setAssociatedObject(cell, key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 void SGPresentDark(UIViewController *controller) {}
+@interface PresentRecorder : UIViewController
+@property (nonatomic, strong) UIViewController *shown;
+@end
+@implementation PresentRecorder
+- (void)presentViewController:(UIViewController *)controller animated:(BOOL)animated completion:(void (^)(void))completion {
+    self.shown = controller;
+}
+@end
+static PresentRecorder *presenter;
+UIViewController *SGTopController(void) { return presenter; }
 void SGForEachView(UIView *view, void (^visit)(UIView *)) {
     if (!view) return;
     visit(view);
@@ -369,6 +380,13 @@ int main(int argc, const char **argv) {
         showTrack(track, 1, @"Second", nil);
         CHECK([SGRAlbumNotesEdition(fixture.page)[@"explicit"] isEqual:@YES]);
         CHECK(fixture.stack.arrangedSubviews[1] == note && note.notes != nil);
+        // A tap on the note presents the full note over the page, not only styles it. The harness has no
+        // UIApplication to deliver a control's actions, so the tap's registered action is called directly.
+        presenter = [PresentRecorder new];
+        NSArray<NSString *> *tapActions = [note actionsForTarget:note forControlEvent:UIControlEventTouchUpInside];
+        CHECK(tapActions.count == 1);
+        ((void (*)(id, SEL))objc_msgSend)(note, NSSelectorFromString(tapActions.firstObject));
+        CHECK([presenter.shown isKindOfClass:UINavigationController.class]);
         fixture.count.text = @"26곡 • 1시간 34분";
         [fixture.footer layoutSubviews];
         CHECK(fixture.stack.arrangedSubviews.count == 2);

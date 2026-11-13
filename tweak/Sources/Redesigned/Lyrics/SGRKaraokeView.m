@@ -3125,6 +3125,7 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
                 message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.ok", @"OK") style:UIAlertActionStyleCancel handler:nil]];
             SGPresentDark(alert);
+            [SGTopController() presentViewController:alert animated:YES completion:nil];
         }
     });
     SGRForgetTranslationJob(track, language);
