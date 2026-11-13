@@ -510,8 +510,9 @@ NSDictionary<NSString *, NSString *> *SGLyricsAIValues(NSString *kind, NSString 
     NSArray *load = @[@"saved", memo, language, @(generation)];
     if (!sg_waiting[load]) {
         sg_waiting[load] = @[];
-        SGLyricsLoadSavedAI(kind, track, variant, ^(NSDictionary *saved) {
+        SGLyricsLoadSavedAI(kind, track, variant, ^(NSDictionary *saved, NSError *error) {
             [sg_waiting removeObjectForKey:load];
+            if (error) return;
             if (generation != sg_generation || (followsLanguage && ![language isEqual:SGLyricsGeminiLanguage()])
                 || sg_memo[memo] != cached) return;
             NSArray *texts = saved.allKeys ?: @[];
@@ -561,8 +562,9 @@ static void job(SGLyricsAI service, NSString *track, NSArray<SGKaraokeLine *> *l
             [sg_waiting removeObjectForKey:waiting];
             for (void (^callback)(NSArray *, NSString *) in callbacks) callback(cancelled ? nil : result, cancelled || result ? nil : problem ?: unreadable());
         };
-        SGLyricsLoadSavedAI(kind, track, variant, ^(NSDictionary *saved) {
+        SGLyricsLoadSavedAI(kind, track, variant, ^(NSDictionary *saved, NSError *error) {
             if (!current()) { finish(nil, nil, NO); return; }
+            if (error) { finish(nil, error.localizedDescription, NO); return; }
             NSMutableArray *restored = [NSMutableArray array];
             for (NSString *text in texts) {
                 if (![saved[text] isKindOfClass:NSString.class]) break;

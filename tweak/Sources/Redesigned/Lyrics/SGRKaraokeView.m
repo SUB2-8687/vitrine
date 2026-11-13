@@ -2580,6 +2580,17 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     return sent;
 }
 
+- (void)loadSavedTranslationThen:(void (^)(void))done {
+    NSString *track = _track, *language = SGLyricsGeminiLanguage();
+    NSArray *lines = _lines;
+    __weak SGRKaraokeView *weakSelf = self;
+    SGLyricsLoadTranslation(track, language, lines, ^BOOL {
+        SGRKaraokeView *view = weakSelf;
+        return view && view->_lines == lines && [view->_track isEqual:track] &&
+            [SGLyricsGeminiLanguage() isEqual:language];
+    }, done);
+}
+
 // When each line is sung and where the breaks are, worked out once per song for the frames to read.
 - (void)timeLines {
     free(_spans);
@@ -2590,7 +2601,10 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
     _breakCount = 0;
     _hasSpoken = _hasTranslation = _untranslated = _hasNotes = NO;
     _plain = SGKaraokeLinesTiming(_lines) == SGKaraokeTimingNone;
-    if (!_sample) SGLyricsSyncSavedTranslation(_track, SGLyricsGeminiLanguage(), _lines);
+    if (!_sample) [self loadSavedTranslationThen:^{
+        [self countTranslations];
+        [self restyle];
+    }];
     [self analyzeLanguage];
     if (!_sample) [self takeSavedAI];
     NSInteger sungTo = 0;   // the top of the song counts as where the singing before the first line ends
@@ -3032,8 +3046,11 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
 - (void)automaticTranslationIfNeeded {
     if (![self automaticTranslationVisible]) return;
     if (!SGRLyricsShouldTranslate(_foreign)) return;
+    [self loadSavedTranslationThen:^{ [self automaticTranslationAfterSavedLoad]; }];
+}
+- (void)automaticTranslationAfterSavedLoad {
+    if (![self automaticTranslationVisible] || !SGRLyricsShouldTranslate(_foreign)) return;
     NSString *language = SGLyricsGeminiLanguage();
-    SGLyricsSyncSavedTranslation(_track, language, _lines);
     [self countTranslations];
     if (!SGRAutoTranslationEnabled() || !_untranslated || SGRTranslationJobRunning(_track, language)) return;
     BOOL available = NO;
@@ -3102,9 +3119,16 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
 - (void)removeTranslationOf:(NSString *)track language:(NSString *)language {
     if (!track.length || !language.length) return;
     SGRAutoTranslationSuppress(track, language);
-    SGLyricsDeleteTranslation(track, language);
+    SGLyricsDeleteTranslationWithCompletion(track, language, ^(NSError *error) {
+        if (!error) SGRTranslationChanged(track, language, kTranslationRemoved);
+        else {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:SGL(@"settings.lyricstools.menu.translation.remove", @"Remove Translation")
+                message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.ok", @"OK") style:UIAlertActionStyleCancel handler:nil]];
+            SGPresentDark(alert);
+        }
+    });
     SGRForgetTranslationJob(track, language);
-    SGRTranslationChanged(track, language, kTranslationRemoved);
 }
 
 // A translation of this song started, stopped, was saved or was removed, from this view or the other. Its lines are
@@ -3117,9 +3141,10 @@ static NSArray<SGKaraokeLine *> *withoutMade(NSArray<SGKaraokeLine *> *lines) {
         [self timeLines];   // synced again from what is saved, which keeps the AI's answers
         [self restyle];
     } else if (note.userInfo[kTranslationLines]) {
-        SGLyricsSyncSavedTranslation(_track, language, _lines);
-        [self countTranslations];
-        [self restyle];
+        [self loadSavedTranslationThen:^{
+            [self countTranslations];
+            [self restyle];
+        }];
     } else [self offerExtras];
 }
 

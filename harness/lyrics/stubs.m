@@ -162,6 +162,10 @@ void SGLyricsDeleteTranslation(NSString *track, NSString *language) {
     [SGHarnessSavedTranslations removeObjectForKey:pairKey(track, language)];
     [sg_jobTokens removeObjectForKey:pairKey(track, language)];
 }
+void SGLyricsDeleteTranslationWithCompletion(NSString *track, NSString *language, void (^done)(NSError *)) {
+    SGLyricsDeleteTranslation(track, language);
+    dispatch_async(dispatch_get_main_queue(), ^{ if (done) done(nil); });
+}
 // The Lyrics page's Saved translations row: every one deleted, every job ended.
 void SGHarnessDeleteAllTranslations(void) {
     [SGHarnessSavedTranslations removeAllObjects];

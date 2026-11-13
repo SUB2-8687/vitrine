@@ -39,7 +39,11 @@ static void checkBingCompletion(void) {
         SGLyricsSyncSavedTranslation(track, @"ko-KR", restored);
         CHECK([SGLyricsShownTranslation(restored[1]) isEqual:@"파란 로봇"]);
         CHECK([SGLyricsShownTranslation(restored[2]) isEqual:@"초록 로봇"]);
-        SGLyricsDeleteTranslation(track, @"ko-KR");
+        __block BOOL deleted = NO;
+        SGLyricsDeleteTranslationWithCompletion(track, @"ko-KR", ^(NSError *error) {
+            CHECK(!error); deleted = YES;
+        });
+        waitFor(^BOOL { return deleted; });
     }
 
     if (savedOrder) [defaults setObject:savedOrder forKey:SGRKeyLyricsAutoTranslationOrder];

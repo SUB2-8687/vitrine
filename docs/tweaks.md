@@ -368,7 +368,7 @@ Shared:
                   on the Translation & AI page's Services (SGKeyLyricsTranslateOnDevice, SGKeyLyricsAppleIntelligence, both on), and off
                   leaves that translator out of the menu and out of automatic translation, which moves on to the next in its order.
                   A translation that reads the same as its line (SGLyricsBareText) is not drawn under it, on the lyrics page, the lock
-                  screen or Picture in Picture, and the line still counts as translated. The translate items show for every song with Translate any song on (SGKeyLyricsTranslateEverySong, off), else only for a song NaturalLanguage finds in another language than the Lyrics page's (or the iPhone's): one distinct line in five it is at least 80% sure of, or two in another script (a verse in Hangul among English), not the whole song's guess (short lines sway that: Havana reads as Dutch), so songs half in English count and a repeated chorus weighs as one line; Translate on iPhone translates from the language most of those lines are in and leaves lines already in the target as they are. Apple Intelligence's lines show and are saved a batch at a time, only lines without a translation are sent, and a batch it turns down is skipped (asking again sends only those lines). Every finished translation is kept by SavedTranslations.m in Caches/Vitrine/Translations, one JSON file a song and language mapping each line's text to its translation, the newest 200, synced when the song's lines are shown: each line knows whether its translation was made here (SGKaraokeLine.translationMade), and a made one with nothing saved is taken off, so the Lyrics page's Saved translations row deletes them at once, posting SGLyricsTranslationsDidChangeNotification as Translate any song does for the open lyrics to sync and redraw. Gemini's reply read and checked on the Mac
+                  screen or Picture in Picture, and the line still counts as translated. The translate items show for every song with Translate any song on (SGKeyLyricsTranslateEverySong, off), else only for a song NaturalLanguage finds in another language than the Lyrics page's (or the iPhone's): one distinct line in five it is at least 80% sure of, or two in another script (a verse in Hangul among English), not the whole song's guess (short lines sway that: Havana reads as Dutch), so songs half in English count and a repeated chorus weighs as one line; Translate on iPhone translates from the language most of those lines are in and leaves lines already in the target as they are. Apple Intelligence's lines show and are saved a batch at a time, only lines without a translation are sent, and a batch it turns down is skipped (asking again sends only those lines). SavedTranslations.m keeps generated mappings by the original line text in Application Support, without count eviction. Each line knows whether its translation was made here (SGKaraokeLine.translationMade); source translations stay intact, and syncing removes a generated translation only when its saved mapping was removed. The management page posts SGLyricsTranslationsDidChangeNotification after changes so open lyrics refresh. Gemini's reply read and checked on the Mac
                   against harness/lyrics-translation/. DeepL.m (the user's own key, free or pro endpoint by the key),
                   OpenAITranslate.m (any OpenAI-compatible chat endpoint, HTTPS, or HTTP for localhost, .local or a Tailscale IPv4 address; base URL and
                   model in the settings, the key in the Keychain), GoogleTranslate.m (Google Translate's keyless web
@@ -395,11 +395,32 @@ Shared:
                   one-sentence cultural note for the few lines a listener would miss (SGKeyLyricsCulturalNotes, off);
                   The lyrics menu keeps its translator choices after a generated translation, under Translate Again.
                   Switching service replaces generated translations as answers arrive, while source translations and
-                  the previous answer to a failed line stay. Hide Translation applies to all songs; Remove Translation
+                  the previous answer to a failed line stay. Durable storage now uses the same JSON filenames in
+                  Application Support/Vitrine/{Translations,AI}, with backup-eligible, after-first-unlock protection.
+                  There is no record-count eviction: active records, recovery copies and metadata share a 512 MiB
+                  admission ceiling. No-ops remain allowed, and legacy migration is grandfathered. A save is durable
+                  only after validated temporary-file write, flush, rename and parent-directory flush; failed saves
+                  remain visible in memory with a warning, Retry and Export.
+                  Migration copies the legacy Caches files without deleting them, preserves conflicting incoming
+                  values in content-addressed recovery, verifies the destination and records its source digest.
+                  Persistent suppression prevents deletion from being undone by migration. Delete all also attempts
+                  to remove legacy copies and reports failures. Downgrades see the stale legacy snapshot, not new
+                  durable saves; there is no two-way sync. Export before uninstalling or moving to another install.
+                  The saved-translations row opens management: select/export/import/delete and restore recovery.
+                  JSON uses a versioned namespace/opaque-filename/lines envelope; ZIP includes a manifest and recovery
+                  records. Full exports split into independently importable volumes below 256 MiB and 10,000 entries.
+                  Snapshot bodies are copied to disk one record at a time on the storage executor; summaries stream
+                  directory entries and management displays 100-record pages, not the whole library in memory.
+                  Storage readiness rechecks and protects its directories even after the root has been removed.
+                  Import rejects duplicate JSON keys, duplicate identities, unsafe ZIP features/paths and corrupt
+                  checksums before touching active data. Application is per-record atomic, with durable progress and
+                  explicit partial results; Retry resumes an interrupted import. Merge keeps local keys and saves
+                  conflicts in recovery; confirmed Replace preserves the complete previous record first.
+                  Hide Translation applies to all songs; Remove Translation
                   deletes only the current song and target language, preserving its other languages and AI notes.
                   Shared job tokens invalidate late answers after removal, a newer request, or deleting all saved
                   translations, and both open lyrics views refresh from the same result. A failed disk write keeps its
-                  answer in memory for the session (up to 200); removing it clears that copy too. Requests need a tap unless Automatic translation is on.
+                  answer in memory for the session; removing it clears that copy too. Requests need a tap unless Automatic translation is on.
                   Automatic translation is off by default (redesign only). Its Translation order can be dragged;
                   the default is Apple Translate, Bing, Google, DeepL, Gemini, Claude, the configured AI service,
                   then Apple Intelligence. Only available services are tried, once each in order, until all missing

@@ -885,11 +885,16 @@ static void checkAIJobs(void) {
     testLanguage = nil;
     SGLyricsDeleteSavedTranslations();
     NSURL *aiDirectory = [SGLyricsTestCacheRoot() URLByAppendingPathComponent:@"AI"];
-    CHECK([@"blocked directory" writeToURL:aiDirectory atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    beforeAIReply = ^{
+        CHECK([@"blocked directory" writeToURL:aiDirectory atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    };
     aiReplies = [NSMutableArray arrayWithObject:claudeReply(@"[\"blu\"]")];
     CHECK(askAI(SGLyricsAIClaude, @"unsaved-job", @[@"Blue robot"], NO, &problem) && !problem);
-    CHECK(!SGLyricsSavedAI(@"pronunciation", @"unsaved-job", @"1"));
+    beforeAIReply = nil;
+    CHECK([SGLyricsSavedAI(@"pronunciation", @"unsaved-job", @"1")[@"Blue robot"] isEqual:@"blu"]);
     CHECK([SGLyricsAIValues(@"pronunciation", @"unsaved-job", @"1")[@"Blue robot"] isEqual:@"blu"]);
+    SGModRow *savedRow = SGSavedTranslationsRow();
+    waitFor(^BOOL { return [savedRow.value() isEqual:@"Needs attention"]; });
     SGLyricsDeleteSavedTranslations();
     CHECK(!SGLyricsAIValues(@"pronunciation", @"unsaved-job", @"1"));
     testKeys = [NSSet set];
@@ -998,7 +1003,8 @@ static void checkAIStore(void) {
     NSArray *retired = aiLines(@[@"async line"]);
     SGLyricsLoadTranslation(@"async-store", @"ko", retired, ^BOOL { rejected = YES; return NO; },
         ^{ CHECK(NO); });
-    SGLyricsLoadSavedAI(@"notes", @"async-store", @"ko", ^(NSDictionary *saved) {
+    SGLyricsLoadSavedAI(@"notes", @"async-store", @"ko", ^(NSDictionary *saved, NSError *error) {
+        CHECK(!error);
         CHECK(NSThread.isMainThread && heartbeat && [saved[@"async line"] isEqual:@"ordered note"]);
         noted = YES;
     });
@@ -1046,11 +1052,11 @@ static void checkAIStore(void) {
     [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSince1970:1]} ofItemAtPath:file.path error:nil];
     for (NSUInteger i = 0; i < 200; i++) SGLyricsSaveAI(@"notes", [NSString stringWithFormat:@"track-%lu", (unsigned long)i], @"ko", values);
     CHECK([SGLyricsSavedAI(@"notes", @"track-199", @"ko") isEqual:values]);
-    CHECK(!SGLyricsSavedAI(@"notes", @"ancient", @"ko"));
-    CHECK([NSFileManager.defaultManager contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:0 error:nil].count == 200);
+    CHECK([SGLyricsSavedAI(@"notes", @"ancient", @"ko") isEqual:values]);
+    CHECK([NSFileManager.defaultManager contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:0 error:nil].count == 201);
     SGLyricsDeleteSavedTranslations();
     CHECK(!SGLyricsSavedAI(@"notes", @"track-199", @"ko"));
-    puts("Saved AI: isolated round trip, empty values, tuple isolation, malformed data, combined count/delete and newest 200 passed");
+    puts("Saved AI: isolated round trip, empty values, tuple isolation, malformed data, combined count/delete and retention beyond 200 passed");
 }
 static void checkTranslationReplacement(void) {
     SGLyricsDeleteSavedTranslations();
@@ -1129,7 +1135,11 @@ static void checkTranslationReplacement(void) {
     CHECK([legacyData writeToURL:legacyFile atomically:YES]);
     SGLyricsSyncSavedTranslation(legacyLocalID, @"ko", sibling);
     CHECK([sibling[0].translation isEqual:@"기존 번역"]);
-    SGLyricsDeleteTranslation(legacyLocalID, @"ko");
+    __block BOOL legacyDeleted = NO;
+    SGLyricsDeleteTranslationWithCompletion(legacyLocalID, @"ko", ^(NSError *error) {
+        CHECK(!error); legacyDeleted = YES;
+    });
+    waitFor(^BOOL { return legacyDeleted; });
     CHECK(![NSFileManager.defaultManager fileExistsAtPath:legacyFile.path]);
     NSString *longLocalID = [@"spotify:local:" stringByAppendingString:[@"한" stringByPaddingToLength:100 withString:@"한" startingAtIndex:0]];
     failed[0].translation = @"긴 제목 번역"; failed[0].translationMade = YES;

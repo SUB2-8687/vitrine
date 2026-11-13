@@ -213,6 +213,8 @@ void SGLyricsMeaningsFor(NSString *trackID, NSArray<SGKaraokeLine *> *lines,
 // Apple's on-device translation (OnDeviceTranslation.swift, not built here) and the settings framework's
 // top controller: not part of the harness. The Gemini provider and saved translations are real files now.
 #import "Shared/LyricsTranslation/LyricsTranslation.h"
+// The saved-library management screen is outside the player harness.
+UIViewController *SGSavedTranslationsPage(void) { return nil; }
 @implementation SGOnDeviceTranslation
 + (BOOL)translationAvailable { return NO; }
 + (BOOL)appleIntelligenceAvailable:(NSString *)language { return NO; }

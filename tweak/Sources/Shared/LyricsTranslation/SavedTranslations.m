@@ -1,16 +1,14 @@
-// Translations kept on disk, whichever way they were made: one small JSON file a song and language in
-// Caches/Vitrine/Translations, each line's text to its translation, so a song comes back translated after
-// a relaunch and lyrics from another source still find their lines. The newest kKept files stay; iOS may
-// clear Caches when it runs low, which costs a translation again. Pronunciation and cultural notes
-// live beside these in Caches/Vitrine/AI, with their own limit of 200 files.
+// The filenames remain compatible with the legacy cache; only the durable root changes.
 #import "Core/SGCore.h"
 #import "Settings/SGModPage.h"
 #import "Settings/SGPageStyle.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import "AIServicesInternal.h"
 #import "Core/SGFileHash.h"
+#import "Core/TranslationStore/SGTranslationFiles.h"
+#import "Core/TranslationStore/SGTranslationTransfer.h"
+#import "TranslationLibrary.h"
 
-static const NSUInteger kKept = 200;
 // Store-queue ordering stops at delivery to main. A mutation requested meanwhile
 // also retires read results waiting to be applied to the live lyric objects.
 @interface SGTranslationReadVersion : NSObject
@@ -36,24 +34,69 @@ NSNotificationName const SGLyricsSavedSummaryDidChangeNotification = @"spotifygl
 // Only main reads/publishes these; directory enumeration stays on writes().
 static NSString *sg_savedSummary;
 static NSUInteger sg_savedCount;
+static NSString *sg_storageWarning;
+static NSError *sg_storageError;
+static NSError *sg_migrationError;
+static SGTranslationFiles *sg_store;
+static NSUInteger sg_writeEpoch;
+static NSMutableDictionary<NSURL *, NSNumber *> *sg_authorities;
+static NSMutableDictionary<NSArray *, NSNumber *> *sg_translationJobs;
+static BOOL sg_readFailed;
 static void refreshSummary(void); // called on writes(); coalesces queued mutations
 
 static NSURL *cacheRoot(void) {
 #ifdef SG_LYRICS_TEST_STORE
-    // The offline harness owns an isolated folder and never trims the user's saved songs.
     extern NSURL *SGLyricsTestCacheRoot(void);
     return SGLyricsTestCacheRoot();
 #else
-    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask].firstObject;
     return [caches URLByAppendingPathComponent:@"Vitrine" isDirectory:YES];
 #endif
+}
+static NSURL *legacyRoot(void) {
+#ifdef SG_LYRICS_TEST_STORE
+    return [cacheRoot() URLByAppendingPathComponent:@"Legacy"];
+#else
+    return [[NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"Vitrine"];
+#endif
+}
+static SGTranslationFiles *store(void) {
+#ifdef SG_LYRICS_TEST_STORE
+    (void)cacheRoot();
+#endif
+    if (!sg_store) sg_store = [[SGTranslationFiles alloc] initWithRoot:cacheRoot() legacy:legacyRoot()];
+    return sg_store;
+}
+static BOOL prepareStore(void) {
+    NSError *error = nil;
+    BOOL ready = [store() prepare:&error];
+    sg_storageError = error;
+    return ready;
+}
+static BOOL migrateStore(void) {
+    NSError *error = nil;
+    BOOL migrated = [store() migrate:&error];
+    sg_migrationError = error;
+    return migrated;
+}
+static void maintainStore(BOOL startup) {
+    NSError *error = nil;
+    if ([store() prepare:&error] && (!startup || [SGTranslationTransfer reclaimStaging:store() error:&error]))
+        migrateStore();
+    sg_storageError = error;
+    refreshSummary();
 }
 static NSURL *folder(void) { return [cacheRoot() URLByAppendingPathComponent:@"Translations" isDirectory:YES]; }
 static NSURL *aiFolder(void) { return [cacheRoot() URLByAppendingPathComponent:@"AI" isDirectory:YES]; }
 static dispatch_queue_t writes(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ queue = dispatch_queue_create("vitrine.translations", DISPATCH_QUEUE_SERIAL); });
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("vitrine.translations", DISPATCH_QUEUE_SERIAL);
+        dispatch_async(queue, ^{ maintainStore(YES); });
+        [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationProtectedDataDidBecomeAvailable object:nil queue:nil
+            usingBlock:^(NSNotification *note) { dispatch_async(queue, ^{ maintainStore(NO); }); }];
+    });
     return queue;
 }
 
@@ -73,50 +116,38 @@ static NSURL *fileFor(NSString *track, NSString *language) {
     return [folder() URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@.json", track, tag]];
 }
 
-static NSArray<NSURL *> *filesIn(NSURL *directory) {
-#ifdef SG_LYRICS_TEST_STORE
-    extern void SGLyricsTestStoreEnumeration(void);
-    SGLyricsTestStoreEnumeration();
-#endif
-    return [NSFileManager.defaultManager contentsOfDirectoryAtURL:directory includingPropertiesForKeys:@[NSURLContentModificationDateKey, NSURLFileSizeKey]
-                                                          options:NSDirectoryEnumerationSkipsHiddenFiles error:nil] ?: @[];
-}
-
-static NSArray<NSURL *> *files(void) { return [filesIn(folder()) arrayByAddingObjectsFromArray:filesIn(aiFolder())]; }
-static void trim(NSURL *directory) {
-    NSArray<NSURL *> *all = filesIn(directory);
-    if (all.count <= kKept) return;
-    NSArray<NSURL *> *oldestFirst = [all sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
-        NSDate *da = nil, *db = nil;
-        [a getResourceValue:&da forKey:NSURLContentModificationDateKey error:nil];
-        [b getResourceValue:&db forKey:NSURLContentModificationDateKey error:nil];
-        return [da ?: NSDate.distantPast compare:db ?: NSDate.distantPast];
-    }];
-    for (NSUInteger i = 0; i < all.count - kKept; i++) [NSFileManager.defaultManager removeItemAtURL:oldestFirst[i] error:nil];
-}
-
-// A disk failure must not erase a result already shown. The serial store queue also owns these
-// session-only answers (or an empty tombstone after a failed delete), with the same 200-song bound.
+// Never silently evict a failed save. It remains visible, retryable and exportable this launch.
 static NSMutableDictionary<NSURL *, NSDictionary *> *sg_unsavedTranslations;
-static NSMutableArray<NSURL *> *sg_unsavedOrder;
+static NSMutableDictionary<NSString *, NSDictionary *> *sg_memoryRecovery;
 static void rememberUnsaved(NSURL *file, NSDictionary *answer) {
-    if (!sg_unsavedTranslations) { sg_unsavedTranslations = [NSMutableDictionary dictionary]; sg_unsavedOrder = [NSMutableArray array]; }
-    [sg_unsavedOrder removeObject:file];
+    if (!sg_unsavedTranslations) sg_unsavedTranslations = [NSMutableDictionary dictionary];
     [sg_unsavedTranslations removeObjectForKey:file];
     if (!answer) return;
-    if (sg_unsavedOrder.count >= kKept) {
-        [sg_unsavedTranslations removeObjectForKey:sg_unsavedOrder.firstObject];
-        [sg_unsavedOrder removeObjectAtIndex:0];
-    }
     sg_unsavedTranslations[file] = [answer copy];
-    [sg_unsavedOrder addObject:file];
+}
+static NSArray *writeAuthority(NSURL *file, BOOL advance) {
+    @synchronized (SGTranslationReadVersion.class) {
+        if (!sg_authorities) sg_authorities = [NSMutableDictionary dictionary];
+        NSUInteger version = [sg_authorities[file] unsignedIntegerValue];
+        if (advance) sg_authorities[file] = @(++version);
+        return @[@(sg_writeEpoch), @(version)];
+    }
+}
+static BOOL writeAllowed(NSURL *file, NSArray *authority) {
+    return [writeAuthority(file, NO) isEqual:authority];
+}
+static void retireAll(void) {
+    @synchronized (SGTranslationReadVersion.class) { sg_deleteEpoch++; sg_writeEpoch++; [sg_authorities removeAllObjects]; }
+    [sg_translationJobs removeAllObjects];
+    SGLyricsAIForgotten();
 }
 
 // The token belongs to a song/language, not a view. All calls and callback checks are on main.
-static NSMutableDictionary<NSArray *, NSNumber *> *sg_translationJobs;
 static NSUInteger sg_nextTranslationJob;
 NSUInteger SGLyricsBeginTranslation(NSString *track, NSString *language) {
-    if (!fileFor(track, language)) return 0;
+    NSURL *file = fileFor(track, language);
+    if (!file) return 0;
+    writeAuthority(file, YES);
     if (!sg_translationJobs) sg_translationJobs = [NSMutableDictionary dictionary];
     NSUInteger token = ++sg_nextTranslationJob;
     if (!token) token = ++sg_nextTranslationJob;
@@ -130,24 +161,37 @@ void SGLyricsEndTranslation(NSString *track, NSString *language, NSUInteger toke
     if (SGLyricsTranslationIsCurrent(track, language, token)) [sg_translationJobs removeObjectForKey:@[track, language]];
 }
 void SGLyricsDeleteTranslation(NSString *track, NSString *language) {
+    SGLyricsDeleteTranslationWithCompletion(track, language, nil);
+}
+void SGLyricsDeleteTranslationWithCompletion(NSString *track, NSString *language, void (^done)(NSError *)) {
     NSURL *file = fileFor(track, language);
-    if (!file) return;
+    if (!file) {
+        if (done) dispatch_async(dispatch_get_main_queue(), ^{ done(SGTranslationStorageError(@"Invalid translation record.")); });
+        return;
+    }
     translationMutated(file);
+    writeAuthority(file, YES);
     [sg_translationJobs removeObjectForKey:@[track, language]];
-    dispatch_sync(writes(), ^{
-        BOOL removed = [NSFileManager.defaultManager removeItemAtURL:file error:nil];
-        rememberUnsaved(file, removed || ![NSFileManager.defaultManager fileExistsAtPath:file.path] ? nil : @{});
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        BOOL removed = [store() removeRecords:@[SGTranslationEnvelope(@"Translations", file.lastPathComponent, @{}, NO)] all:NO error:&error];
+        rememberUnsaved(file, removed ? nil : @{});
+        sg_storageError = error;
         refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{ if (done) done(error); });
     });
 }
 
 static NSDictionary *readTranslation(NSURL *file) {
+    sg_readFailed = NO;
     if (!file) return nil;
     NSDictionary *saved = sg_unsavedTranslations[file];
     if (saved) return saved;
-    NSData *data = [NSData dataWithContentsOfURL:file];
-    id value = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+    if (!prepareStore()) { sg_readFailed = YES; return nil; }
+    NSError *error = nil;
+    NSDictionary *value = [store() read:@"Translations" key:file.lastPathComponent error:&error];
+    if (error) { sg_storageError = error; sg_readFailed = YES; }
+    return value;
 }
 static void applyTranslation(NSDictionary *saved, NSArray<SGKaraokeLine *> *lines) {
     for (SGKaraokeLine *line in lines) {
@@ -168,12 +212,13 @@ void SGLyricsSyncSavedTranslation(NSString *track, NSString *language, NSArray<S
     NSURL *file = fileFor(track, language);
     if (!file || !lines.count) return;
     __block NSDictionary *saved;
-    dispatch_sync(writes(), ^{ saved = readTranslation(file); });
-    applyTranslation(saved, lines);
+    __block BOOL failed;
+    dispatch_sync(writes(), ^{ saved = readTranslation(file); failed = sg_readFailed; });
+    if (!failed) applyTranslation(saved, lines);
 }
 
-static void loadTranslation(NSURL *file, NSArray<SGKaraokeLine *> *lines,
-                            BOOL (^current)(void), void (^done)(void), BOOL mayReload) {
+static void loadRecord(NSURL *file, NSDictionary *(^read)(NSError **), BOOL (^current)(void),
+                       void (^done)(NSDictionary *, NSError *), BOOL mayReload) {
     SGTranslationReadVersion *version = nil;
     NSUInteger mutation, epoch;
     @synchronized (SGTranslationReadVersion.class) {
@@ -187,7 +232,8 @@ static void loadTranslation(NSURL *file, NSArray<SGKaraokeLine *> *lines,
         epoch = sg_deleteEpoch;
     }
     dispatch_async(writes(), ^{
-        NSDictionary *saved = readTranslation(file);
+        NSError *error = nil;
+        NSDictionary *saved = read(&error);
         dispatch_async(dispatch_get_main_queue(), ^{
             BOOL changed;
             @synchronized (SGTranslationReadVersion.class) {
@@ -196,58 +242,99 @@ static void loadTranslation(NSURL *file, NSArray<SGKaraokeLine *> *lines,
             }
             if (!current()) return;
             if (changed) {
-                if (mayReload) loadTranslation(file, lines, current, done, NO);
+                if (mayReload) loadRecord(file, read, current, done, NO);
                 // A second intervening mutation retires this attempt too; finish without
                 // overwriting live lines. Its newer save/delete owns the current state.
-                else done();
+                else done(nil, SGTranslationStorageError(@"Saved record changed while reading. Try again."));
                 return;
             }
-            if (file) applyTranslation(saved, lines);
-            done();
+            done(saved, error);
         });
     });
 }
 
 void SGLyricsLoadTranslation(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines,
                              BOOL (^current)(void), void (^done)(void)) {
-    loadTranslation(fileFor(track, language), lines, current, done, YES);
+    NSURL *file = fileFor(track, language);
+    loadRecord(file, ^NSDictionary *(NSError **error) {
+        NSDictionary *saved = readTranslation(file);
+        if (sg_readFailed && error) *error = sg_storageError;
+        return saved;
+    }, current, ^(NSDictionary *saved, NSError *error) {
+        if (file && !error) applyTranslation(saved, lines);
+        done();
+    }, YES);
 }
 
-void SGLyricsSaveTranslation(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines) {
+static void saveMap(NSURL *file, NSDictionary *saved, SGLyricsSavedCompletion done) {
+    if (!file || !SGTranslationMapValid(saved, file.URLByDeletingLastPathComponent.lastPathComponent)) {
+        if (done) done(NO, SGTranslationStorageError(@"Invalid translation record."));
+        return;
+    }
+    saved = [saved copy];
+    translationMutated(file);
+    NSArray *authority = writeAuthority(file, NO);
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        NSString *space = file.URLByDeletingLastPathComponent.lastPathComponent;
+        BOOL ready = prepareStore();
+        if (!ready) error = sg_storageError;
+        NSDictionary *previous = sg_unsavedTranslations[file];
+        NSMutableDictionary *displaced = [NSMutableDictionary dictionary];
+        for (NSString *key in saved) if (previous[key] && ![previous[key] isEqual:saved[key]]) displaced[key] = previous[key];
+        if (displaced.count) {
+            if (!sg_memoryRecovery) sg_memoryRecovery = [NSMutableDictionary dictionary];
+            NSDictionary *record = SGTranslationEnvelope(space, file.lastPathComponent, displaced, YES);
+            sg_memoryRecovery[SGTranslationRecoveryKey(record)] = record;
+        }
+        NSMutableDictionary *visible = [previous mutableCopy] ?: [NSMutableDictionary dictionary];
+        [visible addEntriesFromDictionary:saved];
+        if (ready) for (NSString *key in [sg_memoryRecovery.allKeys copy]) {
+            if (![store() installRecovery:sg_memoryRecovery[key] grandfather:NO error:&error]) { ready = NO; break; }
+            [sg_memoryRecovery removeObjectForKey:key];
+        }
+        BOOL written = ready && [store() save:visible space:space key:file.lastPathComponent replace:YES preserveMissing:YES grandfather:NO
+            allowed:^BOOL { return writeAllowed(file, authority); } error:&error];
+        BOOL current = writeAllowed(file, authority);
+        if (current) {
+            if (!written) {
+                NSError *readError = nil;
+                NSDictionary *disk = [store() read:space key:file.lastPathComponent error:&readError];
+                NSMutableDictionary *merged = [disk mutableCopy] ?: [NSMutableDictionary dictionary];
+                [merged addEntriesFromDictionary:visible];
+                rememberUnsaved(file, merged);
+            } else rememberUnsaved(file, nil);
+            sg_storageError = error;
+        }
+        refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (done) done(written && current, error ?: (current ? nil : SGTranslationStorageError(@"Translation write was cancelled.")));
+        });
+    });
+}
+void SGLyricsSaveTranslationWithCompletion(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines, SGLyricsSavedCompletion done) {
     NSURL *file = fileFor(track, language);
-    if (!file) return;
     NSMutableDictionary<NSString *, NSString *> *saved = [NSMutableDictionary dictionary];
     for (SGKaraokeLine *line in lines) {
         NSString *text = SGKaraokeLineText(line);
         if (text.length && line.translationMade &&
             [line.translation stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length) saved[text] = line.translation;
     }
-    if (!saved.count) return;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:saved options:0 error:nil];
-    translationMutated(file);
-    // One at a time, in the order asked: a song is saved after every batch, and an older write must not land last.
-    dispatch_async(writes(), ^{
-        [NSFileManager.defaultManager createDirectoryAtURL:folder() withIntermediateDirectories:YES attributes:nil error:nil];
-        BOOL written = [data writeToURL:file atomically:YES];
-        rememberUnsaved(file, written ? nil : saved);
-        if (written) trim(folder());
-        refreshSummary();
-    });
+    if (!saved.count) { if (done) done(NO, SGTranslationStorageError(@"No generated translations to save.")); return; }
+    saveMap(file, saved, done);
     // Readers enqueue after this write, preserving read-after-write order without blocking main.
-    [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsTranslationSavedNotification object:track
+    if (file) [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsTranslationSavedNotification object:track
                                                       userInfo:@{@"language": language}];
 }
+void SGLyricsSaveTranslation(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines) {
+    SGLyricsSaveTranslationWithCompletion(track, language, lines, nil);
+}
 
-static NSString *summary(NSArray<NSURL *> *all) {
-    if (!all.count) return SGL(@"settings.translation.savedtranslations.value.none", @"None");
-    long long bytes = 0;
-    for (NSURL *file in all) {
-        NSNumber *size;
-        [file getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
-        bytes += size.longLongValue;
-    }
-    return [NSString stringWithFormat:SGL(@"settings.translation.savedtranslations.value.format", @"%lu · %@"), (unsigned long)all.count,
-            [NSByteCountFormatter stringFromByteCount:bytes countStyle:NSByteCountFormatterCountStyleFile]];
+static NSString *summary(NSDictionary *stats) {
+    NSUInteger count = [stats[@"count"] unsignedIntegerValue];
+    if (!count) return SGL(@"settings.translation.savedtranslations.value.none", @"None");
+    return [NSString stringWithFormat:SGL(@"settings.translation.savedtranslations.value.format", @"%lu · %@"), (unsigned long)count,
+            [NSByteCountFormatter stringFromByteCount:[stats[@"bytes"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile]];
 }
 
 static void refreshSummary(void) {
@@ -256,10 +343,16 @@ static void refreshSummary(void) {
     queued = YES;
     dispatch_async(writes(), ^{
         queued = NO;
-        NSArray<NSURL *> *all = files();
-        NSString *value = summary(all);
+        NSError *error = nil;
+        NSDictionary *stats = [store() summary:&error];
+        unsigned long long bytes = [stats[@"bytes"] unsignedLongLongValue];
+        NSString *warning = (error ?: sg_migrationError ?: sg_storageError).localizedDescription;
+        if (sg_unsavedTranslations.count) warning = SGL(@"settings.translation.library.unsaved", @"Unsaved results — retry or export before closing Spotify.");
+        else if (bytes >= store().ceiling) warning = SGL(@"settings.translation.library.full", @"Storage ceiling reached. Existing records are kept.");
+        NSString *value = warning ? SGL(@"settings.translation.library.attention", @"Needs attention") : summary(stats);
         dispatch_async(dispatch_get_main_queue(), ^{
-            sg_savedCount = all.count;
+            sg_savedCount = [stats[@"count"] unsignedIntegerValue];
+            sg_storageWarning = warning;
             if ([sg_savedSummary isEqualToString:value]) return;
             sg_savedSummary = value;
             // The live settings row reads this cache on its next value refresh.
@@ -273,16 +366,7 @@ SGModRow *SGSavedTranslationsRow(void) {
     dispatch_once(&once, ^{ dispatch_async(writes(), ^{ refreshSummary(); }); });
     return SGStatActionRow(SGL(@"settings.translation.savedtranslations.title", @"Saved translations"), SGL(@"settings.translation.savedtranslations.aisubtitle", @"Saved translations, pronunciations and cultural notes"),
                            ^NSString *{ return sg_savedSummary; }, ^{
-        if (!sg_savedCount) return;
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:SGL(@"settings.translation.savedtranslations.alert.title", @"Delete saved translations?")
-            message:SGL(@"settings.translation.savedtranslations.alert.message", @"Songs translated before are translated again the next time you ask.") preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.delete", @"Delete") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-            SGLyricsDeleteSavedTranslations();
-            SGLog(@"translation: saved translations deleted");
-            [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsTranslationsDidChangeNotification object:nil];
-        }]];
-        [alert addAction:[UIAlertAction actionWithTitle:SGL(@"common.cancel", @"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-        [SGTopController() presentViewController:alert animated:YES completion:nil];
+        SGShowPage(SGTopController(), SGSavedTranslationsPage());
     });
 }
 
@@ -299,61 +383,207 @@ static NSURL *aiFile(NSString *kind, NSString *track, NSString *variant) {
     NSString *name = SGDataSHA256(tuple);
     return [aiFolder() URLByAppendingPathComponent:[name stringByAppendingString:@".json"]];
 }
-static BOOL validAI(id values) {
-    if (![values isKindOfClass:NSDictionary.class] || [values count] > 2000) return NO;
-    NSUInteger size = 0;
-    for (id text in values) {
-        id value = values[text];
-        if (![text isKindOfClass:NSString.class] || ![value isKindOfClass:NSString.class] || [text length] > 64000 || [value length] > 64000) return NO;
-        size += [text length] + [value length];
-        if (size > 256000) return NO;
-    }
-    return YES;
-}
-static NSDictionary *readAI(NSURL *file) {
-    if (!file) return nil;
-    NSNumber *size = nil;
-    if (![file getResourceValue:&size forKey:NSURLFileSizeKey error:nil] || size.unsignedLongLongValue > 1024 * 1024) return nil;
-    NSData *data = [NSData dataWithContentsOfURL:file];
-    id saved = data && data.length <= 1024 * 1024 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-    return validAI(saved) ? saved : nil;
+static NSDictionary *readAI(NSURL *file, NSError **problem) {
+    if (!file) { if (problem) *problem = SGTranslationStorageError(@"Invalid AI record identity."); return nil; }
+    if (sg_unsavedTranslations[file]) return sg_unsavedTranslations[file];
+    if (!prepareStore()) { if (problem) *problem = sg_storageError; return nil; }
+    NSError *error = nil;
+    NSDictionary *saved = [store() read:@"AI" key:file.lastPathComponent error:&error];
+    if (error) { sg_storageError = error; if (problem) *problem = error; }
+    return saved;
 }
 NSDictionary<NSString *, NSString *> *SGLyricsSavedAI(NSString *kind, NSString *track, NSString *variant) {
     NSURL *file = aiFile(kind, track, variant);
     __block NSDictionary *answer = nil;
-    dispatch_sync(writes(), ^{ answer = readAI(file); });
+    dispatch_sync(writes(), ^{ answer = readAI(file, nil); });
     return answer;
 }
-void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *)) {
+void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *, NSError *)) {
     NSURL *file = aiFile(kind, track, variant);
-    dispatch_async(writes(), ^{
-        NSDictionary *answer = readAI(file);
-        dispatch_async(dispatch_get_main_queue(), ^{ done(answer); });
-    });
+    loadRecord(file, ^NSDictionary *(NSError **error) { return readAI(file, error); }, ^BOOL { return YES; }, done, YES);
 }
 void SGLyricsSaveAI(NSString *kind, NSString *track, NSString *variant, NSDictionary<NSString *, NSString *> *byLine) {
+    SGLyricsSaveAIWithCompletion(kind, track, variant, byLine, nil);
+}
+void SGLyricsSaveAIWithCompletion(NSString *kind, NSString *track, NSString *variant, NSDictionary<NSString *, NSString *> *byLine, SGLyricsSavedCompletion done) {
     NSURL *file = aiFile(kind, track, variant);
-    if (!file || !validAI(byLine)) return;
-    NSData *data = [NSJSONSerialization dataWithJSONObject:byLine options:0 error:nil];
-    if (!data || data.length > 1024 * 1024) return;
-    dispatch_async(writes(), ^{
-        [NSFileManager.defaultManager createDirectoryAtURL:aiFolder() withIntermediateDirectories:YES attributes:nil error:nil];
-        [data writeToURL:file atomically:YES];
-        trim(aiFolder());
-        refreshSummary();
-    });
+    saveMap(file, byLine, done);
 }
 
 void SGLyricsDeleteSavedTranslations(void) {
-    @synchronized (SGTranslationReadVersion.class) { sg_deleteEpoch++; }
-    [sg_translationJobs removeAllObjects];
-    SGLyricsAIForgotten();
+    retireAll();
     dispatch_sync(writes(), ^{
-        [sg_unsavedTranslations removeAllObjects];
-        [sg_unsavedOrder removeAllObjects];
-        [NSFileManager.defaultManager removeItemAtURL:folder() error:nil];
-        [NSFileManager.defaultManager removeItemAtURL:aiFolder() error:nil];
+        NSError *error = nil;
+        if ([store() removeRecords:@[] all:YES error:&error]) {
+            [sg_unsavedTranslations removeAllObjects]; [sg_memoryRecovery removeAllObjects];
+            migrateStore();
+        }
+        sg_storageError = error;
         refreshSummary();
     });
     [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsAIResultDidChangeNotification object:nil];
+}
+
+static void changed(void) {
+    [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsTranslationsDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter postNotificationName:SGLyricsAIResultDidChangeNotification object:nil];
+}
+void SGSavedRecords(NSString *after, void (^done)(NSArray *, NSString *, NSDictionary *, NSString *)) {
+    dispatch_async(writes(), ^{
+        prepareStore();
+        NSError *error = nil;
+        static const NSUInteger pageSize = 100;
+        NSMutableArray *records = [NSMutableArray arrayWithCapacity:pageSize + 1];
+        void (^consider)(NSDictionary *) = ^(NSDictionary *descriptor) {
+            NSString *key = SGTranslationRecordIdentity(descriptor);
+            if (after && [key compare:after options:NSLiteralSearch] != NSOrderedDescending) return;
+            NSUInteger index = [records indexOfObject:descriptor inSortedRange:NSMakeRange(0, records.count) options:NSBinarySearchingInsertionIndex
+                usingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+                    return [SGTranslationRecordIdentity(a) compare:SGTranslationRecordIdentity(b) options:NSLiteralSearch];
+                }];
+            if (index < records.count && [SGTranslationRecordIdentity(records[index]) isEqual:key]) records[index] = descriptor;
+            else if (index <= pageSize) [records insertObject:descriptor atIndex:index];
+            if (records.count > pageSize + 1) [records removeLastObject];
+        };
+        BOOL ok = [store() enumerateRecords:^BOOL(NSDictionary *descriptor, NSError **failure) { consider(descriptor); return YES; } includeRecovery:YES error:&error];
+        for (NSURL *file in sg_unsavedTranslations) {
+            NSString *space = file.URLByDeletingLastPathComponent.lastPathComponent;
+            @autoreleasepool {
+                NSData *data = [NSJSONSerialization dataWithJSONObject:sg_unsavedTranslations[file] options:0 error:nil];
+                consider(@{@"namespace":space, @"key":file.lastPathComponent, @"recovery":@NO, @"unsaved":@YES, @"bytes":@(data.length)});
+            }
+        }
+        for (NSDictionary *record in sg_memoryRecovery.allValues) {
+            @autoreleasepool {
+                NSData *data = [NSJSONSerialization dataWithJSONObject:record options:0 error:nil];
+                consider(SGTranslationRecordDescriptor(record, data.length));
+            }
+        }
+        NSString *next = nil;
+        if (records.count > pageSize) { [records removeLastObject]; next = SGTranslationRecordIdentity(records.lastObject); }
+        NSDictionary *stats = ok ? [store() summary:&error] : nil;
+        unsigned long long bytes = [stats[@"bytes"] unsignedLongLongValue];
+        NSString *warning = (error ?: sg_migrationError ?: sg_storageError).localizedDescription;
+        if (sg_unsavedTranslations.count) warning = SGL(@"settings.translation.library.unsaved", @"Unsaved results — retry or export before closing Spotify.");
+        else if (bytes >= store().ceiling) warning = SGL(@"settings.translation.library.full", @"Storage ceiling reached. Existing records are kept.");
+        dispatch_async(dispatch_get_main_queue(), ^{ done(records, next, stats, warning); });
+        refreshSummary();
+    });
+}
+void SGSavedRemove(NSArray *selection, BOOL all, void (^done)(NSError *)) {
+    retireAll();
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        BOOL ok = [store() removeRecords:selection all:all error:&error];
+        if (ok) {
+            if (all) {
+                [sg_unsavedTranslations removeAllObjects]; [sg_memoryRecovery removeAllObjects];
+                migrateStore();
+            }
+            else for (NSDictionary *record in selection) {
+                if ([record[@"recovery"] boolValue]) { [sg_memoryRecovery removeObjectForKey:record[@"recoveryKey"] ?: SGTranslationRecoveryKey(record)]; continue; }
+                NSURL *file = [[cacheRoot() URLByAppendingPathComponent:record[@"namespace"]] URLByAppendingPathComponent:record[@"key"]];
+                [sg_unsavedTranslations removeObjectForKey:file];
+            }
+        }
+        sg_storageError = error; refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{ changed(); done(error); });
+    });
+}
+void SGSavedRestore(NSDictionary *record, void (^done)(NSError *)) {
+    retireAll();
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        NSDictionary *recovery = sg_memoryRecovery[record[@"recoveryKey"]] ?: [store() record:record error:&error];
+        if (recovery) [store() save:recovery[@"lines"] space:recovery[@"namespace"] key:recovery[@"key"] replace:YES preserveMissing:NO grandfather:NO allowed:nil error:&error];
+        sg_storageError = error; refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{ changed(); done(error); });
+    });
+}
+void SGSavedRetry(void (^done)(NSError *)) {
+    retireAll();
+    __block NSUInteger epoch;
+    @synchronized (SGTranslationReadVersion.class) { epoch = sg_writeEpoch; }
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        for (NSString *key in [sg_memoryRecovery.allKeys copy]) {
+            if (![store() installRecovery:sg_memoryRecovery[key] grandfather:NO error:&error]) break;
+            [sg_memoryRecovery removeObjectForKey:key];
+        }
+        NSDictionary *pending = [SGTranslationTransfer pendingStage:store() error:&error];
+        if (pending) [SGTranslationTransfer applyStage:pending replace:[pending[@"replace"] boolValue] store:store() allowed:^BOOL {
+            @synchronized (SGTranslationReadVersion.class) { return epoch == sg_writeEpoch; }
+        } error:&error];
+        for (NSURL *file in [sg_unsavedTranslations.allKeys copy]) {
+            if (error) break;
+            if (![store() save:sg_unsavedTranslations[file] space:file.URLByDeletingLastPathComponent.lastPathComponent key:file.lastPathComponent
+                replace:YES preserveMissing:YES grandfather:NO allowed:^BOOL { @synchronized (SGTranslationReadVersion.class) { return epoch == sg_writeEpoch; } } error:&error]) break;
+            [sg_unsavedTranslations removeObjectForKey:file];
+        }
+        if (!error && !migrateStore()) error = sg_migrationError;
+        sg_storageError = error; refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{ changed(); done(error); });
+    });
+}
+
+void SGSavedExport(NSArray *selection, void (^done)(NSArray<NSURL *> *, NSError *)) {
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        NSMutableDictionary *session = [NSMutableDictionary dictionary];
+        for (NSDictionary *record in sg_memoryRecovery.allValues) session[SGTranslationRecordIdentity(record)] = record;
+        for (NSURL *file in sg_unsavedTranslations) {
+            NSString *space = file.URLByDeletingLastPathComponent.lastPathComponent;
+            NSDictionary *record = SGTranslationEnvelope(space, file.lastPathComponent, sg_unsavedTranslations[file], NO);
+            session[SGTranslationRecordIdentity(record)] = record;
+        }
+        NSArray *files = [SGTranslationTransfer exportRecords:selection sessionRecords:session store:store() error:&error];
+        dispatch_async(dispatch_get_main_queue(), ^{ done(files, error); });
+    });
+}
+static NSDictionary *sg_importPreview;
+static NSURL *sg_importURL;
+void SGSavedDiscardPreview(void (^done)(NSError *)) {
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        if ([SGTranslationTransfer discardStage:sg_importPreview store:store() error:&error]) {
+            sg_importPreview = nil; sg_importURL = nil;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{ if (done) done(error); });
+    });
+}
+void SGSavedImport(NSURL *file, BOOL replace, BOOL preview, void (^done)(NSDictionary *, NSError *)) {
+    if (!preview) retireAll();
+    __block NSUInteger epoch;
+    @synchronized (SGTranslationReadVersion.class) { epoch = sg_writeEpoch; }
+    dispatch_async(writes(), ^{
+        NSError *error = nil;
+        NSDictionary *report = nil;
+        if (preview) {
+            if ([SGTranslationTransfer discardStage:sg_importPreview store:store() error:&error]) {
+                sg_importPreview = [SGTranslationTransfer stageURL:file store:store() error:&error];
+                sg_importURL = file;
+                report = sg_importPreview;
+            }
+        } else if (sg_importPreview && [file isEqual:sg_importURL]) {
+            for (NSString *key in [sg_memoryRecovery.allKeys copy]) {
+                if (![store() installRecovery:sg_memoryRecovery[key] grandfather:NO error:&error]) break;
+                [sg_memoryRecovery removeObjectForKey:key];
+            }
+            for (NSURL *pending in [sg_unsavedTranslations.allKeys copy]) {
+                if (error || ![store() save:sg_unsavedTranslations[pending] space:pending.URLByDeletingLastPathComponent.lastPathComponent
+                    key:pending.lastPathComponent replace:YES preserveMissing:YES grandfather:NO allowed:nil error:&error]) break;
+                [sg_unsavedTranslations removeObjectForKey:pending];
+            }
+            report = !error ? [SGTranslationTransfer applyStage:sg_importPreview replace:replace store:store() allowed:^BOOL {
+                @synchronized (SGTranslationReadVersion.class) { return epoch == sg_writeEpoch; }
+            } error:&error] : sg_importPreview;
+            sg_importPreview = nil; sg_importURL = nil;
+            if (!error) for (NSDictionary *item in report[@"records"]) if (![item[@"recovery"] boolValue]) {
+                NSURL *target = [[cacheRoot() URLByAppendingPathComponent:item[@"namespace"]] URLByAppendingPathComponent:item[@"key"]];
+                [sg_unsavedTranslations removeObjectForKey:target];
+            }
+        } else error = SGTranslationStorageError(@"Import preview is no longer available.");
+        sg_storageError = error; refreshSummary();
+        dispatch_async(dispatch_get_main_queue(), ^{ if (!preview) changed(); done(report, error); });
+    });
 }

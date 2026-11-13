@@ -31,7 +31,7 @@ void SGLyricsTitleSettingsChanged(void) {}
 void SGLyricsTranslationServiceSettingsChanged(void) {}
 void SGLyricsSaveTranslation(NSString *track, NSString *language, NSArray *lines) { HARNESS_FAIL(@"prose saved lyric data"); }
 void SGLyricsSaveAI(NSString *kind, NSString *track, NSString *variant, NSDictionary *values) { HARNESS_FAIL(@"prose saved AI lyric data"); }
-void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *)) { HARNESS_FAIL(@"prose read AI lyric data"); }
+void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *, NSError *)) { HARNESS_FAIL(@"prose read AI lyric data"); }
 
 OSStatus ProseTestKey(CFDictionaryRef query, CFTypeRef *result) {
     NSDictionary *q = (__bridge NSDictionary *)query;

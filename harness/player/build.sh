@@ -102,9 +102,10 @@ compile -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     $( [ -f "$SRC"/Redesigned/Lyrics/AutoTranslation.m ] && echo "$SRC"/Redesigned/Lyrics/AutoTranslation.m ) $( [ -f "$SRC"/Redesigned/Lyrics/TranslationStatusView.m ] && echo "$SRC"/Redesigned/Lyrics/TranslationStatusView.m ) "$SRC"/Redesigned/Lyrics/SGRKaraokeView.m "$SRC"/Redesigned/Lyrics/LyricsLook.m "$SRC"/Redesigned/Lyrics/LyricsStyle.m "$SRC"/Redesigned/Kit/SGRPress.m "$SRC"/Redesigned/Kit/SGRHeroVeil.m "$SRC"/Redesigned/Lyrics/SGRSingButton.m "$SRC"/Redesigned/Lyrics/MeaningSheet.m "$SRC"/Redesigned/Lyrics/LyricsText.m "$SRC"/Shared/Lyrics/KaraokeTiming.m "$SRC"/Shared/Lyrics/Romanise.m "$SRC"/Shared/AdBlock/Protobuf.m \
     "$SRC"/Shared/Lyrics/LyricsLanguage.m "$SRC"/Shared/Lyrics/LyricsSettings.m "$SRC"/Redesigned/Lyrics/SongLanguage.m "$SRC"/Redesigned/Lyrics/LyricsTools.m \
     "$SRC"/Shared/LyricsTranslation/LyricsTranslation.m "$SRC"/Shared/LyricsTranslation/SavedTranslations.m "$SRC"/Shared/LyricsTranslation/TranslatedTitles.m "$SRC"/Shared/LyricsTranslation/AIServices.m "$SRC"/Shared/LyricsTranslation/OpenAITranslate.m "$SRC"/Shared/LyricsTranslation/BingTranslate.m "$SRC"/Shared/LyricsTranslation/ClaudeTranslate.m "$SRC"/Shared/LyricsTranslation/DeepL.m "$SRC"/Shared/LyricsTranslation/GoogleTranslate.m \
+    "$SRC"/Core/TranslationStore/SGTranslationFiles.m "$SRC"/Core/TranslationStore/SGTranslationTransfer.m \
     "$SRC"/Redesigned/Lyrics/AutoTranslatorName.m "$SRC"/Shared/LyricsTranslation/CredentialSettings.m "$SRC"/Shared/LyricsSources/SGTTML.m \
     -framework UIKit -framework IOKit -framework QuartzCore -framework Metal -framework CoreGraphics -framework CoreImage -framework Foundation -framework NaturalLanguage -framework Symbols -framework AVFoundation -framework CoreMedia -framework CoreVideo -framework Accelerate -framework PhotosUI -framework Security -framework MediaPlayer -framework Network -framework CoreText \
-    -o "$OUT/PlayerHarness.app/PlayerHarness"
+    -lz -o "$OUT/PlayerHarness.app/PlayerHarness"
 
 cat > "$OUT/PlayerHarness.app/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

@@ -154,6 +154,8 @@ static UIAlertController *keyPrompt;
 @end
 static UIViewController *testPresenter;
 UIViewController *SGTopController(void) { return testPresenter; }
+UIViewController *SGSavedTranslationsPage(void) { return nil; }
+void SGShowPage(UIViewController *owner, UIViewController *page) {}
 
 #define CHECK(cond) do { if (!(cond)) { fprintf(stderr, "FAILED line %d: %s\n", __LINE__, #cond); exit(1); } } while (0)
 
@@ -583,6 +585,7 @@ static void checkProviders(void) {
 }
 
 #include "check-ai.m"
+#include "check-storage.m"
 #include "check-connection.m"
 #include "check-auto-retry.m"
 #include "check-kept.m"
@@ -605,6 +608,7 @@ int main(int argc, const char **argv) {
         if (argc > 1 && strcmp(argv[1], "--ai-gaps-only") == 0) { checkAIGaps(); return 0; }
         if (argc > 1 && strcmp(argv[1], "--bing-completion-only") == 0) { checkBing(); checkBingCompletion(); return 0; }
         if (argc > 1 && strcmp(argv[1], "--kept-only") == 0) { checkKeptTranslation(); return 0; }
+        if (argc > 1 && strcmp(argv[1], "--storage-only") == 0) { checkDurableStorage(); return 0; }
         if (argc > 1 && strcmp(argv[1], "--connection-only") == 0) { checkConnection(); return 0; }
         if (argc > 1 && strcmp(argv[1], "--gemini-memo-only") == 0) { checkGeminiMemoBound(); return 0; }
         // Musixmatch's translations go on copies of the lines they match, by the folded text.
@@ -646,6 +650,7 @@ int main(int argc, const char **argv) {
         checkProviders();
         checkBing();
         checkNewAI();
+        checkDurableStorage();
         checkModelNetworkProblems();
         checkModelFetchErrors();
         checkModelPagination();

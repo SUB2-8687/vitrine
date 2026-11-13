@@ -87,12 +87,19 @@ void SGLyricsSyncSavedTranslation(NSString *track, NSString *language, NSArray<S
 void SGLyricsLoadTranslation(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines,
                              BOOL (^current)(void), void (^done)(void));
 void SGLyricsSaveTranslation(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines);
+// Completion is on main. NO means not durably saved; the visible answer remains retryable/exportable.
+void SGLyricsSaveTranslationWithCompletion(NSString *track, NSString *language, NSArray<SGKaraokeLine *> *lines,
+                                          void (^done)(BOOL durable, NSError *error));
+void SGLyricsSaveAIWithCompletion(NSString *kind, NSString *track, NSString *variant, NSDictionary<NSString *, NSString *> *byLine,
+                                 void (^done)(BOOL durable, NSError *error));
 // Main-thread job tokens shared by all views: a newer job or deletion invalidates earlier callbacks.
 NSUInteger SGLyricsBeginTranslation(NSString *track, NSString *language);
 BOOL SGLyricsTranslationIsCurrent(NSString *track, NSString *language, NSUInteger token);
 void SGLyricsEndTranslation(NSString *track, NSString *language, NSUInteger token);
-// Delete only this song/language's generated translation; ordered after pending saves. No notification.
+// Delete only this song/language's generated translation asynchronously; immediately invalidates jobs.
+// Completion runs on main after storage finishes. Neither variant posts a notification.
 void SGLyricsDeleteTranslation(NSString *track, NSString *language);
+void SGLyricsDeleteTranslationWithCompletion(NSString *track, NSString *language, void (^done)(NSError *error));
 // The Lyrics page's row: how many songs are kept, and a tap to delete them.
 SGModRow *SGSavedTranslationsRow(void);
 
@@ -199,8 +206,8 @@ SGModRow *SGLyricsCulturalNotesRow(void);
 // AI answers are kept by their original line text. Pronunciation uses the notation number as its variant;
 // notes use the language tag. Reads and writes are ordered, so an immediate read sees the last save.
 NSDictionary<NSString *, NSString *> *SGLyricsSavedAI(NSString *kind, NSString *track, NSString *variant);
-// Ordered disk load with main-queue completion. Callers validate their request identity before use.
-void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *values));
+// Ordered, version-checked load on main. Nil with no error is absent; an error is never a cache miss.
+void SGLyricsLoadSavedAI(NSString *kind, NSString *track, NSString *variant, void (^done)(NSDictionary *values, NSError *error));
 // Main-thread memory result, including an answer that could not be written to disk. A miss loads
 // asynchronously and announces available disk results. Notation 0 follows language.
 NSDictionary<NSString *, NSString *> *SGLyricsAIValues(NSString *kind, NSString *track, NSString *variant);

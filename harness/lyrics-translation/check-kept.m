@@ -42,7 +42,11 @@ static void checkKeptTranslation(void) {
     SGRAutoTranslateWithoutView(track, restored, ^BOOL { return YES; }, ^{ loaded = YES; });
     waitFor(^BOOL { return loaded; });
     CHECK(deviceCalls == before && !SGRTranslationJobRunning(track, @"en"));
-    SGLyricsDeleteTranslation(track, @"en");
+    __block BOOL deleted = NO;
+    SGLyricsDeleteTranslationWithCompletion(track, @"en", ^(NSError *error) {
+        CHECK(!error); deleted = YES;
+    });
+    waitFor(^BOOL { return deleted; });
     SGLyricsSyncSavedTranslation(track, @"en", restored);
     CHECK(!restored[0].translation && !restored[0].translationMade);
     CHECK(!restored[1].translation && !restored[1].translationMade);

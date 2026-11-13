@@ -7,6 +7,15 @@ An explicit `--bing-live` run, described below, contacts Bing.
 
 The checks cover:
 
+- Durable per-record storage (`check-storage.m`): root recreation, retention beyond 200,
+  resumable copy-only migration, preserved conflicts, downgrade-proof deletion suppression,
+  admission failures, opaque identity transfers, merge/replacement, complete validation before
+  applying an import, resumable partial commits, traversal/duplicate-identity/expansion rejection,
+  failed-save completion reporting, stale translation/AI deliveries, and management pagination.
+  `sh harness/lyrics-translation/build.sh --storage-only` runs these focused checks.
+  Management retains one page of descriptors; exports snapshot one record at a time to disk
+  before writing bounded ZIP volumes. The lifecycle mutation check runs against a disposable
+  source copy, never against the shared build tree.
 - Kept target-language lines: `bash harness/lyrics-translation/ondevice-kept-check.sh` exercises the
   actual Swift provider's all-target-language result without downloaded languages. Run
   `harness/lyrics-translation/build.sh --kept-only` for the automatic chain's completion count,
@@ -62,7 +71,7 @@ The checks cover:
   a request is running. One track-scoped notification updates peer views; cancelled jobs return no result or error.
   A real blocked-directory failure keeps AI answers in the shared memory cache until cleared.
 - Saved AI round trips in a unique temporary folder: empty answers, hashed tuple isolation, malformed
-  values, notation zero following the current translation language, the combined saved-file count and deletion, and retaining the newest 200 AI files.
+  values, notation zero following the current translation language, the combined saved-file count and deletion, and retention beyond 200 AI files.
 - Switching saved translations between services and target languages on the same line objects;
   source translations stay intact and are not copied into generated-translation files. Per-song deletion
   leaves other songs, other target languages and AI notes intact, even directly after a queued save.
