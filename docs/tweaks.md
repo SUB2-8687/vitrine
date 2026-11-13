@@ -1290,7 +1290,15 @@ Redesigned:
                   account). Header glass (spotifyglass.redesign.player.headerGlass, on until switched off) keeps the glass circles
                   behind the header's down arrow and ⋯, in the ordinary player and the AI DJ's (PlayerHeader.x); off, only
                   the circles go, and the buttons draw as Spotify's own with their actions, touches and accessibility, the
-                  grabber staying. Music app icons (spotifyglass.redesign.player.musicIcons, on until switched off) keeps
+                  grabber staying. Playing Next in the ⋯ menu (PlayerQueue.m) reads Spotify's whole queue:
+                  up to ten recently played songs, oldest first, as read-only History above Now Playing,
+                  then fifty Up Next songs with the existing skip-ahead action. Empty History is omitted.
+                  The list follows Spotify's queue reports, falling back to the state's shorter lists when
+                  the whole-queue API is unavailable. No swipe deletion, Edit/reorder or History replay ships:
+                  the forks use the same setQueue:/nextTracks mutation and direct skip-back APIs that did
+                  not take effect in the tested Spotify 9.1.90 Free context, including with Spoof Premium.
+                  Their reinsert-and-skip and repeated-skip fallbacks are not used. Native keeps Spotify's own queue; there is no Native copy
+                  of this sheet. Music app icons (spotifyglass.redesign.player.musicIcons, on until switched off) keeps
                   the Music app's lyrics, AirPlay and queue glyphs over Spotify's in the footer and the AI DJ's footer
                   (PlayerFooter.x, DJPlayer.x), and draws the DJ button as a waveform over its masked disc; off, Spotify's
                   glyphs come back in the colors and state Spotify gives them (Encore's microphone on Lyrics and queue on the

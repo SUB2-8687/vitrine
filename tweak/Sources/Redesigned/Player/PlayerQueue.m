@@ -1,30 +1,53 @@
-// Player redesign: Playing Next, the Music app's list of what plays after the song, as a dark sheet (medium and
-// large, with the system's grabber) opened from the player's ⋯ menu (PlayerMenu.m).
-//
-// The rows are the player state's tracks to come (SPTPlayerState.future, Headers/SPTPlayer.h), read through
-// SGPlayerUpcomingTracks, as the Live Activity reads them: an SPTPlayerTrack with a title and a URI,
-// the rest left out, at most kMaxRows, title over artist. Nothing is fetched: it is the state the player already
-// reported. The list follows every report while the sheet is open (SGPlayerStateObserver's playerStateDidReport:,
-// which carries a queue changed by hand too), reloaded only when the tracks to come changed. A tap skips ahead to
-// that track (-[SPTPlayer skipToNextTrackWithOptions:track:], as the Live Activity's up next does) and closes the
-// sheet.
-//
-// With Transitions in the queue on (PlayerMix.h), a slim line over the first row says how the playing song blends
-// into it -- Crossfade with its length, or Spotify's AutoMix -- as the AutoMix facts know it. It is the
-// table's header, not a row: rows and their taps stay as they are, and a change of facts touches no row.
-//
-// Threading: main thread only.
+// Spotify owns the queue. History is a read-only list above the current song; Up Next keeps
+// its existing skip-ahead action. Queue editing and History replay are not offered.
+// History adapted from the GPL-3 jadetheda and michaelmelita1 forks.
+// Threading: main thread only; Spotify delivers fetches on main.
 #import "Core/SGCore.h"
 #import "Settings/SGPageStyle.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Shared/Player/PlayerState.h"
-#import "Shared/Lyrics/Lyrics.h"
 #import "Shared/AutoMix/AutoMixPreview.h"
 #import "PlayerMix.h"
 #import "PlayerQueue.h"
+#import <objc/message.h>
 
 static const NSUInteger kMaxRows = 50;
+static const NSUInteger kHistoryRows = 10;
 static const CGFloat kBlendPadding = 8, kBlendGap = 6;
+
+// Verified against Spotify 9.1.90's metadata and live runtime. Every optional surface is gated below.
+@protocol SGRQueueSnapshot <NSObject>
+@property (nonatomic, readonly) SPTPlayerTrack *track;
+@property (nonatomic, readonly) NSArray *prevTracks;
+@property (nonatomic, readonly) NSArray *nextTracks;
+@end
+@protocol SGRQueuePlayer <SPTPlayer>
+- (void)fetchQueue:(void (^)(id<SGRQueueSnapshot>))callback on:(dispatch_queue_t)queue;
+@end
+
+static id queueValue(id object, NSString *name) {
+    SEL selector = NSSelectorFromString(name);
+    return [object respondsToSelector:selector] ? ((id (*)(id, SEL))objc_msgSend)(object, selector) : nil;
+}
+
+static NSArray *trackIdentity(SPTPlayerTrack *track) {
+    if (![track isKindOfClass:NSClassFromString(@"SPTPlayerTrack")]) return nil;
+    NSString *uri = SGURIString(track.URI), *uid = queueValue(track, @"UID");
+    if (!uri.length || ![uid isKindOfClass:NSString.class] || !uid.length) return nil;
+    return @[uri, uid, track.provider ?: @""];
+}
+
+static NSArray<SPTPlayerTrack *> *queueTracks(NSArray *tracks, NSUInteger limit, BOOL history) {
+    NSMutableArray *songs = [NSMutableArray new];
+    if (![tracks isKindOfClass:NSArray.class]) return songs;
+    for (SPTPlayerTrack *track in tracks) {
+        if (![track isKindOfClass:NSClassFromString(@"SPTPlayerTrack")] || !track.trackTitle.length ||
+            !SGURIString(track.URI) || (history && ![SGURIString(track.URI) hasPrefix:@"spotify:track:"])) continue;
+        [songs addObject:track];
+        if (songs.count == limit) break;
+    }
+    return songs;
+}
 
 // The blend from the playing song into `next`; nil when the facts say nothing about that pair.
 static NSString *blendInto(SPTPlayerTrack *next) {
@@ -102,7 +125,7 @@ static NSString *blendInto(SPTPlayerTrack *next) {
 static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
     NSMutableArray<NSString *> *signature = [NSMutableArray arrayWithCapacity:tracks.count];
     for (SPTPlayerTrack *track in tracks) {
-        [signature addObject:[NSString stringWithFormat:@"%@\t%@\t%@", SGURIString(track.URI), track.trackTitle, track.artistName ?: @""]];
+        [signature addObject:[NSString stringWithFormat:@"%@\t%@\t%@\t%@", trackIdentity(track), SGURIString(track.URI), track.trackTitle, track.artistName ?: @""]];
     }
     return signature;
 }
@@ -112,9 +135,15 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
 
 @implementation SGRPlayerQueueController {
     NSArray<SPTPlayerTrack *> *_tracks;
-    NSArray<NSString *> *_signature;
+    NSArray *_signature;
+    NSArray<SPTPlayerTrack *> *_history;
+    SPTPlayerTrack *_current;
+    NSArray *_reportedKey;
+    BOOL _fetching;
     UILabel *_empty;
     SGRQueueBlendView *_blend;
+    UIView *_upNextHeader;
+    UILabel *_upNextTitle;
 }
 
 - (instancetype)init {
@@ -136,6 +165,13 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
     _empty.textAlignment = NSTextAlignmentCenter;
     _empty.numberOfLines = 0;
     _blend = [SGRQueueBlendView new];
+    _upNextHeader = [UIView new];
+    _upNextTitle = [UILabel new];
+    _upNextTitle.text = SGL(@"settings.player.queue.up_next", @"Up Next");
+    _upNextTitle.textColor = SGRSecondary();
+    [_upNextHeader addSubview:_upNextTitle];
+    [_upNextHeader addSubview:_blend];
+    self.tableView.accessibilityIdentifier = @"vitrine.queue";
     [self takeState:SGPlayerState()];
     SGAddPlayerStateObserver(self);
     // Both are posted on the main thread.
@@ -144,31 +180,34 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
     [center addObserver:self selector:@selector(showBlend) name:SGAutoMixPlayerOptionsDidChangeNotification object:nil];
 }
 
-// The line over the first row, or none, sized again only when it comes, goes or its width changes.
+// Only the upcoming section owns the transition from current to next, never History.
 - (void)showBlend {
     NSString *text = blendInto(_tracks.firstObject);
-    UITableView *table = self.tableView;
-    if (!text) {
-        if (table.tableHeaderView) table.tableHeaderView = nil;
-        return;
-    }
-    if (![_blend.label.text isEqualToString:text]) [_blend setText:text];
+    if (_blend.label.text == text || [_blend.label.text isEqualToString:text]) return;
+    [_blend setText:text];
     [self fitBlend];
+    [self.tableView beginUpdates];
+    [self.tableView endUpdates];
 }
 
 - (void)fitBlend {
     UITableView *table = self.tableView;
     CGFloat width = table.bounds.size.width;
     _blend.layoutMargins = UIEdgeInsetsMake(0, table.layoutMargins.left + SGRGrid * 2, 0, table.layoutMargins.right);
-    CGSize size = CGSizeMake(width, [_blend heightForWidth:width]);
-    if (table.tableHeaderView == _blend && CGSizeEqualToSize(_blend.bounds.size, size)) return;
-    _blend.frame = (CGRect){CGPointZero, size};
-    table.tableHeaderView = _blend;
+    _upNextTitle.font = SGCategoryCappedFont(UIFontTextStyleHeadline, UIFontWeightSemibold, UIContentSizeCategoryAccessibilityMedium);
+    CGFloat left = _blend.layoutMargins.left;
+    CGFloat heading = ceil(_upNextTitle.font.lineHeight) + 2 * kBlendPadding;
+    _upNextTitle.frame = CGRectMake(left, kBlendPadding, width - left - table.layoutMargins.right, heading - 2 * kBlendPadding);
+    BOOL showsBlend = _blend.label.text.length > 0;
+    CGFloat blendHeight = showsBlend ? [_blend heightForWidth:width] : 0;
+    _blend.hidden = !showsBlend;
+    _blend.frame = CGRectMake(0, heading, width, blendHeight);
+    _upNextHeader.frame = (CGRect){_upNextHeader.frame.origin, CGSizeMake(width, heading + blendHeight)};
 }
 
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
-    if (self.tableView.tableHeaderView == _blend) [self fitBlend];
+    [self fitBlend];
 }
 
 - (void)close {
@@ -183,14 +222,57 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
 #pragma mark - the player
 
 - (void)takeState:(SPTPlayerState *)state {
-    NSArray<SPTPlayerTrack *> *tracks = SGPlayerUpcomingTracks(state, kMaxRows);
-    NSArray<NSString *> *signature = signatureOf(tracks);
-    if (_signature && [signature isEqualToArray:_signature]) return;
-    _tracks = tracks;
-    _signature = signature;
-    self.tableView.backgroundView = tracks.count ? nil : _empty;
-    [self.tableView reloadData];
+    if (!queueValue(state, @"queueRevision") || ![SGPlayerInstance() respondsToSelector:@selector(fetchQueue:on:)]) {
+        [self showTracks:SGPlayerUpcomingTracks(state, kMaxRows)
+                   past:[state.reverse isKindOfClass:NSArray.class] ? state.reverse.reverseObjectEnumerator.allObjects : @[]
+                current:state.track];
+        return;
+    }
+    NSArray *key = @[queueValue(state, @"playbackId") ?: NSNull.null,
+                     queueValue(state, @"queueRevision") ?: NSNull.null,
+                     trackIdentity(state.track) ?: SGURIString(state.track.URI) ?: @""];
+    if ([_reportedKey isEqual:key]) return;
+    if (_fetching) return;
+    _reportedKey = key;
+    [self refreshQueue];
+}
+
+- (void)showTracks:(NSArray *)next past:(NSArray *)past current:(SPTPlayerTrack *)current {
+    _tracks = queueTracks(next, kMaxRows, NO);
+    NSArray *history = queueTracks(past, NSUIntegerMax, YES);
+    _history = history.count > kHistoryRows ? [history subarrayWithRange:NSMakeRange(history.count - kHistoryRows, kHistoryRows)] : history;
+    _current = current;
+    NSArray *signature = @[signatureOf(_history), signatureOf(current ? @[current] : @[]), signatureOf(_tracks)];
+    if (![_signature isEqual:signature]) {
+        _signature = signature;
+        self.tableView.backgroundView = _tracks.count || _history.count || current ? nil : _empty;
+        [self.tableView reloadData];
+    }
     [self showBlend];
+}
+
+- (void)refreshQueue {
+    id<SGRQueuePlayer> player = SGPlayerInstance();
+    SPTPlayerState *state = SGPlayerState();
+    [self showTracks:SGPlayerUpcomingTracks(state, kMaxRows)
+               past:[state.reverse isKindOfClass:NSArray.class] ? state.reverse.reverseObjectEnumerator.allObjects : @[]
+            current:state.track];
+    if (![player respondsToSelector:@selector(fetchQueue:on:)]) return;
+    _fetching = YES;
+    NSArray *reported = _reportedKey;
+    __weak typeof(self) weakSelf = self;
+    [player fetchQueue:^(id<SGRQueueSnapshot> queue) {
+        typeof(self) self = weakSelf;
+        if (!self) return;
+        self->_fetching = NO;
+        if (![queue respondsToSelector:@selector(nextTracks)] || ![queue respondsToSelector:@selector(prevTracks)] ||
+            ![queue respondsToSelector:@selector(track)] ||
+            (queue.nextTracks && ![queue.nextTracks isKindOfClass:NSArray.class]) ||
+            (queue.prevTracks && ![queue.prevTracks isKindOfClass:NSArray.class])) return;
+        [self showTracks:queue.nextTracks past:queue.prevTracks current:queue.track];
+        // A report received while fetching must not be lost.
+        if ([self->_reportedKey isEqual:reported]) [self takeState:SGPlayerState()];
+    } on:dispatch_get_main_queue()];
 }
 
 - (void)playerStateDidReport:(SPTPlayerState *)state {
@@ -203,41 +285,60 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
 
 #pragma mark - the list
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)table { return 3; }
+
+- (UIView *)tableView:(UITableView *)table viewForHeaderInSection:(NSInteger)section {
+    if (section != 2 || !_tracks.count) return nil;
+    [self fitBlend];
+    return _upNextHeader;
+}
+
+- (CGFloat)tableView:(UITableView *)table heightForHeaderInSection:(NSInteger)section {
+    if (section != 2 || !_tracks.count) return UITableViewAutomaticDimension;
+    [self fitBlend];
+    return _upNextHeader.bounds.size.height;
+}
+
+- (NSString *)tableView:(UITableView *)table titleForHeaderInSection:(NSInteger)section {
+    if (section == 0) return _history.count ? SGL(@"settings.player.queue.history", @"History") : nil;
+    if (section == 1) return _current ? SGL(@"settings.player.queue.now", @"Now Playing") : nil;
+    return _tracks.count ? SGL(@"settings.player.queue.up_next", @"Up Next") : nil;
+}
+
 - (NSInteger)tableView:(UITableView *)table numberOfRowsInSection:(NSInteger)section {
-    return (NSInteger)_tracks.count;
+    return section == 0 ? (NSInteger)_history.count : section == 1 ? (_current ? 1 : 0) : (NSInteger)_tracks.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)table cellForRowAtIndexPath:(NSIndexPath *)path {
     UITableViewCell *cell = [table dequeueReusableCellWithIdentifier:@"track"]
         ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"track"];
     cell.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
-    SPTPlayerTrack *track = _tracks[(NSUInteger)path.row];
+    SPTPlayerTrack *track = path.section == 0 ? _history[(NSUInteger)path.row] : path.section == 1 ? _current : _tracks[(NSUInteger)path.row];
     NSString *title = track.trackTitle, *artist = track.artistName.length ? track.artistName : nil;
     UIListContentConfiguration *content = [UIListContentConfiguration subtitleCellConfiguration];
     content.text = title;
     content.secondaryText = artist;
     content.textProperties.color = SGRPrimary();
+    content.textProperties.font = SGCategoryCappedFont(UIFontTextStyleBody, UIFontWeightRegular, UIContentSizeCategoryAccessibilityMedium);
     content.textProperties.numberOfLines = 1;
     content.secondaryTextProperties.color = SGRSecondary();
+    content.secondaryTextProperties.font = SGCategoryCappedFont(UIFontTextStyleSubheadline, UIFontWeightRegular, UIContentSizeCategoryAccessibilityMedium);
     content.secondaryTextProperties.numberOfLines = 1;
     cell.contentConfiguration = content;
     cell.isAccessibilityElement = YES;
     cell.accessibilityLabel = artist ? [NSString stringWithFormat:@"%@, %@", title, artist] : title;
-    cell.accessibilityTraits = UIAccessibilityTraitButton;
+    BOOL playable = path.section == 2;
+    cell.accessibilityTraits = playable ? UIAccessibilityTraitButton : UIAccessibilityTraitStaticText;
+    cell.selectionStyle = playable ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
     return cell;
 }
 
 - (void)tableView:(UITableView *)table didSelectRowAtIndexPath:(NSIndexPath *)path {
     [table deselectRowAtIndexPath:path animated:YES];
-    if (path.row >= (NSInteger)_tracks.count) return;
-    SPTPlayerTrack *track = _tracks[(NSUInteger)path.row];
-    id<SPTPlayer> player = SGKaraokePlayer();
-    if (![player respondsToSelector:@selector(skipToNextTrackWithOptions:track:)]) {
-        SGLog(@"redesign player: Playing Next cannot play %@ (player %@)", SGURIString(track.URI), player ? NSStringFromClass([player class]) : @"nil");
-        return;
-    }
-    id result = [player skipToNextTrackWithOptions:nil track:track];
-    SGLog(@"redesign player: Playing Next plays row %ld, %@ -> %@", (long)path.row, SGURIString(track.URI), result);
+    if (path.section != 2 || path.row < 0 || path.row >= (NSInteger)_tracks.count) return;
+    id<SPTPlayer> player = SGPlayerInstance();
+    if (![player respondsToSelector:@selector(skipToNextTrackWithOptions:track:)]) return;
+    [player skipToNextTrackWithOptions:nil track:_tracks[(NSUInteger)path.row]];
     [self close];
 }
 

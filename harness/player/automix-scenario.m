@@ -592,30 +592,30 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
     #pragma mark queue
 
     __block UITableViewController *queue;
-    __block NSUInteger cellsMade = 0;
     UIView *(^blendLine)(void) = ^UIView *{
-        UIView *header = queue.tableView.tableHeaderView;
-        return [NSStringFromClass(header.class) isEqualToString:@"SGRQueueBlendView"] ? header : nil;
+        UIView *header = [queue tableView:queue.tableView viewForHeaderInSection:2];
+        UIView *line = viewsOf(header, @"SGRQueueBlendView").firstObject;
+        return line.hidden ? nil : line;
     };
     NSString *(^blendText)(void) = ^NSString *{ return labelsIn(blendLine()).firstObject.text; };
     step(0.3, ^{
         SGRHarnessSetSpotifySettings((SGTransitionSettings){NO, YES, 6000});
         report(a, 60, 182.609, @[b, c], NO, kPlaylist);
         SGRHarnessSetTransition(facts(@"spotify:track:mixA", @"spotify:track:mixB", SGTransitionKindCrossfade, YES, 176.609, 182.609, 0, 6));
-        // Every row the list makes, counted.
-        Class controller = NSClassFromString(@"SGRPlayerQueueController");
-        Method method = class_getInstanceMethod(controller, @selector(tableView:cellForRowAtIndexPath:));
-        UITableViewCell *(*original)(id, SEL, UITableView *, NSIndexPath *) = (void *)method_getImplementation(method);
-        method_setImplementation(method, imp_implementationWithBlock(^UITableViewCell *(id me, UITableView *table, NSIndexPath *path) {
-            cellsMade++;
-            return original(me, @selector(tableView:cellForRowAtIndexPath:), table, path);
-        }));
+        [SGPlayerState() setValue:@[x] forKey:@"reverse"];
         SGRPlayerShowQueue(tilt);
     });
     step(1.5, ^{
         UINavigationController *sheet = (UINavigationController *)window.rootViewController.presentedViewController;
         queue = [sheet isKindOfClass:UINavigationController.class] ? (UITableViewController *)sheet.topViewController : nil;
         UIView *line = blendLine();
+        UIView *upNextHeader = [queue tableView:queue.tableView viewForHeaderInSection:2];
+        check(Q, @"transition belongs to Up Next after History and current",
+              [queue.tableView numberOfRowsInSection:0] == 1 &&
+              [line isDescendantOfView:upNextHeader] &&
+              !queue.tableView.tableHeaderView &&
+              CGRectGetMinY([upNextHeader convertRect:upNextHeader.bounds toView:queue.tableView]) >= CGRectGetMaxY([queue.tableView rectForSection:1]),
+              @"History, Now Playing, then Up Next with its transition");
         BOOL glyph = NO;
         for (UIView *view in viewsOf(line, @"UIImageView")) glyph = glyph || ((UIImageView *)view).image.isSymbolImage;
         check(Q, @"Crossfade with its length", [blendText() isEqualToString:@"Crossfade, 6 s"] && [line.accessibilityLabel isEqualToString:@"Crossfade, 6 s"]
@@ -632,15 +632,14 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         check(Q, @"a quiet line", grey && textWhite == 1 && markWhite == 1 && textAlpha == markAlpha && (fabs(textAlpha - 0.65) < 0.001 || fabs(textAlpha - 0.8) < 0.001)
               && text.font.pointSize == footnote && fabs(weight - UIFontWeightRegular) < 0.01,
               [NSString stringWithFormat:@"text %@, glyph %@, %.1f pt (footnote %.1f) weight %.2f", text.textColor, mark.tintColor, text.font.pointSize, footnote, weight]);
-        check(Q, @"the rows are the songs", [queue.tableView numberOfRowsInSection:0] == 2,
-              [NSString stringWithFormat:@"%ld rows under the line", (long)[queue.tableView numberOfRowsInSection:0]]);
+        check(Q, @"the rows are the songs", [queue.tableView numberOfRowsInSection:2] == 2,
+              [NSString stringWithFormat:@"%ld rows under the line", (long)[queue.tableView numberOfRowsInSection:2]]);
     });
     step(0.2, ^{
-        NSUInteger before = cellsMade;
         SGRHarnessSetTransition(facts(@"spotify:track:mixA", @"spotify:track:mixB", SGTransitionKindSpotifyAutomix, NO, 0, 0, 0, 0));
         [queue.view layoutIfNeeded];
-        check(Q, @"Spotify AutoMix, no row made again", [blendText() isEqualToString:@"Spotify AutoMix"] && [blendLine().accessibilityLabel isEqualToString:@"Spotify AutoMix"]
-              && cellsMade == before, [NSString stringWithFormat:@"line \"%@\", %lu rows made for the change", blendText(), (unsigned long)(cellsMade - before)]);
+        check(Q, @"Spotify AutoMix updates Up Next annotation", [blendText() isEqualToString:@"Spotify AutoMix"] && [blendLine().accessibilityLabel isEqualToString:@"Spotify AutoMix"],
+              [NSString stringWithFormat:@"line \"%@\"", blendText()]);
         SGRHarnessSetTransition(facts(@"spotify:track:mixA", @"spotify:track:mixC", SGTransitionKindCrossfade, YES, 176.609, 182.609, 0, 6));
         check(Q, @"facts for another pair", blendLine() == nil, [NSString stringWithFormat:@"facts into the second row: line %@", blendText() ?: @"none"]);
         SGRHarnessSetTransition(nil);
@@ -651,9 +650,10 @@ void SGRHarnessRunAutoMix(UIWindow *window, UIViewController *durationUnit, UIVi
         setOption(SGKeyAutoMixShowQueue, YES);
         check(Q, @"option on again", [blendText() isEqualToString:@"Crossfade, 6 s"], [NSString stringWithFormat:@"line \"%@\"", blendText()]);
         NSUInteger commands = SGRHarnessPlayerCommands();
-        [queue tableView:queue.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+        [queue tableView:queue.tableView didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:2]];
         check(Q, @"a row still skips to its song", SGRHarnessPlayerCommands() == commands + 1,
               [NSString stringWithFormat:@"%lu commands for the tap", (unsigned long)(SGRHarnessPlayerCommands() - commands)]);
+        [window.rootViewController dismissViewControllerAnimated:NO completion:nil];
     });
 
     #pragma mark preview

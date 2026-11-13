@@ -2047,8 +2047,11 @@
 "settings.player.queue.blend.spotify" = "Spotify AutoMix";
 "settings.player.queue.empty" = "다음에 재생할 항목이 없습니다.";
 "settings.player.queue.header" = "대기열";
+"settings.player.queue.history" = "최근 재생";
 "settings.player.queue.menu" = "다음 재생";
+"settings.player.queue.now" = "지금 재생 중";
 "settings.player.queue.title" = "다음 재생";
+"settings.player.queue.up_next" = "다음에 재생";
 "settings.player.queue_and_devices.title" = "대기열 및 기기";
 "settings.player.queue_bottom_sheet.title" = "하단 시트 형태의 대기열";
 "settings.player.queue_devices.title" = "대기열 및 기기";
