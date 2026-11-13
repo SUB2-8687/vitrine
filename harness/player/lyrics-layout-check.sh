@@ -12,7 +12,8 @@ source = pathlib.Path(sys.argv[1]).read_text()
 constants = source[source.index("static const CGFloat kThumbSide"):source.index("static char kOverlayKey")]
 measurements = source[source.index("typedef struct {", source.index("#pragma mark - the measurements")):
                       source.index("#pragma mark - the title row")]
-pathlib.Path(sys.argv[2]).write_text(constants + "\n" + measurements)
+fade = source[source.index("static void fadeControls("):source.index("// Where the lines go on their own")]
+pathlib.Path(sys.argv[2]).write_text(constants + "\n" + measurements + "\n" + fade)
 PY
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 xcrun clang -target arm64-apple-ios17.0-macabi -fobjc-arc -isysroot "$SDK" \

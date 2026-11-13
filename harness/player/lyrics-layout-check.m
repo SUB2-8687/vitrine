@@ -13,6 +13,9 @@ static CGRect SGRPlayerArtworkAreaIn(UIView *host) { return artworkArea; }
 static CGRect SGRPlayerCoverFrameIn(UIView *host) { return artworkCover; }
 static BOOL wideIn(UIView *host) { return NO; }
 static CGRect wideColumn(UIView *host) { return CGRectZero; }
+static BOOL sg_alone;
+static NSHashTable<UIView *> *sg_faded;
+static NSArray<UIView *> *fadingViews(void) { return @[]; }
 
 #include "lyrics-layout-production.inc"
 
@@ -40,6 +43,21 @@ int main(void) {
             }
         }
         NSLog(@"PASS lyric viewport stays at {0,206,393,400} throughout cover paging");
+        // A newly laid-out row was not in the original fade set; it must stay hidden and wake only if it fits.
+        UIView *volume = [UIView new];
+        sg_alone = YES;
+        SGRPlayerLyricsFadeView(volume, YES);
+        if (volume.alpha != 0) { NSLog(@"FAIL new volume row covers lyrics"); return 1; }
+        sg_alone = NO;
+        fadeControls(NO);
+        if (volume.alpha != 1) { NSLog(@"FAIL fitting volume row did not wake"); return 1; }
+        sg_alone = YES;
+        SGRPlayerLyricsFadeView(volume, YES);
+        SGRPlayerLyricsFadeView(volume, NO);
+        sg_alone = NO;
+        fadeControls(NO);
+        if (volume.alpha != 0) { NSLog(@"FAIL volume without room woke over controls"); return 1; }
+        NSLog(@"PASS volume created while lyrics are alone stays hidden and wakes only with room");
     }
     return 0;
 }

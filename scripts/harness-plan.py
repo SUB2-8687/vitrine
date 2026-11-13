@@ -154,6 +154,12 @@ HARNESSES = [
      "run": "sh harness/player/repeat-check.sh"},
     {"name": "Player lyrics layout", "dir": "player",
      "run": "sh harness/player/lyrics-layout-check.sh"},
+    {"name": "Player Connect volume", "dir": "player",
+     "run": "sh harness/player/volume-check.sh"},
+    {"name": "Player volume layout", "dir": "player",
+     "run": "sh harness/player/volume-layout-check.sh"},
+    {"name": "Volume bar haptics", "dir": "haptics-page",
+     "run": "sh harness/haptics-page/volume-check.sh"},
     {"name": "Player lyric line", "dir": "player-lyric-line",
      "run": "sh harness/player-lyric-line/build.sh"},
     {"name": "Player refinements", "dir": "player-refinements", "theos": True,
@@ -199,6 +205,7 @@ SHARED_PREFERENCE_DOMAINS = {
         "prefs", "radio-modes", "spicy-lyrics", "ui-refinements", "update",
     },
     "now-playing": {"local-files", "now-playing"},
+    "volume-check": {"haptics-page", "player"},
     "state-check": {"lyrics-sources", "motion"},
 }
 

@@ -502,10 +502,18 @@ static void fadeControls(BOOL faded) {
     }
 }
 
-// Whether the fade below holds `view`'s alpha: a track change that lays the bottom stack out again must not
-// bring the view back over the lyrics (SGRPlayerPlaceVolume).
-BOOL SGRPlayerLyricsFadeHolds(UIView *view) {
-    return view && sg_faded && [sg_faded containsObject:view];
+BOOL SGRPlayerLyricsFadeView(UIView *view, BOOL fits) {
+    if (!view) return NO;
+    if (!fits) {
+        view.alpha = 0;
+        [sg_faded removeObject:view];
+        return YES;
+    }
+    if (!sg_alone) return NO;
+    view.alpha = 0;
+    if (!sg_faded) sg_faded = [NSHashTable weakObjectsHashTable];
+    [sg_faded addObject:view];
+    return YES;
 }
 
 // Where the lines go on their own: the whole safe area, kLyricsBottom in at both ends, over everything that

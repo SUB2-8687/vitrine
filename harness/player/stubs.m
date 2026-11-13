@@ -126,6 +126,13 @@ void SGRHarnessSetTrack(NSString *uri, NSString *imageURI, BOOL paused) {
 
 void SGPlayFeedback(NSInteger feedback) {}
 void SGPrepareFeedback(NSInteger feedback) {}
+void SGInstallVolumeFeedback(UISlider *slider) {}
+
+#pragma mark - Redesigned/Player/PlayerConnectVolume.x
+
+NSNotificationName const SGRConnectVolumeChangedNotification = @"harness.connectVolumeChanged";
+BOOL SGRConnectReadVolume(double *value) { return NO; }
+BOOL SGRConnectSetVolume(double value) { return NO; }
 
 #pragma mark - Shared/LyricsSources
 

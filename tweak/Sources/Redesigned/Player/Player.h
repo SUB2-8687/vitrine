@@ -133,9 +133,8 @@ BOOL SGRPlayerLyricsAvailable(void);
 BOOL SGRPlayerLyricsNone(void);
 // Whether the player is showing them.
 BOOL SGRPlayerLyricsOpen(void);
-// Whether the lyrics' fade holds `view`'s alpha, which the views it fades are left at 0 by (PlayerLyrics.x):
-// the volume row keeps out of the way while it is held (PlayerVolume.m).
-BOOL SGRPlayerLyricsFadeHolds(UIView *view);
+// Hides a control without room or while lyrics are alone; only fitting controls return when they wake.
+BOOL SGRPlayerLyricsFadeView(UIView *view, BOOL fits);
 // Shows them, or puts the cover back; does nothing when there are none to show.
 void SGRPlayerToggleLyrics(void);
 // Called by PlayerLyrics.x whenever either of those two changed, so the footer's lyrics glyph follows

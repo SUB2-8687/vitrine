@@ -1,7 +1,6 @@
 // Player redesign: a volume slider under the controls, as the Music app has. It is MPVolumeView, as the HIG asks
-// (sliders.md, playing-audio.md), so it is the system's volume: the hardware buttons move it, and while Spotify plays
-// on a Connect device it is that device's, which Spotify hands iOS through its remote volume. No route button: the
-// footer's Connect glyph is the route.
+// (sliders.md, playing-audio.md) for local playback, unchanged. On a supported Connect device a matching slider
+// uses Spotify's volume service (PlayerConnectVolume.x). No route button: the footer's Connect glyph is the route.
 //
 // It sits in Spotify's bottom stack, outside its arranged views, between the controls and the footer row, so the
 // lyrics fade it with the rest of the stack (PlayerLyrics.x) and its touches stay inside the stack. The footer's
@@ -11,6 +10,8 @@
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Player.h"
+#import "PlayerConnectVolume.h"
+#import "Shared/Haptics/Haptics.h"
 
 // The track's height, the glyphs' point size and the gap between a glyph and the track.
 static const CGFloat kRowHeight = 34, kGlyphSize = 13, kGlyphGap = 10, kTrack = 4;
@@ -27,6 +28,9 @@ static const CGFloat kGlyphsHalf = 14;
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    for (UISlider *slider in self.subviews) {
+        if ([slider isKindOfClass:UISlider.class]) SGInstallVolumeFeedback(slider);
+    }
     if (@available(iOS 26.0, *)) {
         for (UISlider *slider in self.subviews) {
             if (![slider isKindOfClass:UISlider.class] || slider.sliderStyle == UISliderStyleThumbless) continue;
@@ -46,6 +50,7 @@ static const CGFloat kGlyphsHalf = 14;
 
 @implementation SGRVolumeRow {
     MPVolumeView *_volume;
+    UISlider *_remote;
     UIImageView *_quiet, *_loud;
 }
 
@@ -95,7 +100,35 @@ static UIImageView *glyph(NSString *symbol) {
     [self addSubview:_quiet];
     [self addSubview:_volume];
     [self addSubview:_loud];
+    _remote = [UISlider new];
+    _remote.minimumTrackTintColor = UIColor.whiteColor;
+    _remote.maximumTrackTintColor = [UIColor colorWithWhite:1 alpha:0.22];
+    if (@available(iOS 26.0, *)) _remote.sliderStyle = UISliderStyleThumbless;
+    else {
+        [_remote setMinimumTrackImage:trackImage(UIColor.whiteColor) forState:UIControlStateNormal];
+        [_remote setMaximumTrackImage:trackImage([UIColor colorWithWhite:1 alpha:0.22]) forState:UIControlStateNormal];
+        [_remote setThumbImage:thumbImage() forState:UIControlStateNormal];
+    }
+    _remote.accessibilityLabel = SGL(@"player.volume", @"Volume");
+    SGInstallVolumeFeedback(_remote);
+    [_remote addTarget:self action:@selector(remoteChanged:) forControlEvents:UIControlEventValueChanged];
+    [self addSubview:_remote];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(refreshVolume)
+        name:SGRConnectVolumeChangedNotification object:nil];
+    [self refreshVolume];
     return self;
+}
+
+- (void)refreshVolume {
+    double value;
+    BOOL remote = SGRConnectReadVolume(&value);
+    _remote.hidden = !remote;
+    _volume.hidden = remote;
+    if (remote && !_remote.tracking) _remote.value = value;
+}
+
+- (void)remoteChanged:(UISlider *)slider {
+    if (!SGRConnectSetVolume(slider.value)) [self refreshVolume];
 }
 
 - (void)layoutSubviews {
@@ -107,6 +140,7 @@ static UIImageView *glyph(NSString *symbol) {
     // centered, so the track lines up with the glyphs (it sat 9pt above them).
     CGFloat sliderHeight = MIN(side, [_volume sizeThatFits:CGSizeMake(MAX(0, right - left), side)].height ?: side);
     _volume.frame = CGRectMake(left, round(middle - sliderHeight / 2), MAX(0, right - left), sliderHeight);
+    _remote.frame = _volume.frame;
     // MPVolumeView places its slider off its own middle (8pt above it on iOS 26, issue #86) and the track is centered
     // in the slider, so the glyphs stand on the slider's middle.
     CGFloat glyphs = middle;
@@ -156,7 +190,7 @@ static void settle(UIView *stack, UIView *row, BOOL moved, CGRect frame) {
 BOOL SGRPlayerPlaceVolume(UIView *stack, UIView *controls, UIView *row, CGFloat margin) {
     SGRVolumeRow *volume = objc_getAssociatedObject(stack, &kVolumeKey);
     if (!SGRPlayerVolumeOn() || !controls) {
-        if (volume) volume.alpha = 0;
+        SGRPlayerLyricsFadeView(volume, NO);
         return NO;
     }
     if (!volume) {
@@ -174,7 +208,7 @@ BOOL SGRPlayerPlaceVolume(UIView *stack, UIView *controls, UIView *row, CGFloat 
             logged = YES;
             SGLog(@"redesign player: no play button in %@, so no volume row", NSStringFromClass(controls.class));
         }
-        volume.alpha = 0;
+        SGRPlayerLyricsFadeView(volume, NO);
         return NO;
     }
     CGFloat above = CGRectGetMaxY([play convertRect:play.bounds toView:stack]);
@@ -189,7 +223,7 @@ BOOL SGRPlayerPlaceVolume(UIView *stack, UIView *controls, UIView *row, CGFloat 
     BOOL fits = room >= height * 0.6;
     // A track change lays the stack out again while the lines are alone: the row must stay away from them until
     // the fade lets it go, rather than be shown here over the lyrics.
-    if (!fits || SGRPlayerLyricsFadeHolds(volume)) volume.alpha = 0;
-    else if (volume.alpha < 0.01 && controls.alpha > 0.99) volume.alpha = 1;
+    BOOL faded = SGRPlayerLyricsFadeView(volume, fits);
+    if (!faded && volume.alpha < 0.01 && controls.alpha > 0.99) volume.alpha = 1;
     return fits;
 }

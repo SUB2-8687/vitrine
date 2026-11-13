@@ -60,8 +60,6 @@ static const CGFloat kRowAboveSafeArea = 20, kRowMinBottom = 34;
 static const CGFloat kControlsShare = 0.3;
 // The volume row's sides, the player's own margin.
 static const CGFloat kVolumeMargin = 24;
-// And the controls go up this much over it, so the gaps above and below the volume row match.
-static const CGFloat kVolumeLift = 10;
 
 // "airplayaudio" is the name iOS 16 knows; iOS 18 calls it airplay.audio and keeps this one as its alias.
 static NSString *const kConnectSymbol = @"airplayaudio", *const kQueueSymbol = @"list.bullet";
@@ -475,8 +473,8 @@ void SGRPlayerLowerRow(UIView *row) {
     // The volume row is placed against the controls where they would stand for it; one that does not show leaves them
     // following the footer as they do without it.
     BOOL volume = SGRPlayerVolumeOn() && controls;
-    CGFloat share = volume ? 0 : kControlsShare, lift = volume ? kVolumeLift : 0;
-    CGAffineTransform follow = CGAffineTransformMakeTranslation(0, controls ? round(move * share) - lift : 0);
+    CGFloat share = volume ? 0 : kControlsShare;
+    CGAffineTransform follow = CGAffineTransformMakeTranslation(0, controls ? round(move * share) : 0);
     if (above && controls && !CGAffineTransformEqualToTransform(above.transform, follow)) above.transform = follow;
     SGRPlayerPaintCover(stack);
     if (volume && !SGRPlayerPlaceVolume(stack, above, row, kVolumeMargin)) {

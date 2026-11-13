@@ -68,6 +68,8 @@ typedef NS_ENUM(NSInteger, SGFeedback) {
 void SGPlayFeedback(SGFeedback feedback);
 // Wakes the Taptic Engine for feedback about to follow quickly (a finger on the scrubber).
 void SGPrepareFeedback(SGFeedback feedback);
+// Adds drag feedback once, including after MPVolumeView replaces its slider. Controls and its strength apply.
+void SGInstallVolumeFeedback(UISlider *slider);
 
 // The two Music Haptics switches. Both may be on: while iOS plays its haptic track for the song (In the
 // Background), the mod's own stays quiet; while Spotify is in front and iOS has none, the mod's own plays.

@@ -67,6 +67,8 @@
 "player.speed_pitch.unavailable" = "Unavailable";
 "player.speed_pitch.unavailable_here" = "Unavailable here";
 
+"player.volume" = "Volume";
+
 "settings.addtab.action.use_link" = "Use Link";
 "settings.addtab.add_tab.title" = "Add a Tab";
 "settings.addtab.all_glyphs.header" = "All glyphs";

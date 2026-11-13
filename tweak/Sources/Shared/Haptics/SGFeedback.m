@@ -9,6 +9,7 @@
 // strength; at 100% it stays the system's own tick.
 #import "Core/SGCore.h"
 #import "Haptics.h"
+#import <objc/runtime.h>
 
 typedef struct {
     NSInteger style;      // a UIImpactFeedbackStyle, or kSelection
@@ -64,4 +65,53 @@ void SGPlayFeedback(SGFeedback feedback) {
 void SGPrepareFeedback(SGFeedback feedback) {
     if (!SGEnabled(SGKeyControlHaptics)) return;
     [generatorFor(tapAtStrength(feedback).style) prepare];
+}
+
+// The hardware buttons' sixteen steps, with hysteresis so resting a finger on a boundary does not chatter.
+static const CGFloat kVolumeSteps = 16, kVolumeHysteresis = 0.004;
+
+@interface SGVolumeFeedback : NSObject
+@end
+
+@implementation SGVolumeFeedback {
+    NSInteger _step, _end;
+    BOOL _dragging;
+}
+- (void)begin:(UISlider *)slider {
+    _step = (NSInteger)floor(slider.value * kVolumeSteps);
+    _end = slider.value <= 0 ? -1 : slider.value >= 1 ? 1 : 0;
+    _dragging = YES;
+    SGPlayFeedback(SGFeedbackGrab);
+    SGPrepareFeedback(SGFeedbackDetent);
+}
+- (void)changed:(UISlider *)slider {
+    if (!_dragging) return;
+    CGFloat value = slider.value;
+    NSInteger end = value <= 0 ? -1 : value >= 1 ? 1 : 0;
+    if (end != _end) {
+        _end = end;
+        if (end) SGPlayFeedback(SGFeedbackEdge);
+    }
+    NSInteger step = (NSInteger)floor(value * kVolumeSteps);
+    if (step != _step && fabs(value * kVolumeSteps - MAX(step, _step)) > kVolumeHysteresis * kVolumeSteps) {
+        _step = step;
+        if (!end) SGPlayFeedback(SGFeedbackDetent);
+    }
+}
+- (void)end:(UISlider *)slider {
+    if (_dragging) SGPlayFeedback(SGFeedbackRelease);
+    _dragging = NO;
+}
+- (void)cancel:(UISlider *)slider { _dragging = NO; }
+@end
+
+void SGInstallVolumeFeedback(UISlider *slider) {
+    static char key;
+    if (!slider || objc_getAssociatedObject(slider, &key)) return;
+    SGVolumeFeedback *feedback = [SGVolumeFeedback new];
+    objc_setAssociatedObject(slider, &key, feedback, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [slider addTarget:feedback action:@selector(begin:) forControlEvents:UIControlEventTouchDown];
+    [slider addTarget:feedback action:@selector(changed:) forControlEvents:UIControlEventValueChanged];
+    [slider addTarget:feedback action:@selector(end:) forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+    [slider addTarget:feedback action:@selector(cancel:) forControlEvents:UIControlEventTouchCancel];
 }

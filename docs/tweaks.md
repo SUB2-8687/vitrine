@@ -986,7 +986,11 @@ Shared:
                   (`update` for the old model kept until it, `dev` for the dev folder), the pages in the simulator against harness/spatial-page/
     Haptics/      Vibrations (Haptics.h lists its files): a tap of UIKit's feedback generators for the player's and the now
                   playing bar's controls, the scrubber's tenths and ends, cover swipes, gestures and the lyrics page's tap to
-                  seek, at the strength set for them (ControlHaptics.x, SGFeedback.m); and Music Haptics, Core Haptics
+                  seek, at the strength set for them (ControlHaptics.x, SGFeedback.m). The redesigned player's volume
+                  bar also taps at sixteen steps, more firmly at zero and full volume, and on grab and release.
+                  SGInstallVolumeFeedback attaches to local and Connect sliders, including replacement system sliders;
+                  it uses the existing Controls switch (on by default) and Strength, with no separate switch.
+                  Music Haptics, Core Haptics
                   playing along with the song: the music's RemoteIO output unit (SGPlayerMusicOutput, Shared/Player)
                   gets a render notify, the samples, in the unit's output format (the hardware's), go through a drum
                   and bass analyzer on the render thread (SGMusicAnalyzer.m, plain C), and a thread of its own schedules
@@ -1844,7 +1848,20 @@ current or last song (480 pt, shrinking to 236 pt as the page scrolls, opaque ab
 pill shows, for Animated and Auto, what a song without a clip would show, never sending a playback command
 (PlayerSettings.m; preview lookups are tied to the shown track and torn down with the page, SGRPlayerMotionPreviewStop,
 SGRPlayerVisualiserPreviewStop; harness/player/settings-check.sh). Its Buttons card has Shuffle, Repeat and Video chips.
-The Controls section has Lyrics Line, Rolling time digits, Star add button and Music app icons beside Header glass, Volume and Follow the cover. Libraries & presets collects Vitrine's existing local and open libraries: audio presets,
+The Controls section has Lyrics Line, Rolling time digits, Star add button and Music app icons beside Header glass, Volume and Follow the cover.
+Volume keeps MPVolumeView for local playback. On a volume-capable remote device, Spotify's own Connect aggregator
+selects a matching slider backed by its Connect volume service (Redesigned/Player/PlayerConnectVolume.x).
+Hardware buttons remain entirely Spotify's: local outputVolume deltas cannot represent presses at the phone's
+limits and forwarding them changes local volume too. No KVO forwarding or native-handler suppression is installed.
+Every hooked method, observer callback and invoked Spotify API must match its return and argument types;
+a missing or mismatched API disables Connect volume for that process. Missing state or an unusable volume keeps
+the local path. Native is unchanged. Lyrics-only mode keeps even a newly created volume row hidden and restores it only
+when it still has room (PlayerLyrics.x, PlayerVolume.m). Connect delivery and physical taps require a real device;
+the player and haptics harnesses cover slider routing, signature rejection, current-device reads, fade restoration and step/end feedback.
+With Volume shown, the controls keep Spotify's vertical position rather than lifting 10 pt into the time row;
+`harness/player/volume-layout-check.sh` runs real placement at 402×874 and 375×667 (SE), checking unobstructed
+time/playback controls and clean omission when there is no room.
+Libraries & presets collects Vitrine's existing local and open libraries: audio presets,
 shared as files, public AutoEq headphone corrections, free fonts to download and on-device custom fonts
 under either look, plus visualizer styles when Redesigned UI is selected. Lyrics looks stay on Lyrics. Tab bar: the tab editor of the stored look, each with
 its own list of tabs. Lyrics, on the main page of its own: in the redesign a live preview of the lyrics first, with the presets of their look

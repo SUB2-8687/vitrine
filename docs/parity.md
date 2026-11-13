@@ -339,6 +339,18 @@ with no gate and nothing from upstream's code, server or content.
 | DSP suite, AutoEq, AutoMix styles | Already in Vitrine (Shared/AudioEffects, Shared/AutoMix) |
 | Bundled DDC and EEL example files | Not taken: each file's source and license would have to be checked first |
 
+### Ported from GPL-3 forks
+
+| Source | Item | Where Vitrine stands |
+|---|---|---|
+| jadetheda `9c3c3f5` (`feat/connect-volume`); hardware follow-ups `7fd8ee2` / `6e71450`, `43f7b07` / `8bcaa88` not ported | Connect volume bar only | Adapted in Redesigned/Player/PlayerConnectVolume.x and PlayerVolume.m: active remote state and volume API, return/argument signature gating, current-service reads rather than stale callback values. Hardware buttons stay Spotify's: local-volume deltas fail at phone limits, change local volume during remote playback, and suppression can double-handle off-main callbacks. No forwarding or suppression. Local MPVolumeView and Native retained; real Connect delivery still needs hardware. |
+| michaelmelita1 `29ace72` (volume portion only) | Volume bar Vibrations | Shared/Haptics/SGFeedback.m attaches sixteen-step ticks, firmer ends and grab/release feedback to local and Connect sliders. Existing Controls default and strength, no additional switch; no Top picks or replacement player port. |
+| upstream `e033415` (#147, volume portion only) | Volume stays hidden while lyrics are alone | Replaced Vitrine's partial fade-set guard with fitting-row registration/removal in PlayerLyrics.x and PlayerVolume.m, including newly created rows and no-room wakeups; harness/player/lyrics-layout-check.sh. |
+| jadetheda `6c619c3` (`feat/apple-music-queue`), `e804f6b`; michaelmelita1 `7df9b5e`, `3163c8a` / `6491011` | Read-only queue History | Redesigned/Player/PlayerQueue.m: Spotify's recent songs above Now Playing, with app-font rows. Editing and History replay are not shipped: the forks' same mutation/direct replay APIs did not take effect in the tested 9.1.90 context, including with Spoof Premium. No fork player removals or retry/reinsert fallbacks; Native retains Spotify's queue. |
+| jadetheda `d10fb43`, `6e9056b` (with `af6e54e`, `181a58f`); upstream `69730d1` (#150) | Mini player Next button and artwork shape; a tap on the player's cover opening the full screen cover as a switch of its own | Done (Redesigned/NowPlayingBar/NowPlayingBar.x, Redesigned/Player/PlayerMorph.x, each look's PlayerGestures.x): `spotifyglass.redesign.nowPlayingBar.nextButton`, off; `spotifyglass.redesign.nowPlayingBar.artworkShape`, Circle (the fork's default was Rounded square, and its smaller cover for a 56 pt capsule is not needed on Vitrine's 24 pt corners); `spotifyglass.hide.fullScreenCover`, shown; harness/now-playing-bar/ |
+| upstream `9221256` | ElleKit/Substrate inline audio hooks on jailbreaks | Core/SGRebind.m and SpeedPitch.x: Start/Stop/Dispose installed inline all-or-none at tweak load, optional speed hook last, Spotify-__TEXT caller filter, canonicalized jailbreak paths; sideloaded installs keep the rebind path; harness/prefs/rebind.m. Not run on a real jailbreak. The SGPrefs per-key invalidation of `430766c` is not taken: nested writes needed app-wide notification interception for a small gain. |
+| ciowfreshh `d829851` (archive codec only) | Saved lyric translations export/import | Core/TranslationStore: the ZIP field codec; storage, migration, recovery and the management page are Vitrine's own (Shared/LyricsTranslation/SavedTranslations.m, TranslationLibrary.m); harness/lyrics-translation/check-storage.m. |
+
 ### Before the fork point, or not needed any more
 
 | # | Item |

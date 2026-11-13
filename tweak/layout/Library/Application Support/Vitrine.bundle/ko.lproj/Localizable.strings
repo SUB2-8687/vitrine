@@ -65,6 +65,7 @@
 "player.speed_pitch.title" = "속도 및 피치";
 "player.speed_pitch.unavailable" = "사용할 수 없음";
 "player.speed_pitch.unavailable_here" = "여기서는 사용할 수 없음";
+"player.volume" = "음량";
 
 "settings.addtab.action.use_link" = "링크 사용";
 "settings.addtab.add_tab.title" = "탭 추가";
