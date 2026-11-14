@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0-beta.29](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.28...v1.0.0-beta.29) (2026-11-14)
+
+
+### Features
+
+* Vitrine 화면 언어 선택 추가 ([437fe01](https://github.com/oneulddu/vitrine/commit/437fe013b986fbabacee73ee4192b05408073669))
+* 탭바 Apple 기호 아이콘 스위치 추가 ([99754fe](https://github.com/oneulddu/vitrine/commit/99754fefac573ba28dd980bd08b89ac001749c83))
+* 플레이어 재생 출처 숨기기 설정 추가 ([68e9deb](https://github.com/oneulddu/vitrine/commit/68e9debad2d73401c7fda6b2ac62e1e7d1428fc3))
+* 홈 DJ 대사 유지·금요일 링·바로가기 유리 분리 ([8d0d03e](https://github.com/oneulddu/vitrine/commit/8d0d03ef1afc922d08c9e2fb1d66c1d6bbfa6480))
+
+
+### Fixes
+
+* 저장된 번역·앨범 소개 창이 뜨지 않던 문제 수정 ([a119a2f](https://github.com/oneulddu/vitrine/commit/a119a2f58988df4065a4665d58495bba05f6594a))
+* 플레이어를 연 뒤 음질 배지를 다시 배치 ([c403631](https://github.com/oneulddu/vitrine/commit/c4036319368b4b2746ae73b771ecc8696fe53e59))
+
 ## [1.0.0-beta.28](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.27...v1.0.0-beta.28) (2026-11-13)
 
 
