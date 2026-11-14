@@ -14,6 +14,7 @@
 #import "faces-check.h"
 #import "more-check.h"
 #import "Album.h"
+#import "beside-check.h"
 
 // Download and ⋯ as one glass capsule: adjacent, level, one 88x44 shape (radius 22) under both, carried by
 // download, ⋯ drawing none, its trailing edge 16pt in from the page's.
@@ -465,8 +466,12 @@ static NSString *trailingLabel(UIView *root) {
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"cover-beside"])
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:SGRKeyCoverBeside];
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     CGFloat W = self.window.bounds.size.width, H = self.window.bounds.size.height;
+    CGFloat fixtureWidth = [NSUserDefaults.standardUserDefaults doubleForKey:@"header-width"];
+    if (fixtureWidth > 0) W = fixtureWidth;
 
     UIViewController *root = [UIViewController new];
     root.view.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1];
@@ -517,7 +522,7 @@ static NSString *trailingLabel(UIView *root) {
     _titleStack = box(_titleBlock, UIStackView.class, CGRectMake(16, 0, 183.33, 57.33), nil);
     label(_titleStack, CGRectZero, @"", 17, UIColor.whiteColor, @"CreativeWorkPlatform.Components.UI.PreTitleRow");
     BOOL shortTitle = [NSProcessInfo.processInfo.arguments containsObject:@"short-title"];
-    label(_titleStack, CGRectMake(0, 0, 183.33, 25.33), shortTitle ? @"X" : @"Hurry Up Tomorrow", 21, UIColor.whiteColor,
+    UILabel *albumTitle = label(_titleStack, CGRectMake(0, 0, 183.33, 25.33), shortTitle ? @"X" : @"Hurry Up Tomorrow", 21, UIColor.whiteColor,
           @"CreativeWorkPlatform.Components.UI.TitleRow");
     UIView *parentElement = box(_titleStack, UIView.class, CGRectMake(0, 33.33, 96, 24), nil);
     UIView *parentRow = box(parentElement, MockEncoreButton.class, parentElement.bounds, @"CreativeWorkPlatform.Components.UI.ParentRow");
@@ -872,6 +877,15 @@ static NSString *trailingLabel(UIView *root) {
     [condensed addSubview:disc];
 
     [self.window makeKeyAndVisible];
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"cover-beside"]) {
+        besideRun(self.window, root, page, @"Album", ^{
+            [page setNeedsLayout];
+            [page layoutIfNeeded];
+        }, ^(NSString *text) {
+            albumTitle.text = text;
+        });
+        return YES;
+    }
     if (downloads) downloadScript();
     // `faces` (faces-check.h): the artist line's faces, after the header has drawn the one the page opened with.
     // `more` (more-check.h): the track rows' ⋯ in the page's colour, once the field has read the cover.

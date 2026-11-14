@@ -33,6 +33,7 @@
 #import "Redesigned/Kit/SGRCoverViewer.h"
 #import "Redesigned/Kit/SGRHeroVeil.h"
 #import "Playlist.h"
+#import "Redesigned/Album/SGRCoverBeside.h"
 #import <objc/message.h>
 
 // How much of the cover's height the dissolve into the field covers, and the scrim over the top of it that
@@ -102,6 +103,7 @@ static UIView *firstOfClass(UIView *root, Class wanted) {
 // again is a no-op; nothing while the switch is off.
 - (void)openFrom:(UIView *)layout;
 @property (nonatomic) BOOL squareOnly;
+@property (nonatomic) CGRect besideFrame;
 // The scroll veil over the picture (Kit/SGRHeroVeil.h); nil while it is off. The plane already stretches the hero
 // with a pull, so the veil adds no zoom. Over Spotify's own square (squareOnly) it blurs and dims that square's
 // picture, and moves nothing: the square is placed by Spotify, which sets its frames itself.
@@ -171,6 +173,7 @@ static UIView *firstOfClass(UIView *root, Class wanted) {
 
 // The part of the picture over no text: the title and the creator start SGRHeaderInfoTitleRise above its bottom.
 - (CGRect)sgr_coverArea {
+    if (!CGRectIsEmpty(_besideFrame)) return self.bounds;
     if (_squareOnly && _cover) return [_cover convertRect:_cover.bounds toView:self];
     return CGRectMake(0, 0, self.bounds.size.width, MAX(0, self.bounds.size.height - SGRHeaderInfoTitleRise));
 }
@@ -223,6 +226,8 @@ static UIView *firstOfClass(UIView *root, Class wanted) {
     CGFloat height = MAX(1, bounds.size.height), fade = round(height * kDissolve);
     _dissolve.frame = bounds;
     _dissolve.locations = @[@0, @((height - fade) / height), @((height - fade * 0.38) / height), @1];
+    self.layer.mask = CGRectIsEmpty(_besideFrame) ? _dissolve : nil;
+    _scrim.hidden = _squareOnly || !CGRectIsEmpty(_besideFrame);
     [_veil artDidLayOut];
     [CATransaction commit];
 }
@@ -260,6 +265,51 @@ static UIView *firstOfClass(UIView *root, Class wanted) {
 
 @end
 
+// Card hands rendering back to Spotify's square when beside mode ends. Keep every property
+// SGRConcealView changes, including a mask Spotify may already own, for that handoff.
+@interface SGRPlaylistBesideCover : NSObject
+@property (nonatomic, weak, readonly) UIView *cover;
+- (instancetype)initWithCover:(UIView *)cover;
+- (void)restore;
+@end
+
+@implementation SGRPlaylistBesideCover {
+    CALayer *_mask;
+    BOOL _hidden, _interactive, _accessibilityHidden;
+}
+- (instancetype)initWithCover:(UIView *)cover {
+    if (!(self = [super init])) return nil;
+    _cover = cover;
+    _mask = cover.layer.mask;
+    _hidden = cover.layer.hidden;
+    _interactive = cover.userInteractionEnabled;
+    _accessibilityHidden = cover.accessibilityElementsHidden;
+    return self;
+}
+- (void)restore {
+    _cover.layer.hidden = _hidden;
+    _cover.layer.mask = _mask;
+    _cover.userInteractionEnabled = _interactive;
+    _cover.accessibilityElementsHidden = _accessibilityHidden;
+    _cover = nil;
+}
+- (void)dealloc { [self restore]; }
+@end
+
+static char kBesideCoverState;
+static void rememberBesideCover(UIView *layout, UIView *cover, BOOL beside) {
+    SGRPlaylistBesideCover *state = objc_getAssociatedObject(layout, &kBesideCoverState);
+    if (state && (!beside || state.cover != cover)) {
+        [state restore];
+        objc_setAssociatedObject(layout, &kBesideCoverState, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        state = nil;
+    }
+    if (beside && cover && !state) {
+        state = [[SGRPlaylistBesideCover alloc] initWithCover:cover];
+        objc_setAssociatedObject(layout, &kBesideCoverState, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
 // The hero sits in the plane Spotify's color wash is drawn on, which slides away as the header collapses, so
 // Core Animation carries it and its frame is only measured at rest: reading the header per frame flickers.
 // Pulled down past the top the plane grows and the hero stretches with it, bottom kept in place.
@@ -287,7 +337,7 @@ static void applyHero(UIView *layout, UIView *cover, UIView *plane, UIView *bloc
     CGFloat bottom = MAX(kMinHero, round(height + reach)) + stretch;
     // Flexible height as well, for a plane resized after this pass in the same frame.
     hero.autoresizingMask = UIViewAutoresizingFlexibleHeight;
-    CGRect frame = CGRectMake(0, 0, plane.bounds.size.width, bottom);
+    CGRect frame = CGRectIsEmpty(hero.besideFrame) ? CGRectMake(0, 0, plane.bounds.size.width, bottom) : hero.besideFrame;
     if (!CGRectEqualToRect(hero.frame, frame)) hero.frame = frame;
 
     [hero followCover:SGRHeaderArtworkIn(cover)];
@@ -295,7 +345,8 @@ static void applyHero(UIView *layout, UIView *cover, UIView *plane, UIView *bloc
     hero.veil.color = SGRPlaylistFieldColor(layout);
     // Full bleed covers off: Spotify's own square stays above the block, shrinking as the header collapses, and the
     // hero only reads the picture for the field. A mix's picture is full bleed in Spotify's own layout, so it stays.
-    hero.squareOnly = !SGRPageFullCover(SGRKeyPlaylistFullCover) && [cover.accessibilityIdentifier isEqualToString:@"Components.Header.UI.ArtworkImage"];
+    hero.squareOnly = CGRectIsEmpty(hero.besideFrame) && !SGRPageFullCover(SGRKeyPlaylistFullCover) &&
+        [cover.accessibilityIdentifier isEqualToString:@"Components.Header.UI.ArtworkImage"];
     if (hero.squareOnly) return;
     SGRConcealView(cover);
 }
@@ -448,6 +499,7 @@ static void showPlaylist(SGRHeaderInfo *info, UIView *block, UIView *root, id mo
 }
 
 static SGRHeaderInfo *applyInfo(UIView *block, UIView *headerRoot, UIViewController *headerVC);
+static void applyHeader(UIView *layout);
 
 // `view`'s own pass puts the block together again, installed once under `key`.
 static void reapplyOnPass(UIView *view, const void *key, UIView *block, UIView *headerRoot, UIViewController *headerVC) {
@@ -457,7 +509,13 @@ static void reapplyOnPass(UIView *view, const void *key, UIView *block, UIView *
     __weak UIViewController *weakVC = headerVC;
     SGRObserveLayout(view, ^(UIView *laidOut) {
         // A block the view has since left is Spotify's to lay out alone.
-        if (!weakBlock || !weakRoot || !weakVC || [objc_getAssociatedObject(weakRoot, &kInfoKey) superview] != weakBlock) return;
+        SGRHeaderInfo *info = objc_getAssociatedObject(weakRoot, &kInfoKey);
+        if (!weakBlock || !weakRoot || !weakVC) return;
+        if (info.sgr_coverBeside) {
+            applyHeader(weakBlock.superview);
+            return;
+        }
+        if (info.superview != weakBlock) return;
         applyInfo(weakBlock, weakRoot, weakVC);
     });
 }
@@ -473,18 +531,18 @@ static SGRHeaderInfo *applyInfo(UIView *block, UIView *headerRoot, UIViewControl
         info = [[SGRHeaderInfo alloc] initWithFrame:CGRectZero];
         objc_setAssociatedObject(headerRoot, &kInfoKey, info, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    if (info.superview != block) {
+    if (!info.sgr_coverBeside && info.superview != block) {
         if (info.superview) SGLog(@"redesign playlist: the block moved, %@ -> %@", NSStringFromCGRect(info.superview.frame), NSStringFromCGRect(block.frame));
         [block addSubview:info];
     }
-    else if (block.subviews.lastObject != info) [block bringSubviewToFront:info];
+    else if (info.superview == block && block.subviews.lastObject != info) [block bringSubviewToFront:info];
     for (UIView *sub in block.subviews) {
         if (sub != info) SGRConcealView(sub);
     }
     // The page's width, centered on the screen: Spotify's block is 16pt narrower than the page (386 of 402).
     CGFloat x = -[block convertPoint:CGPointZero toView:headerRoot].x;
     CGRect frame = CGRectMake(round(x), 0, headerRoot.bounds.size.width, block.bounds.size.height);
-    if (!CGRectEqualToRect(info.frame, frame)) info.frame = frame;
+    if (!info.sgr_coverBeside && !CGRectEqualToRect(info.frame, frame)) info.frame = frame;
     showPlaylist(info, block, headerRoot, viewModelOf(headerVC));
 
     reapplyOnPass(block, &kBlockWatchedKey, block, headerRoot, headerVC);
@@ -597,7 +655,8 @@ static UIView *blockIn(UIView *layout, UIView *cover, UIView *fullbleed) {
     UIView *block = nil;
     CGFloat wide = layout.bounds.size.width * 0.6;
     for (UIView *sub in layout.subviews) {
-        if (sub == cover || sub == fullbleed || [sub isKindOfClass:SGRPlaylistHero.class] || sub.bounds.size.width < wide) continue;
+        if (sub == cover || sub == fullbleed || [sub isKindOfClass:SGRPlaylistHero.class] ||
+            [sub isKindOfClass:SGRHeaderInfo.class] || sub.bounds.size.width < wide) continue;
         if (!block || CGRectGetMinY(sub.frame) > CGRectGetMinY(block.frame)) block = sub;
     }
     return block;
@@ -613,7 +672,10 @@ static void applyHeader(UIView *layout) {
     UIView *fullbleed = fullbleedIn(layout);
     UIView *cover = SGRFindByIdentifier(layout, @"Components.Header.UI.ArtworkImage", &kCoverKey) ?: fullbleed;
     UIView *block = blockIn(layout, cover, fullbleed);
-    if (!block) return;
+    if (!block) {
+        rememberBesideCover(layout, nil, NO);
+        return;
+    }
 
     UIView *plane = applyBackground(layout);
     applyToolbar(headerRoot);
@@ -639,13 +701,33 @@ static void applyHeader(UIView *layout) {
         rest = block.bounds.size.height;
         objc_setAssociatedObject(block, &kBlockHeightKey, @(rest), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    CGFloat reach = rest - SGRHeaderInfoBottom - [info contentHeightForWidth:info.bounds.size.width] + SGRHeaderInfoTitleRise;
+    CGFloat top = cover ? CGRectGetMinY(cover.frame) : 0;
+    CGRect available = CGRectMake(20, top, layout.bounds.size.width - 40,
+        CGRectGetMaxY(block.frame) - top - SGRHeaderInfoBottom);
+    CGFloat x = -[block convertPoint:CGPointZero toView:headerRoot].x;
+    CGRect stacked = CGRectMake(round(x), 0, headerRoot.bounds.size.width, block.bounds.size.height);
+    UIView *page = SGRPlaylistPageOf(layout);
+    __weak UIView *weakLayout = layout;
+    CGRect beside = [info sgr_coverBesideIn:layout available:cover ? available : CGRectZero
+        direction:page.effectiveUserInterfaceLayoutDirection
+        stackedParent:block stackedFrame:stacked
+        more:objc_getAssociatedObject(page, &kPinnedMoreKey) download:objc_getAssociatedObject(page, &kPinnedDownloadKey)
+        refresh:^{ if (weakLayout) applyHeader(weakLayout); }];
+    rememberBesideCover(layout, cover, !CGRectIsEmpty(beside));
+    SGRPlaylistHero *existingHero = objc_getAssociatedObject(plane, &kHeroKey);
+    existingHero.besideFrame = CGRectIsEmpty(beside) ? CGRectZero : [layout convertRect:beside toView:plane];
+    CGFloat reach = rest - SGRHeaderInfoBottom - [info contentHeightForWidth:headerRoot.bounds.size.width] + SGRHeaderInfoTitleRise;
     if (cover) applyHero(layout, cover, plane, block, reach, stretch);
     // Liked Songs has no cover at all, so there is nothing for its page to wait for once it has its title.
     else if (info.window && modelString(viewModelOf(headerVC), @"playlistName")) SGRPlaylistShowPage(layout);
 
     // The header sits over the page's list, which is what scrolls; it moves and collapses as the list does.
-    SGRHeroVeil *veil = ((SGRPlaylistHero *)objc_getAssociatedObject(plane, &kHeroKey)).veil;
+    SGRPlaylistHero *hero = objc_getAssociatedObject(plane, &kHeroKey);
+    hero.besideFrame = CGRectIsEmpty(beside) ? CGRectZero : [layout convertRect:beside toView:plane];
+    if (!CGRectIsEmpty(hero.besideFrame)) hero.frame = hero.besideFrame;
+    [hero setNeedsLayout];
+    layout.accessibilityElements = info.sgr_coverBeside ? @[hero, info] : nil;
+    SGRHeroVeil *veil = hero.veil;
     if (veil) {
         veil.info = info;
         UIView *list = SGRFindByIdentifier(SGRPlaylistPageOf(layout), SGRPlaylistListIdentifier, &kListKey);

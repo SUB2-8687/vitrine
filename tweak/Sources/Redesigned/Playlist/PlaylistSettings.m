@@ -7,6 +7,7 @@
 #import "Redesigned/Kit/SGRPagePreview.h"
 #import "Redesigned/Kit/SGRHeaderInfo.h"
 #import "Playlist.h"
+#import "Redesigned/Album/SGRCoverBeside.h"
 
 // The mock playlist's cover, whose color the page's field takes, and its tracks.
 static const NSUInteger kCover = 2, kTracks = 5;
@@ -77,6 +78,9 @@ UIViewController *SGRPlaylistSettingsPage(void) {
             SGChoiceRow(SGL(@"settings.playlist.cover_layout", @"Cover layout"), nil, SGRKeyPlaylistFullCover,
                 @[SGL(@"settings.cover_layout.card", @"Card"), SGL(@"settings.cover_layout.full_screen", @"Full screen")],
                 SGRPageFullCover(SGRKeyPlaylistFullCover)),
+            SGSwitchRow(SGL(@"settings.pages.cover_beside", @"Cover beside the title"),
+                        SGL(@"settings.pages.cover_beside.subtitle", @"Albums and playlists in wide iPad windows. Applies immediately."),
+                        SGRKeyCoverBeside),
             SGSwitchRow(coverName, SGL(@"settings.playlist.full_screen_cover.subtitle", @"Tap the picture at the top of a playlist to zoom in or share it"),
                         SGRKeyPlaylistCoverViewer),
         ]),

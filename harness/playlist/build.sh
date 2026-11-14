@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
+SRC=${HARNESS_SRC:-$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)}
 OUT=${HARNESS_BUILD_DIR:-$(dirname "$0")/build}
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/PlaylistHarness.app"
 
@@ -34,6 +34,8 @@ cat > "$OUT/PlaylistHarness.app/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>PlaylistHarness</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
+<key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UIUserInterfaceStyle</key><string>Dark</string>
 <key>UILaunchScreen</key><dict/>
 <key>UIApplicationSceneManifest</key><dict>

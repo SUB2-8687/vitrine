@@ -2140,6 +2140,8 @@
 "settings.playlist.artwork_background.title" = "Artwork background";
 "settings.playlist.cover.header" = "Cover";
 "settings.playlist.cover_layout" = "Cover layout";
+"settings.pages.cover_beside" = "Cover beside the title";
+"settings.pages.cover_beside.subtitle" = "Albums and playlists in wide iPad windows. Applies immediately.";
 "settings.playlist.cover_viewer.cover" = "Playlist cover";
 "settings.playlist.full_screen_cover.subtitle" = "Tap the picture at the top of a playlist to zoom in or share it";
 "settings.playlist.header" = "Header";

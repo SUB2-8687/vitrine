@@ -8,6 +8,7 @@
 #import "Redesigned/Kit/SGRHeaderInfo.h"
 #import "Album.h"
 #import "AlbumNotes.h"
+#import "SGRCoverBeside.h"
 
 // The mock album's cover and its tracks, each with its plays.
 static const NSUInteger kCover = 5;
@@ -135,7 +136,10 @@ UIViewController *SGRAlbumSettingsPage(void) {
     names[SGRKeyAlbumPlayCountsPlace] = plays.title;
 
     return SGRPagePreviewPage(SGL(@"settings.album.title", @"Albums"), albumPreview(names), SGRestartNote, @[
-        SGSection(SGL(@"settings.album.cover.header", @"Cover"), @[cover]),
+        SGSection(SGL(@"settings.album.cover.header", @"Cover"), @[cover,
+            SGSwitchRow(SGL(@"settings.pages.cover_beside", @"Cover beside the title"),
+                        SGL(@"settings.pages.cover_beside.subtitle", @"Albums and playlists in wide iPad windows. Applies immediately."),
+                        SGRKeyCoverBeside)]),
         SGNotedSection(nil, @[adaptive], SGL(@"settings.album.adaptive_cover.footer",
                                              @"Picks the page colour from the cover and keeps it sharp under the title.")),
         SGSection(nil, @[artistPicture]),

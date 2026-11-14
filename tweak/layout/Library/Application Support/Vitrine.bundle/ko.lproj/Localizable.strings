@@ -2149,6 +2149,8 @@
 "settings.playlist.artwork_background.title" = "아트워크 배경";
 "settings.playlist.cover.header" = "커버";
 "settings.playlist.cover_layout" = "커버 레이아웃";
+"settings.pages.cover_beside" = "제목 옆에 커버 표시";
+"settings.pages.cover_beside.subtitle" = "넓은 iPad 윈도우의 앨범과 플레이리스트에 바로 적용됩니다.";
 "settings.playlist.cover_viewer.cover" = "플레이리스트 커버";
 "settings.playlist.full_screen_cover.subtitle" = "플레이리스트 맨 위의 사진을 탭해 확대하거나 공유합니다";
 "settings.playlist.header" = "헤더";

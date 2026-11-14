@@ -11,6 +11,7 @@
 #import "SGRTokens.h"
 #import "SGRAccent.h"
 #import "SGRDownload.h"
+#import "SGRHeaderInfo.h"
 #import "Shared/AlbumQueue/AlbumQueue.h"
 
 // The capsule: the glyph is Spotify's own 48pt canvas with the triangle small in the middle of it, so the
@@ -682,10 +683,11 @@ SGRMirrorButton *SGRPinnedMore(UIView *page, const void *key, UIView *source) {
         [button addTarget:recorder action:@selector(sgr_moreTapped:) forControlEvents:UIControlEventTouchDown];
         objc_setAssociatedObject(page, key, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    keepOnTop(page, button);
+    BOOL inlineHeader = [button.superview isKindOfClass:SGRHeaderInfo.class];
+    if (!inlineHeader) keepOnTop(page, button);
     if (source) [button feedFrom:source];
     if (button.hidden != (source == nil)) button.hidden = source == nil;
-    placeInCorner(page, button, 0);
+    if (!inlineHeader) placeInCorner(page, button, 0);
     return button;
 }
 
@@ -714,13 +716,14 @@ SGRMirrorButton *SGRPinnedDownload(UIView *page, const void *key, UIView *source
         button.accessibilityIdentifier = @"Vitrine.Album.Download";
         objc_setAssociatedObject(page, key, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    keepUnderMore(page, button);
+    BOOL inlineHeader = [button.superview isKindOfClass:SGRHeaderInfo.class];
+    if (!inlineHeader) keepUnderMore(page, button);
     if (source) [button feedFrom:source];
     if (button.hidden != (source == nil)) button.hidden = source == nil;
     // Right beside ⋯, the two one capsule as the navigation bar groups its buttons: download carries the glass
     // for both, ⋯ none, and each keeps its own touch, press and glyph. Without download, ⋯ is its circle again.
     SGRMirrorButton *more = nil;
-    for (UIView *view in page.subviews.reverseObjectEnumerator) {
+    for (UIView *view in (inlineHeader ? button.superview : page).subviews.reverseObjectEnumerator) {
         if ([view isKindOfClass:SGRMirrorButton.class] && objc_getAssociatedObject(view, &kRecorderKey)) {
             more = (SGRMirrorButton *)view;
             break;
@@ -730,6 +733,6 @@ SGRMirrorButton *SGRPinnedDownload(UIView *page, const void *key, UIView *source
     button.sgr_glassReach = paired ? SGRGlassCircleSize : 0;
     button.sgr_glassReachesLeft = laidOutRightToLeft(page);
     more.sgr_glassReach = paired ? -1 : 0;
-    placeInCorner(page, button, SGRGlassCircleSize);
+    if (!inlineHeader) placeInCorner(page, button, SGRGlassCircleSize);
     return button;
 }

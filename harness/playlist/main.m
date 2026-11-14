@@ -7,6 +7,7 @@
 #import "Redesigned/Kit/SGRActionRow.h"
 #import "../harness-fail.h"
 #import "../album/hero-veil-check.h"
+#import "../album/beside-check.h"
 
 // A button's glass is first in its subviews; its glyph is first when it has never made one.
 static UIView *glassOf(UIView *button) {
@@ -228,6 +229,9 @@ static void verifyMixActions(UIView *root, BOOL independent) {
         } else if ([args containsObject:@"other"]) {
             model.playlistName = @"Barre Beats";
             model.playlistDescription = @"All music for beat-driven barre classes. Some cool-downs too! I&#x27;m always adding to the list";
+            if ([args containsObject:@"cover-beside"])
+                model.playlistDescription = @"All music for beat-driven barre classes, with gentle warm-ups and slow cool-downs. "
+                    @"A collection of favourite songs for moving together, finding your rhythm and taking a little time for yourself.";
         } else {
             model.playlistName = @"crap.";
             model.isOwnedBySelf = YES;
@@ -631,8 +635,13 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
 @implementation SGRHarnessDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"cover-beside"])
+        [NSUserDefaults.standardUserDefaults setBool:![NSProcessInfo.processInfo.arguments containsObject:@"card-cover"]
+                                            forKey:SGRKeyCoverBeside];
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     CGFloat W = self.window.bounds.size.width, H = self.window.bounds.size.height;
+    CGFloat fixtureWidth = [NSUserDefaults.standardUserDefaults doubleForKey:@"header-width"];
+    if (fixtureWidth > 0) W = fixtureWidth;
 
     UIViewController *page = [_TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController new];
     page.view.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1];
@@ -998,6 +1007,16 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     }
 
     [self.window makeKeyAndVisible];
+
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"cover-beside"]) {
+        besideRun(self.window, page, page.view, @"Playlist", ^{
+            [layout setNeedsLayout];
+            [layout layoutIfNeeded];
+        }, ^(NSString *text) {
+            ((SPTFreeTierPlaylistEncoreHeaderViewController *)headerVC).headerController.defaultHeaderViewModel.playlistName = text;
+        });
+        return YES;
+    }
 
     // The header collapsing, and the page pulled down past the top, with the frames Spotify sets in each
     // (trees/continuous/2.txt and 4.txt). The hero has to slide up out of the clipping view with the plane

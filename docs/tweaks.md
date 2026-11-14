@@ -1592,7 +1592,19 @@ Redesigned:
                   not yet seen, a filter on with no clear chip, or a fired control that failed) the chips come back, and a
                   folder keeps its chips
     Playlist/     the playlist page (Liked Songs and one's own too, all three being the same page) the way the Music
-                  app lays one out: the cover across the top, in the Full screen cover layout full bleed and dissolving into the page's
+                  app lays one out. Cover beside the title (`spotifyglass.redesign.pages.coverBeside`, on by default,
+                  live; the shared row in Albums and Playlists) places a square cover on the leading side in a
+                  regular-width iPad window, with the title, creator, metadata and existing action capsules
+                  leading-aligned 28pt after the cover and vertically centred on it. The description wraps below the
+                  action row; buttons keep their stacked-header sizes, and a row that cannot fit falls back rather
+                  than shrinking them. The cover is 40% of the available width, up to 320pt. Both columns mirror
+                  in RTL, and VoiceOver visits cover, title, details, then actions. Text grows with Dynamic Type;
+                  insufficient room falls back to the stacked header, as do iPhone and compact-width iPad.
+                  Resizing and switching the setting relayout the existing header without reopening it. A playlist
+                  without artwork keeps its existing header. Leaving beside mode in Card layout restores Spotify's
+                  cover's original mask, visibility, interaction and accessibility, including on cover reuse.
+                  `harness/album/beside-check.py` covers both page types.
+                  Otherwise the cover is across the top, in the Full screen cover layout full bleed and dissolving into the page's
                   field with no seam (Card leaves Spotify's square above the title, shrinking as the header collapses; a mix's
                   picture stays full bleed, as Spotify lays it out),
                   the title, the creator and the length centered under it, one row of glass controls (shuffle, a
@@ -1613,7 +1625,11 @@ Redesigned:
                   progress while it downloads, so the ring turns (Kit/SGRDownload.m).
                   Laid out on the Mac against harness/playlist/
     Album/        the album page laid out the same way, on the page the Creative Work Platform builds rather than the
-                  playlist's, so it shares nothing with Playlist/ but the Kit: the cover, in the Full screen layout full bleed, dissolving into the
+                  playlist's. The shared Cover beside the title setting uses the same regular-width iPad fit as
+                  Playlists, without replacing the page controller or its source views. The existing hero carries
+                  both still and animated covers in the leading square; motion eligibility and the page's colour
+                  source stay unchanged. Compact widths and an unfitting side column retain the stacked header.
+                  It shares nothing with Playlist/ but the Kit: the cover, in the Full screen layout full bleed, dissolving into the
                   field (Apple Music's animated cover over it where the album has one, fading in once its first frame
                   is decoded and moving only in front of the app with Reduce Motion and Low Power Mode off and Auto-Play
                   Video Previews on), the title, the artist and the kind and date centered under it, and the same row of glass

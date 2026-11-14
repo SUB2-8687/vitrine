@@ -1,5 +1,14 @@
 # Playlist harness
 
+The shared `python3 harness/album/beside-check.py --screenshots <directory> --mutation`
+also exercises this header's cover-beside layout, live setting, resize, RTL and
+Dynamic Type fallback. It builds and runs both fixtures on disposable simulator
+clones and keeps only the requested screenshots.
+Card mode additionally checks exact restoration of Spotify's cover layer mask,
+hidden state, interaction and accessibility after beside mode ends or the cover
+is reused. `HARNESS_SRC` selects a scratch source tree for committed-frame captures;
+the shared album harness documents their provenance.
+
 Spotify's playlist page mocked under its own class names and accessibility identifiers
 (from `trees/clean/playlist/01.txt`), so `Redesigned/Playlist/` can be laid out and looked at
 on the Mac without the phone.

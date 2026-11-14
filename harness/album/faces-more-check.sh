@@ -15,10 +15,9 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/album-faces-more.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 SHOTS=${SHOTS:-}
 
-TYPE=$(xcrun simctl list devicetypes | sed -n 's/.*(\(com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro\))$/\1/p' | head -1)
-RUNTIME=$(xcrun simctl list runtimes available | sed -n 's/.* - \(com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*\)$/\1/p' | tail -1)
-UDID=$(xcrun simctl create "AlbumFacesMore-$$" "$TYPE" "$RUNTIME")
-trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1; xcrun simctl delete "$UDID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
+SOURCE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for ds in json.load(sys.stdin)["devices"].values() for d in ds if d["name"] == "iPhone 17 Pro"))')
+UDID=$(xcrun simctl clone "$SOURCE" "AlbumFacesMore-$$")
+trap 'xcrun simctl delete "$UDID"; rm -rf "$WORK"' EXIT
 xcrun simctl boot "$UDID"
 xcrun simctl bootstatus "$UDID" > /dev/null
 xcrun simctl install "$UDID" "$APP"
@@ -41,5 +40,10 @@ xcrun simctl ui "$UDID" increase_contrast enabled
 # shellcheck disable=SC2086
 $RUN "PASS album more: ⋯ at L 0.88" --shots "$SHOTS" --suffix=-contrast -- $COLOURED more || status=1
 xcrun simctl ui "$UDID" increase_contrast disabled
+
+if [ "$status" -eq 0 ]; then
+    xcrun simctl shutdown "$UDID"
+    python3 "$HERE/beside-check.py" --screenshots "${SHOTS:-$WORK/ipad}" || status=1
+fi
 
 exit $status

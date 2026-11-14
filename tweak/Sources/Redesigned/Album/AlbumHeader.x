@@ -35,6 +35,7 @@
 #import "Shared/AnimatedArtwork/SGMotionClip.h"
 #import "Album.h"
 #import "AlbumNotes.h"
+#import "SGRCoverBeside.h"
 
 // A header whose text begins nearer the top than this is one mid load, not one to measure the hero from;
 // and an artwork view narrower than this is a placeholder glyph rather than the cover.
@@ -403,6 +404,7 @@ static SGRCoverRender *renderCover(UIImage *cover, SGRCoverDrawing d) {
 // Where Spotify lays its cover square out, in the hero's coordinates. With Full bleed covers off the picture is
 // drawn there instead, on the field with neither gradient, until an animated cover fills the hero over it.
 @property (nonatomic) CGRect square;
+@property (nonatomic) CGRect besideFrame;
 // The cover in Spotify's artwork view, and every cover it puts there afterward: the hero keeps itself
 // right, rather than being handed a picture on each of the header's passes and staying empty between them.
 - (void)followCover:(UIImageView *)source;
@@ -520,8 +522,25 @@ static void *kReadyContext = &kReadyContext;
     return _extension ? CGRectMake(0, 0, bounds.size.width, MIN(bounds.size.width, bounds.size.height)) : bounds;
 }
 
+- (CGRect)restBounds {
+    return CGRectIsEmpty(_besideFrame) ? [super restBounds] : (CGRect){CGPointZero, _besideFrame.size};
+}
+
+- (void)setBesideFrame:(CGRect)frame {
+    if (CGRectEqualToRect(_besideFrame, frame)) return;
+    _besideFrame = frame;
+    [self sgr_place];
+    [self setNeedsLayout];
+}
+
+- (void)sgr_place {
+    if (CGRectIsEmpty(_besideFrame)) [super sgr_place];
+    else if (!CGRectEqualToRect(self.frame, _besideFrame)) self.frame = _besideFrame;
+}
+
 // The part of the picture over no text: the title and the artist start SGRHeaderInfoTitleRise above its bottom.
 - (CGRect)sgr_coverArea {
+    if (!CGRectIsEmpty(_besideFrame)) return self.bounds;
     return CGRectMake(0, 0, self.bounds.size.width, MAX(0, self.bounds.size.height - SGRHeaderInfoTitleRise));
 }
 
@@ -571,7 +590,8 @@ static void *kReadyContext = &kReadyContext;
 }
 
 - (void)layoutSubviews {
-    BOOL bleeds = SGRPageFullCover(SGRKeyAlbumFullCover) || _motion.opacity == 1;
+    BOOL beside = !CGRectIsEmpty(_besideFrame);
+    BOOL bleeds = !beside && (SGRPageFullCover(SGRKeyAlbumFullCover) || _motion.opacity == 1);
     self.stretchesContent = bleeds;
     self.dissolves = bleeds;
     [super layoutSubviews];
@@ -579,7 +599,11 @@ static void *kReadyContext = &kReadyContext;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     [_veil artWillLayOut];
-    if (SGRPageFullCover(SGRKeyAlbumFullCover)) {
+    if (beside || SGRPageFullCover(SGRKeyAlbumFullCover)) {
+        if (beside) {
+            self.content.transform = CGAffineTransformIdentity;
+            self.content.frame = bounds;
+        }
         if (_extension) _extension.frame = bounds;
         _picture.frame = [self sgr_fullPicture];
     } else {
@@ -598,6 +622,14 @@ static void *kReadyContext = &kReadyContext;
     if (_adaptive) {
         [self sgr_placeRender];
         [self sgr_fitDissolve];
+    }
+    if (beside) {
+        self.content.layer.mask = nil;
+        self.scrim.hidden = YES;
+        _shadow.hidden = YES;
+        _render.hidden = YES;
+    } else {
+        _render.hidden = NO;
     }
     [self sgr_fitVeil];
     [_veil artDidLayOut];
@@ -666,6 +698,10 @@ static void *kReadyContext = &kReadyContext;
 // was, under a clip beginning where its first frame stops being sharp.
 - (void)sgr_fitDissolve {
     if (!_adaptive) return;
+    if (!CGRectIsEmpty(_besideFrame)) {
+        _dissolve.hidden = YES;
+        return;
+    }
     CGRect bounds = self.restBounds;
     CGFloat width = bounds.size.width, height = bounds.size.height;
     UIColor *color = _fieldColor;
@@ -1086,7 +1122,7 @@ static SGRHeaderInfo *applyInfo(UIView *header, UIView *page, NSString **artist,
     for (UIView *sub in header.subviews) {
         if (sub != info && sub != hero) SGRBlankView(sub);
     }
-    setFrame(info, header.bounds);
+    if (!info.sgr_coverBeside) setFrame(info, header.bounds);
 
     UIView *title = SGRFindByIdentifier(header, @"CreativeWorkPlatform.Components.UI.TitleRow", &kTitleKey);
     // Spotify's header grows and shrinks as its Play turns to Pause (issue #25), its title row does not.
@@ -1234,10 +1270,24 @@ static void applyHeader(UIView *header, UIView *page) {
     // rest is the tallest it has been, so the picture does not change size as the header loads or scrolls.
     CGFloat rest = MAX([objc_getAssociatedObject(header, &kHeaderHeightKey) doubleValue], header.bounds.size.height);
     objc_setAssociatedObject(header, &kHeaderHeightKey, @(rest), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    CGFloat bottom = rest - SGRHeaderInfoBottom - [info contentHeightForWidth:header.bounds.size.width] + SGRHeaderInfoTitleRise;
     UIView *cover = SGRFindByIdentifier(header, @"CreativeWorkPlatform.Components.UI.ArtWorkElement.WithCoverArt", &kCoverKey);
+    __weak UIView *weakHeader = header, *weakPage = page;
+    CGRect available = CGRectInset(header.bounds, 20, 0);
+    CGFloat top = cover ? CGRectGetMinY([cover convertRect:cover.bounds toView:header]) : 0;
+    available.origin.y = top;
+    available.size.height -= top + SGRHeaderInfoBottom;
+    CGRect beside = [info sgr_coverBesideIn:header available:cover ? available : CGRectZero
+        direction:page.effectiveUserInterfaceLayoutDirection
+        stackedParent:header stackedFrame:header.bounds
+        more:objc_getAssociatedObject(page, &kPinnedMoreKey) download:objc_getAssociatedObject(page, &kPinnedDownloadKey)
+        refresh:^{ if (weakHeader && weakPage) applyHeader(weakHeader, weakPage); }];
+    SGRAlbumHero *existingHero = objc_getAssociatedObject(header, &kHeroKey);
+    existingHero.besideFrame = beside;
+    CGFloat bottom = rest - SGRHeaderInfoBottom - [info contentHeightForWidth:header.bounds.size.width] + SGRHeaderInfoTitleRise;
     if (cover) applyHero(header, cover, bottom);
     SGRAlbumHero *hero = objc_getAssociatedObject(header, &kHeroKey);
+    hero.besideFrame = beside;
+    header.accessibilityElements = info.sgr_coverBeside ? @[hero, info] : nil;
     // The header scrolls with the page's scroll view, the hero and the info with it.
     SGRHeroVeil *veil = hero.veil;
     if (veil) {

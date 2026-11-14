@@ -5,6 +5,7 @@
 #import "SGRActionRow.h"
 #import "SGRRestyle.h"
 #import "SGRTokens.h"
+#import "Redesigned/Album/SGRCoverBeside.h"
 
 const CGFloat SGRHeaderInfoBottom = 14;
 const CGFloat SGRHeaderInfoTitleRise = 56;
@@ -204,6 +205,11 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     CGFloat _contentTop;
     CAGradientLayer *_barClip;
     BOOL _clipsUnderBar;
+    BOOL _beside, _besideFonts;
+    __weak UIView *_besideMore, *_besideDownload;
+    __weak UIView *_morePage, *_downloadPage;
+    dispatch_block_t _besideRefresh;
+    id _besideDefaultsObserver, _besideTextObserver;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -238,6 +244,133 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
         [self addSubview:button];
     }
     return self;
+}
+
+- (BOOL)sgr_coverBeside { return _beside; }
+
+- (void)dealloc {
+    if (_besideDefaultsObserver) [NSNotificationCenter.defaultCenter removeObserver:_besideDefaultsObserver];
+    if (_besideTextObserver) [NSNotificationCenter.defaultCenter removeObserver:_besideTextObserver];
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previous {
+    [super traitCollectionDidChange:previous];
+    if (_besideRefresh && (previous.horizontalSizeClass != self.traitCollection.horizontalSizeClass ||
+        ![previous.preferredContentSizeCategory isEqual:self.traitCollection.preferredContentSizeCategory])) {
+        _besideRefresh();
+    }
+}
+
+- (void)sgr_besideTypography:(BOOL)beside traits:(UITraitCollection *)traits {
+    NSArray *styles = @[UIFontTextStyleTitle2, UIFontTextStyleBody, UIFontTextStyleFootnote, UIFontTextStyleFootnote];
+    NSArray<UILabel *> *labels = @[_title, _creator, _length, _about];
+    for (NSUInteger i = 0; i < labels.count; i++) {
+        UILabel *label = labels[i];
+        UIFontWeight weight = i == 0 ? UIFontWeightBold : UIFontWeightRegular;
+        if (beside) {
+            UIFont *preferred = [UIFont preferredFontForTextStyle:styles[i] compatibleWithTraitCollection:traits];
+            label.font = [UIFont systemFontOfSize:preferred.pointSize weight:weight];
+            label.numberOfLines = 0;
+        } else {
+            label.font = SGCategoryCappedFont(styles[i], weight, UIContentSizeCategoryExtraLarge);
+            label.numberOfLines = i == 0 || i == 3 ? 2 : 1;
+        }
+    }
+    _besideFonts = beside;
+    _measuredWidth = -1;
+}
+
+- (CGRect)sgr_coverBesideIn:(UIView *)space available:(CGRect)available
+                 direction:(UIUserInterfaceLayoutDirection)direction
+             stackedParent:(UIView *)parent stackedFrame:(CGRect)frame
+                      more:(UIView *)more download:(UIView *)download
+                   refresh:(dispatch_block_t)refresh {
+    _besideRefresh = [refresh copy];
+    if (!_besideDefaultsObserver) {
+        __weak SGRHeaderInfo *weakSelf = self;
+        __block BOOL enabled = SGEnabled(SGRKeyCoverBeside);
+        _besideDefaultsObserver = [NSNotificationCenter.defaultCenter
+            addObserverForName:NSUserDefaultsDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    SGPrefsChanged();
+                    BOOL on = SGEnabled(SGRKeyCoverBeside);
+                    if (on == enabled) return;
+                    enabled = on;
+                    SGRHeaderInfo *info = weakSelf;
+                    if (info && info->_besideRefresh) info->_besideRefresh();
+                });
+            }];
+        _besideTextObserver = [NSNotificationCenter.defaultCenter
+            addObserverForName:UIContentSizeCategoryDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    SGRHeaderInfo *info = weakSelf;
+                    if (info && info->_besideRefresh) info->_besideRefresh();
+                });
+            }];
+    }
+    BOOL eligible = space.traitCollection.userInterfaceIdiom == UIUserInterfaceIdiomPad &&
+        space.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular && SGEnabled(SGRKeyCoverBeside);
+    if (eligible || _besideFonts) [self sgr_besideTypography:eligible traits:space.traitCollection];
+    // Fit the whole row, including the existing download/More capsule, before committing either column.
+    const CGFloat gap = 28, maximumCover = 320, coverShare = 0.4;
+    CGFloat side = MIN(maximumCover, available.size.width * coverShare);
+    CGFloat column = available.size.width - side - gap;
+    CGFloat extra = ((!more.hidden && more) ? SGRGlassCircleSize : 0) +
+                    ((!download.hidden && download) ? SGRGlassCircleSize : 0);
+    CGFloat rowWidth = MAX(kPlayWidth, [_play sgr_width]) + 2 * (SGRActionHeight + kRowSpacing);
+    if (extra) rowWidth += kRowSpacing + extra;
+    CGFloat content = [self sgr_contentHeightForTextWidth:MAX(0, column)];
+    BOOL beside = eligible && side > 0 && column >= rowWidth &&
+        content <= side && side <= available.size.height;
+    if (!beside && _besideFonts) [self sgr_besideTypography:NO traits:space.traitCollection];
+    _beside = beside;
+    if (beside) {
+        if (more && more.superview != self) {
+            _morePage = more.superview;
+            [self addSubview:more];
+        }
+        if (download && download.superview != self) {
+            _downloadPage = download.superview;
+            if (more.superview == self) [self insertSubview:download belowSubview:more];
+            else [self addSubview:download];
+        }
+    } else {
+        if (_besideDownload.superview == self && _downloadPage) {
+            [_downloadPage addSubview:_besideDownload];
+            [_downloadPage setNeedsLayout];
+        }
+        if (_besideMore.superview == self && _morePage) {
+            [_morePage addSubview:_besideMore];
+            [_morePage setNeedsLayout];
+        }
+    }
+    _besideMore = beside ? more : nil;
+    _besideDownload = beside ? download : nil;
+    CGRect cover = CGRectZero;
+    if (beside) {
+        BOOL rtl = direction == UIUserInterfaceLayoutDirectionRightToLeft;
+        self.semanticContentAttribute = rtl ? UISemanticContentAttributeForceRightToLeft : UISemanticContentAttributeForceLeftToRight;
+        CGFloat top = CGRectGetMinY(available) + (available.size.height - side) / 2;
+        cover = CGRectMake(rtl ? CGRectGetMaxX(available) - side : CGRectGetMinX(available), top, side, side);
+        CGRect text = CGRectMake(rtl ? CGRectGetMinX(available) : CGRectGetMaxX(cover) + gap, top, column, side);
+        if (self.superview != space) [space addSubview:self];
+        if (!CGRectEqualToRect(self.frame, text)) self.frame = text;
+        NSMutableArray *order = [NSMutableArray array];
+        for (UIView *view in @[_title, _creator, _length, _shuffle, _play, _trailing]) {
+            if (!view.hidden) [order addObject:view];
+        }
+        if (download && !download.hidden) [order addObject:download];
+        if (more && !more.hidden) [order addObject:more];
+        if (!_about.hidden) [order addObject:_about];
+        self.accessibilityElements = order;
+    } else {
+        self.semanticContentAttribute = UISemanticContentAttributeUnspecified;
+        if (self.superview != parent) [parent addSubview:self];
+        if (!CGRectEqualToRect(self.frame, frame)) self.frame = frame;
+        self.accessibilityElements = nil;
+    }
+    [self setNeedsLayout];
+    return cover;
 }
 
 // Touches only for the buttons and, where there is one, the creator line: the rest of the text lets a
@@ -588,9 +721,8 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     [CATransaction commit];
 }
 
-- (CGFloat)contentHeightForWidth:(CGFloat)width {
-    if (width == _measuredWidth) return _measuredHeight;
-    CGFloat text = MAX(0, width - 2 * kSide), height = 0;
+- (CGFloat)sgr_contentHeightForTextWidth:(CGFloat)text {
+    CGFloat height = 0;
     UILabel *previous = nil;
     for (UILabel *label in @[_title, _creator, _length]) {
         if (label.hidden) continue;
@@ -601,17 +733,25 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     if (previous) height += kRowAbove;
     height += [self sgr_rowHeight];
     if (!_about.hidden) height += kAboutAbove + ceil([_about sizeThatFits:CGSizeMake(text, CGFLOAT_MAX)].height);
-    _measuredWidth = width;
-    _measuredHeight = height;
     return height;
+}
+
+- (CGFloat)contentHeightForWidth:(CGFloat)width {
+    if (width == _measuredWidth) return _measuredHeight;
+    _measuredWidth = width;
+    _measuredHeight = [self sgr_contentHeightForTextWidth:MAX(0, width - 2 * (_beside ? 0 : kSide))];
+    return _measuredHeight;
 }
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGFloat width = self.bounds.size.width, text = MAX(0, width - 2 * kSide);
+    CGFloat width = self.bounds.size.width, inset = _beside ? 0 : kSide, text = MAX(0, width - 2 * inset);
+    BOOL rtl = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+    NSTextAlignment leading = rtl ? NSTextAlignmentRight : NSTextAlignmentLeft;
     CGFloat content = [self contentHeightForWidth:width];
     CGFloat y = round(self.bounds.size.height - SGRHeaderInfoBottom - content);
     if (self.pinnedTop > 0 && self.pinnedTop + content <= self.bounds.size.height) y = round(self.pinnedTop);
+    if (_beside) y = round((self.bounds.size.height - content) / 2);
     _contentTop = y;
     // No name, no picture: it belongs to the line.
     _picture.hidden = !_picture.image || _creator.hidden;
@@ -624,7 +764,8 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
         if (previous) y += [self sgr_gapAfter:previous];
         CGSize size = [self sgr_sizeOf:label width:text];
         CGFloat height = ceil(size.height);
-        label.frame = CGRectMake(kSide, y, text, height);
+        label.textAlignment = _beside ? leading : NSTextAlignmentCenter;
+        label.frame = CGRectMake(inset, y, text, height);
         // The name at its own width, so a tap beside it is the page's (-sgr_creatorHit:), and before it the
         // picture, a line high so the line keeps its height, the two centered together. The picture leads, so it
         // is on the right in a right-to-left language.
@@ -634,7 +775,7 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
             CGFloat picture = faces || !_picture.hidden ? lead + kPictureGap : 0;
             CGFloat named = MIN(ceil(size.width), MAX(0, text - picture));
             CGFloat x = round((width - picture - named) / 2);
-            BOOL rtl = self.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+            if (_beside) x = rtl ? width - picture - named : 0;
             CGFloat leadX = rtl ? x + named + kPictureGap : x;
             if (faces) {
                 CGFloat side = [self sgr_faceSide], scale = self.traitCollection.displayScale ?: UIScreen.mainScreen.scale;
@@ -667,17 +808,36 @@ NSArray<UIImageView *> *SGRCreatorFaces(UIView *root) {
     } else {
         CGFloat side = row;
         // As wide as its word, short of pushing the other two off the page.
-        CGFloat playWidth = MIN(MAX(kPlayWidth, [_play sgr_width]), width - 2 * (kSide + side + kRowSpacing));
+        CGFloat playWidth = MAX(kPlayWidth, [_play sgr_width]);
+        if (!_beside) playWidth = MIN(playWidth, width - 2 * (kSide + side + kRowSpacing));
         CGRect play = CGRectMake(round((width - playWidth) / 2), y, playWidth, side);
         _play.frame = play;
         _shuffle.frame = CGRectMake(CGRectGetMinX(play) - kRowSpacing - side, y, side, side);
         _trailing.frame = CGRectMake(CGRectGetMaxX(play) + kRowSpacing, y, side, side);
     }
+    if (_beside) {
+        NSMutableArray<UIView *> *buttons = [NSMutableArray array];
+        for (UIView *button in @[_shuffle, _play, _trailing]) if (!button.hidden) [buttons addObject:button];
+        if (_besideDownload && !_besideDownload.hidden) [buttons addObject:_besideDownload];
+        if (_besideMore && !_besideMore.hidden) [buttons addObject:_besideMore];
+        CGFloat x = 0;
+        for (NSUInteger i = 0; i < buttons.count; i++) {
+            UIView *button = buttons[i];
+            CGFloat height = button == _besideDownload || button == _besideMore ? SGRGlassCircleSize : row;
+            CGFloat w = button == _play ? _play.bounds.size.width : height;
+            CGRect place = CGRectMake(rtl ? width - x - w : x, y + (row - height) / 2, w, height);
+            CGRect target = [self convertRect:place toView:button.superview];
+            if (!CGRectEqualToRect(button.frame, target)) button.frame = target;
+            x += w;
+            if (i + 1 < buttons.count && !(button == _besideDownload && buttons[i + 1] == _besideMore)) x += kRowSpacing;
+        }
+    }
     y += row;
 
     if (!_about.hidden) {
         y += kAboutAbove;
-        _about.frame = CGRectMake(kSide, y, text, ceil([_about sizeThatFits:CGSizeMake(text, CGFLOAT_MAX)].height));
+        _about.textAlignment = _beside ? leading : NSTextAlignmentNatural;
+        _about.frame = CGRectMake(inset, y, text, ceil([_about sizeThatFits:CGSizeMake(text, CGFLOAT_MAX)].height));
     }
     if (_clipsUnderBar) [self clipUnderTopBar];
 }

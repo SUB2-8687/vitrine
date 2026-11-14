@@ -1,5 +1,31 @@
 # Album harness
 
+`python3 harness/album/beside-check.py --screenshots <directory> --mutation` builds
+both album and playlist fixtures in a temporary directory and uses disposable clones
+of iPad Pro 13-inch (M5) and iPhone 17 Pro. It checks portrait, live landscape
+rotation, large text with a long title, RTL, live setting changes, oversized-text
+fallback, compact traits, and unchanged iPhone frames at 430/390/320 pt.
+It saves iPad header screenshots after the page's reveal and rotation finish, deletes its clones/builds, and rejects a temporary
+mutant with the action row displaced from the leading edge. No Spotify controller is replaced.
+The existing Album faces and row more lane runs these cases too, without the
+one-time mutation build.
+
+The iPhone frame literals in `beside-check.h` were captured on an iPhone 17 Pro
+clone (iOS 26.5, default text size, motion off) with the same fixtures at
+430/390/320 pt against committed header sources from
+`fdd69a3ada5cc04638aac73a9882484a8bf37355`: `SGRHeaderInfo.m`, `SGRActionRow.m`,
+`AlbumHeader.x` and `PlaylistHeader.x`. Those files came from Git objects into
+a scratch source tree selected by `HARNESS_SRC`, never by reverting the working
+tree. Both setting states must match these independent captures, including the
+info/hero frames and visible title, details, description and action frames.
+The iPad playlist also checks Card cover restoration after switching beside off,
+compact width and replacing the source cover, with both nil and existing masks.
+
+The side-column checks require a 28pt cover gap, leading text/actions (mirrored in
+RTL), a description wrapped below the row, and action sizes identical to the
+stacked header. The pale strip in the default album artwork is intentional:
+`drawScannedSleeve` in `harness/album/cover-fixtures.h` paints its bottom 18 of 300 pixels.
+
 Spotify's album page mocked under its own class names and accessibility identifiers
 (from `trees/clean/album/03.txt`), so `Redesigned/Album/` can be laid out and looked at
 on the Mac without the phone.
