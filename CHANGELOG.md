@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0-beta.30](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.29...v1.0.0-beta.30) (2026-11-14)
+
+
+### Features
+
+* iPad 두 칸 플레이어와 캡슐 미니 플레이어 추가 ([ee259c9](https://github.com/oneulddu/vitrine/commit/ee259c969835e81b6be869ed77b9b67b3d533691))
+* iPad에서 앨범·플레이리스트 커버를 제목 옆에 표시 ([0dfc112](https://github.com/oneulddu/vitrine/commit/0dfc112e9433358f90226e36bb347d04f4c04224))
+* 커버에서 페이지를 여는 확대 전환 추가 ([286f5f1](https://github.com/oneulddu/vitrine/commit/286f5f1fbeb05084c66e655d0d24dbcf13c9d57b))
+
 ## [1.0.0-beta.29](https://github.com/oneulddu/vitrine/compare/v1.0.0-beta.28...v1.0.0-beta.29) (2026-11-14)
 
 
