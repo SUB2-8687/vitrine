@@ -233,6 +233,8 @@
 "settings.appearance.scroll_veil.title" = "스크롤할 때 커버 흐리게";
 "settings.appearance.scrolled_title.subtitle" = "플레이리스트, 앨범, 아티스트, 프로필에서 뒤로 버튼과 더 보기 사이에 작은 제목을 표시합니다";
 "settings.appearance.scrolled_title.title" = "스크롤 시 페이지 제목";
+"settings.appearance.page_zoom.title" = "커버에서 페이지 열기";
+"settings.appearance.page_zoom.subtitle" = "누른 커버에서 앨범과 플레이리스트가 펼쳐지고, 뒤로 가면 커버로 돌아갑니다. 다시 시작하면 적용됩니다";
 "settings.appearance.plain_checkmark.title" = "단순 체크표시";
 "settings.appearance.title" = "화면 모양";
 

@@ -185,6 +185,8 @@
 "settings.appearance.scroll_veil.title" = "Blur covers on scroll";
 "settings.appearance.scrolled_title.subtitle" = "Show the small title between Back and More on playlists, albums, artists and profiles";
 "settings.appearance.scrolled_title.title" = "Page title when scrolled";
+"settings.appearance.page_zoom.title" = "Open pages from their artwork";
+"settings.appearance.page_zoom.subtitle" = "Albums and playlists grow from the cover you tap and return to it when you go back. Restart to apply";
 "settings.appearance.title" = "Appearance";
 
 "settings.appicon.choice.default" = "Default";

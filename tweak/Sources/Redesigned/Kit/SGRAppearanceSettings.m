@@ -4,6 +4,7 @@
 #import "SGRAccent.h"
 #import "SGRHeaderInfo.h"
 #import "SGRHeroVeil.h"
+#import "Redesigned/Navigation/PageZoom.h"
 
 // The preset is read off the color stored, so the hooks keep the one key they read and a color set before
 // presets existed stays in effect: Apple Music's red reads as Apple Music, Spotify's own (-1) as Spotify, and
@@ -70,6 +71,9 @@ NSArray<SGModRow *> *SGRAppearanceRows(void) {
         SGWithSymbol(SGSwitchRow(SGL(@"settings.appearance.scrolled_title.title", @"Page title when scrolled"),
             SGL(@"settings.appearance.scrolled_title.subtitle", @"Show the small title between Back and More on playlists, albums, artists and profiles"),
             SGRKeyPageTitleWhenScrolled), @"textformat"),
+        SGWithSymbol(SGOptionRow(SGL(@"settings.appearance.page_zoom.title", @"Open pages from their artwork"),
+            SGL(@"settings.appearance.page_zoom.subtitle", @"Albums and playlists grow from the cover you tap and return to it when you go back. Restart to apply"),
+            SGRKeyPageZoom), @"arrow.up.left.and.arrow.down.right"),
         SGWithSymbol(SGSwitchRow(SGL(@"settings.appearance.play_page_color.title", @"Play in the page's color"),
             SGL(@"settings.appearance.play_page_color.subtitle", @"The Play button's symbol and word take the page's color. Off, they take the accent color"),
             SGRKeyPlayInPageColour), @"play.fill"),

@@ -1489,6 +1489,48 @@ Redesigned:
                   line under the cover, the player's lyrics and landscape/full-screen lyrics to 75–130% of their own size,
                   Default changing nothing, the line under the cover keeping the iPhone's text size and its fitting. Laid out on the Mac against
                   harness/lyrics/; the page against harness/lyrics-page/
+    Navigation/   Open pages from their artwork, an opt-in on Appearance beside the page-title options
+                  (`spotifyglass.redesign.pageZoom`, off, restart to apply, iOS 26 only; PageZoom.x/m).
+                  A passive touch observer and control actions remember the artwork of the selected card or cell;
+                  SPNavigationController's push flags only album and playlist URIs. The hosting page's URI is available
+                  before the push, when spt_pageURI is still nil. The source holds views weakly and rejects artwork that
+                  leaves its window, is clipped offscreen, changes image or belongs to a reused cell.
+                  UIKit's preferred zoom was tested first: its morph/portal hierarchy targets Spotify's LayoutOnlyView,
+                  whose LayoutOnlyLayer inherits CATransformLayer and ignores masks. The portal hides its source but
+                  the full-size page's descendants remain visible behind the shrinking portal. A diagnostic CALayer
+                  substitution removed that duplicate, but changing Spotify's view's backing layer is not shipped.
+                  The black push is separately Spotify's empty LoadableTemplateViewController before its album loads;
+                  changing the layer does not make the content ready.
+                  The scoped replacement forwards Spotify's navigation delegate through a weak-target proxy. Only a
+                  flagged push/pop receives a 0.4-second spring animator; every other delegate selector and unrelated
+                  transition goes to Spotify. Delegate reassignment updates that forwarding target. The animator moves
+                  the actual page into a temporary CALayer-backed carrier, not a replacement controller or root view,
+                  and grows/shrinks it at the artwork frame while dimming the source page slightly. Tab bar and mini
+                  player remain outside the carrier. A push retains the source image view's full-resolution UIImage,
+                  not a bounds-sized rendered snapshot. It stays square and top-aligned, tracking the carrier's width,
+                  with black below it; its corner radius animates from the source's to zero. The destination stays transparent
+                  underneath, laid out at its final size rather than repeatedly resized with the image. An uncapped
+                  display link inspects readiness at most every 50 ms, only on that destination, for laid-out collection cells or the album's
+                  LegacyUI_ECMCoreKit HeaderView with non-empty bounds. On that signal, or after a 0.6-second cap,
+                  the page fades in and the image fades out over 0.2 seconds. The spring still takes 0.4 seconds;
+                  transition completion waits for both it and the reveal. The display link is invalidated when the
+                  reveal begins and in completion, and the original page alpha and autoresizing mask are restored.
+                  Incoming navigation platters are matched by their bar items (including the previous item's Back),
+                  never by hiding the shared navigation bar. Their glass and controls reveal with the page; original
+                  alpha is restored on completion or cancellation. Source and unrelated chrome are left alone.
+                  Missing/reused artwork and Reduce Motion use a cross-fade.
+                  Interactive pops return nil for UIKit's slide; no interaction controller, recognizer or page cache is
+                  added. `python3 harness/page-zoom/check.py` checks on/off, delegate forwarding/reassignment,
+                  interactive-pop selection, an uncapped readiness link, destination-chrome alpha and cancellation
+                  restoration, a CATransformLayer page, the source-image push, content/deadline reveal,
+                  source geometry, removal and cell reuse.
+                  Real Spotify 9.1.90 confirms the pop duplicate is gone, the source remains behind the growing page,
+                  Reduce Motion cross-fades, and the Home tab returns to root. Cold and warm Home-to-album captures
+                  confirm the cover grows through loading and fades into the destination without the empty growing page.
+                  Edge-swipe acceptance remains open: the simulator input attempts did not start a pop with either
+                  setting, despite the recognizer being enabled; the harness's interactive branch is not a real gesture
+                  pass; real-device edge-swipe verification is pending. Search, Library, artist rows, VoiceOver and older
+                  Spotify versions await visual acceptance.
     Home/         Home decluttered to music on black (an allow list of its sections: shortcuts, the DJ without its heading and its
                   Beta badge, what it says kept, the shelves of cards, each with a switch on the Home page of Mod Settings; the previews and the
                   song suggestions only when switched on), a large title where the filter pills were, the title rising and
