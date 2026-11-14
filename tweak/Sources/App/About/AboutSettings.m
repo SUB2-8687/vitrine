@@ -1,5 +1,7 @@
 #import "Core/SGCore.h"
+#import "Core/SGLocalize.h"
 #import "Settings/SGPageStyle.h"
+#import "App/Pages.h"
 #import "About.h"
 #import "App/Onboarding/Onboarding.h"
 #import "Shared/AutoMix/AutoMix.h"
@@ -79,7 +81,24 @@ UIViewController *SGAboutPage(void) {
         @[SGL(@"settings.mod.language.system", @"System"),
           SGL(@"settings.mod.language.english", @"English"),
           SGL(@"settings.mod.language.korean", @"한국어")], 0);
-    language.choiceFooter = SGL(@"settings.mod.language.footer", @"Applies after you restart Spotify.");
+    __block BOOL languageChanged = NO;
+    language.chosen = ^(NSInteger index) { languageChanged = SGSetLanguageChoice(index); };
+    language.chosenAfterDismiss = ^(NSInteger index) {
+        if (!languageChanged) return;
+        SGModPage *aboutPage = owner;
+        UINavigationController *navigation = aboutPage.navigationController;
+        if (!aboutPage || !navigation) return;
+        NSMutableArray<UIViewController *> *pages = [navigation.viewControllers mutableCopy];
+        NSUInteger aboutIndex = [pages indexOfObjectIdenticalTo:aboutPage];
+        if (aboutIndex == NSNotFound) return;
+        for (NSUInteger i = 0; i < pages.count; i++) {
+            UIViewController *page = pages[i];
+            if (page == aboutPage) pages[i] = SGAboutPage();
+            else if ([page isKindOfClass:SGModPage.class] && [page.title isEqualToString:@"Vitrine"])
+                pages[i] = SGModSettingsPage();
+        }
+        [navigation setViewControllers:pages animated:NO];
+    };
     SGModRow *reset = SGWithSymbol(SGActionRow(SGL(@"settings.mod.reset.title", @"Reset all settings"), nil, ^{ confirmReset(); }), @"trash");
     reset.color = SGRed();
     // Reset all removes the settings; the keys live in the Keychain, which it leaves alone, so this takes them.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -27,9 +26,9 @@ type Profile struct {
 	Keepalive    int
 	HasPSK       bool
 
-	privateKeyHex []byte
-	publicKeyHex  []byte
-	pskHex        []byte
+	privateKeyHex string
+	publicKeyHex  string
+	pskHex        string
 }
 
 // Errors are short fixed strings. They never contain profile values, so they
@@ -76,21 +75,12 @@ func splitList(value string) []string {
 	return out
 }
 
-func decodeKey(value string) ([]byte, error) {
+func decodeKey(value string) (string, error) {
 	b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
 	if err != nil || len(b) != 32 {
-		return nil, errKey
+		return "", errKey
 	}
-	out := make([]byte, hex.EncodedLen(len(b)))
-	hex.Encode(out, b)
-	clear(b)
-	return out, nil
-}
-
-func (p *Profile) clearKeys() {
-	clear(p.privateKeyHex)
-	clear(p.publicKeyHex)
-	clear(p.pskHex)
+	return hex.EncodeToString(b), nil
 }
 
 // ParseProfile validates a standard WireGuard configuration.
@@ -99,12 +89,6 @@ func ParseProfile(text string) (*Profile, error) {
 		return nil, errTooLarge
 	}
 	p := &Profile{MTU: 1280}
-	accepted := false
-	defer func() {
-		if !accepted {
-			p.clearKeys()
-		}
-	}()
 	fields := map[string]string{}
 	section := ""
 	peers := 0
@@ -253,7 +237,6 @@ func ParseProfile(text string) (*Profile, error) {
 		}
 		p.Keepalive = seconds
 	}
-	accepted = true
 	return p, nil
 }
 
@@ -294,19 +277,13 @@ func (p *Profile) HasIPv6() bool {
 }
 
 // uapi builds the wireguard-go configuration. endpoint must be numeric.
-func (p *Profile) uapi(endpoint netip.AddrPort) []byte {
-	var b bytes.Buffer
-	b.WriteString("private_key=")
-	b.Write(p.privateKeyHex)
-	b.WriteByte('\n')
+func (p *Profile) uapi(endpoint netip.AddrPort) string {
+	var b strings.Builder
+	b.WriteString("private_key=" + p.privateKeyHex + "\n")
 	b.WriteString("replace_peers=true\n")
-	b.WriteString("public_key=")
-	b.Write(p.publicKeyHex)
-	b.WriteByte('\n')
-	if len(p.pskHex) != 0 {
-		b.WriteString("preshared_key=")
-		b.Write(p.pskHex)
-		b.WriteByte('\n')
+	b.WriteString("public_key=" + p.publicKeyHex + "\n")
+	if p.pskHex != "" {
+		b.WriteString("preshared_key=" + p.pskHex + "\n")
 	}
 	b.WriteString("endpoint=" + endpoint.String() + "\n")
 	if p.Keepalive > 0 {
@@ -316,7 +293,7 @@ func (p *Profile) uapi(endpoint netip.AddrPort) []byte {
 	for _, prefix := range p.AllowedIPs {
 		b.WriteString("allowed_ip=" + prefix.String() + "\n")
 	}
-	return b.Bytes()
+	return b.String()
 }
 
 // Summary returns only non-secret profile facts for the settings screen.

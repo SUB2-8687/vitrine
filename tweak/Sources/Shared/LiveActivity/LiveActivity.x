@@ -506,7 +506,7 @@ void SGSetLiveActivityEnabled(BOOL on) {
         sg_translationRevision++;
         // A sleep timer runs on its own clock (SleepTimer.m) and stays set: the shortcut and the control set it
         // with the card off, and a card switched back on shows it from its first tick.
-        if (!on || !SGLiveActivityAllowedByInstall() || SGLyricsPiPActive()) {
+        if (!on || SGLyricsPiPActive()) {
             [SGLiveActivityBridge end];
             SGLog(@"live activity: off");
             return;
@@ -561,7 +561,7 @@ void SGSetLiveActivityEnabled(BOOL on) {
         // It was the redesign's alone until it moved to Shared/; whoever had it on keeps it on.
         SGMigrateKey(SGKeyLiveActivityWas, SGKeyLiveActivity);
         SGMigrateKey(SGKeyLiveActivityViewWas, SGKeyLiveActivityView);
-        BOOL on = SGFlag(SGKeyLiveActivity, NO) && SGLiveActivityAllowedByInstall();
+        BOOL on = SGFlag(SGKeyLiveActivity, NO);
         [NSNotificationCenter.defaultCenter addObserverForName:SGLyricsPiPDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (SGLyricsPiPActive()) sg_pipResumePending = YES;

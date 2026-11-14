@@ -5,6 +5,9 @@
 
 @class SGModRow;
 
+// Builds a fresh root page after a live localization change.
+UIViewController *SGModSettingsPage(void);
+
 // Redesigned UI, the one switch between the two looks, and what its ⓘ reads out.
 void SGSetRedesignedUI(BOOL on);
 NSString *SGRedesignedUIInfoText(void);

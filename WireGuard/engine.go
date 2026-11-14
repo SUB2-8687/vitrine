@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
@@ -55,11 +54,7 @@ type Engine struct {
 	relistens                        atomic.Int64
 	started                          time.Time
 	endpointResolvedLocally          bool
-	pendingAuth                      chan struct{}
 }
-
-const maxUnauthenticatedClients = 32
-const authenticationTimeout = 3 * time.Second
 
 type EngineOptions struct {
 	// Listener, when non-nil, is used as the local proxy socket. Otherwise the
@@ -87,7 +82,6 @@ func defaultResolve(ctx context.Context, host string) ([]netip.Addr, error) {
 }
 
 func StartEngine(p *Profile, user, pass string, opt EngineOptions) (*Engine, error) {
-	defer p.clearKeys()
 	if len(user) == 0 || len(pass) == 0 || len(user) > 255 || len(pass) > 255 {
 		return nil, errCredentials
 	}
@@ -100,10 +94,7 @@ func StartEngine(p *Profile, user, pass string, opt EngineOptions) (*Engine, err
 		return nil, errStackInit
 	}
 	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, ""))
-	config := p.uapi(endpoint)
-	configErr := dev.IpcSetOperation(bytes.NewReader(config))
-	clear(config)
-	if configErr != nil {
+	if err := dev.IpcSet(p.uapi(endpoint)); err != nil {
 		dev.Close()
 		return nil, errWGConfig
 	}
@@ -123,7 +114,6 @@ func StartEngine(p *Profile, user, pass string, opt EngineOptions) (*Engine, err
 		dev: dev, stack: stack, user: []byte(user), pass: []byte(pass),
 		listener: listener, clients: map[net.Conn]struct{}{},
 		dialTimeout: opt.DialTimeout, started: time.Now(), endpointResolvedLocally: local,
-		pendingAuth: make(chan struct{}, maxUnauthenticatedClients),
 	}
 	if e.dialTimeout <= 0 {
 		e.dialTimeout = 15 * time.Second
@@ -213,24 +203,14 @@ func (e *Engine) acceptLoop(l net.Listener) {
 			return
 		}
 		failures = 0
-		select {
-		case e.pendingAuth <- struct{}{}:
-		default:
-			e.authRejected.Add(1)
-			c.Close()
-			continue
-		}
 		if !e.track(c) {
-			<-e.pendingAuth
 			c.Close()
 			return
 		}
 		go func() {
 			defer e.untrack(c)
 			defer c.Close()
-			release := sync.OnceFunc(func() { <-e.pendingAuth })
-			defer release()
-			e.serve(c, release)
+			e.serve(c)
 		}()
 	}
 }
@@ -314,16 +294,7 @@ func (e *Engine) dial(host string, port int) (net.Conn, error) {
 	defer cancel()
 	// Hostnames are resolved by netstack's resolver, which queries the
 	// profile's DNS servers through the tunnel. There is no direct fallback.
-	addresses, err := e.destinationAddresses(ctx, host)
-	var c net.Conn
-	if err == nil {
-		for _, address := range addresses {
-			c, err = e.stack.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), strconv.Itoa(port)))
-			if err == nil {
-				break
-			}
-		}
-	}
+	c, err := e.stack.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		e.failed.Add(1)
 		var dnsErr *net.DNSError
@@ -335,8 +306,8 @@ func (e *Engine) dial(host string, port int) (net.Conn, error) {
 	return c, nil
 }
 
-func (e *Engine) serve(c net.Conn, authenticated func()) {
-	c.SetDeadline(time.Now().Add(authenticationTimeout))
+func (e *Engine) serve(c net.Conn) {
+	c.SetDeadline(time.Now().Add(20 * time.Second))
 	r := bufio.NewReaderSize(c, 4096)
 	first, err := r.Peek(1)
 	if err != nil {
@@ -344,9 +315,9 @@ func (e *Engine) serve(c net.Conn, authenticated func()) {
 	}
 	switch {
 	case first[0] == 5:
-		e.serveSOCKS(c, r, authenticated)
+		e.serveSOCKS(c, r)
 	case first[0] >= 'A' && first[0] <= 'Z':
-		e.serveCONNECT(c, r, authenticated)
+		e.serveCONNECT(c, r)
 	default:
 		e.badRequests.Add(1)
 	}
@@ -358,7 +329,7 @@ func (e *Engine) authorized(user, pass []byte) bool {
 	return u&p == 1
 }
 
-func (e *Engine) serveSOCKS(c net.Conn, r *bufio.Reader, authenticated func()) {
+func (e *Engine) serveSOCKS(c net.Conn, r *bufio.Reader) {
 	head := make([]byte, 2)
 	if _, err := io.ReadFull(r, head); err != nil || head[0] != 5 {
 		return
@@ -403,8 +374,6 @@ func (e *Engine) serveSOCKS(c net.Conn, r *bufio.Reader, authenticated func()) {
 	if _, err := c.Write([]byte{1, 0}); err != nil {
 		return
 	}
-	authenticated()
-	c.SetDeadline(time.Now().Add(e.dialTimeout))
 	req := make([]byte, 4)
 	if _, err := io.ReadFull(r, req); err != nil || req[0] != 5 {
 		return
@@ -467,15 +436,14 @@ const proxyAuthRequired = "HTTP/1.1 407 Proxy Authentication Required\r\n" +
 // serveCONNECT accepts HTTP CONNECT (used by FFmpeg's http_proxy for HTTPS
 // downloads). Plain absolute-URI HTTP proxying is refused so that nothing is
 // forwarded outside a tunnelled byte stream.
-func (e *Engine) serveCONNECT(c net.Conn, r *bufio.Reader, authenticated func()) {
+func (e *Engine) serveCONNECT(c net.Conn, r *bufio.Reader) {
 	var lines []string
 	size := 0
 	for {
-		lineBytes, err := r.ReadSlice('\n')
+		line, err := r.ReadString('\n')
 		if err != nil {
 			return
 		}
-		line := string(lineBytes)
 		size += len(line)
 		if size > 16*1024 {
 			e.badRequests.Add(1)
@@ -521,8 +489,6 @@ func (e *Engine) serveCONNECT(c net.Conn, r *bufio.Reader, authenticated func())
 		io.WriteString(c, proxyAuthRequired)
 		return
 	}
-	authenticated()
-	c.SetDeadline(time.Now().Add(e.dialTimeout))
 	host, portText, err := net.SplitHostPort(parts[1])
 	port, perr := strconv.Atoi(portText)
 	if err != nil || perr != nil || host == "" || port < 1 || port > 65535 {

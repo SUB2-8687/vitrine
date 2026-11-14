@@ -40,7 +40,6 @@ func SGWGInspect(text *C.char) *C.char {
 	if err != nil {
 		return cString(map[string]any{"ok": false, "error": err.Error()})
 	}
-	defer p.clearKeys()
 	summary := p.Summary()
 	summary["ok"] = true
 	return cString(summary)

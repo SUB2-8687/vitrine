@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only Spotify IPA transport preflight. Does not execute or patch the app."""
 import argparse
+import hashlib
 import json
 import plistlib
 import re
@@ -8,15 +9,17 @@ import struct
 import subprocess
 import tempfile
 import zipfile
-from contextlib import ExitStack
 from pathlib import Path
 
-TARGETS = Path(__file__).resolve().parents[1] / "tweak/Sources/Shared/WireGuard/SGWGTargets.inc"
 INSPECTED_UUIDS = {
-    version: {"build": build, "Spotify": main, "Frameworks/SpotifyShared.framework/SpotifyShared": shared}
-    for version, build, main, shared in re.findall(
-        r'^SGWG_TARGET\("(\d+\.\d+\.\d+)", "(\d+)", "([0-9a-f]{32})", "([0-9a-f]{32})"\)$',
-        TARGETS.read_text(), re.M)
+    "9.1.90": {
+        "Spotify": "fbce22c17e1b3e0d9be866ff9291943e",
+        "Frameworks/SpotifyShared.framework/SpotifyShared": "2e074234cfc63f0e9255c9881824167a",
+    },
+    "9.1.94": {
+        "Spotify": "1dfddfa139c03735b9a5fdfa475f4700",
+        "Frameworks/SpotifyShared.framework/SpotifyShared": "2c12ca8c48ad33f8af6569c084a6324f",
+    },
 }
 REQUIRED = {
     "Spotify": ["SPTCoreURLSessionDataDelegate", "_TtC26Connectivity_HttpClientKit20HttpClientURLSession"],
@@ -24,32 +27,6 @@ REQUIRED = {
 }
 SELECTORS = ["URLSession:task:didCompleteWithError:", "URLSession:dataTask:didReceiveData:"]
 NATIVE_IMPORTS = ["nw_connection_create", "connect", "getaddrinfo", "sendto", "sendmsg"]
-MAX_PLIST_BYTES = 1024 * 1024
-MAX_IMAGE_BYTES = 512 * 1024 * 1024
-
-
-def bounded_member(archive, name, limit):
-    members = [entry for entry in archive.infolist() if entry.filename == name]
-    if len(members) != 1:
-        raise ValueError(f"Expected one ZIP member: {name}")
-    entry = members[0]
-    if entry.file_size > limit:
-        raise ValueError(f"ZIP member exceeds size limit: {name}")
-    with archive.open(entry) as stream:
-        data = stream.read(limit + 1)
-    if len(data) > limit:
-        raise ValueError(f"ZIP member exceeds size limit: {name}")
-    return data
-
-
-def bounded_file(path, limit):
-    if path.stat().st_size > limit:
-        raise ValueError(f"App member exceeds size limit: {path.name}")
-    with path.open("rb") as stream:
-        data = stream.read(limit + 1)
-    if len(data) > limit:
-        raise ValueError(f"App member exceeds size limit: {path.name}")
-    return data
 
 
 def macho(data):
@@ -59,18 +36,12 @@ def macho(data):
         raise ValueError("Expected arm64")
     offset, uuid, encryption = 32, None, []
     for _ in range(struct.unpack_from("<I", data, 16)[0]):
-        if offset + 8 > len(data):
-            raise ValueError("Truncated load command")
         command, size = struct.unpack_from("<II", data, offset)
         if size < 8 or offset + size > len(data):
             raise ValueError("Invalid load command")
         if command == 0x1B:
-            if size < 24:
-                raise ValueError("Truncated UUID command")
             uuid = data[offset + 8:offset + 24].hex()
         if command == 0x2C:
-            if size < 24:
-                raise ValueError("Truncated encryption command")
             encryption.append(struct.unpack_from("<I", data, offset + 16)[0])
         offset += size
     if any(encryption):
@@ -79,22 +50,19 @@ def macho(data):
 
 
 def wireguard_version(version):
-    if version not in INSPECTED_UUIDS:
-        raise ValueError(f"Spotify {version} has no inspected WireGuard transport target")
-    return "inspected IPA (static evidence only)"
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version or "")
+    if not match:
+        raise ValueError(f"Unrecognized Spotify version: {version}")
+    parts = tuple(map(int, match.groups()))
+    if parts != (9, 1, 90) and parts < (9, 1, 94):
+        raise ValueError("WireGuard requires Spotify 9.1.90 or 9.1.94 and newer")
+    return "inspected IPA" if version in INSPECTED_UUIDS else "future version: static transport check only"
 
 
 def scan(path, require_version=None, wireguard_compatible=False):
-    with ExitStack() as stack, tempfile.TemporaryDirectory(prefix="spotify-transport-") as temp:
-        if path.is_dir():
-            read_member = lambda name, limit: bounded_file(path / name, limit)
-        else:
-            archive = stack.enter_context(zipfile.ZipFile(path))
-            read_member = lambda name, limit: bounded_member(archive, "Payload/Spotify.app/" + name, limit)
-        info = plistlib.loads(read_member("Info.plist", MAX_PLIST_BYTES))
-        # install.sh signs quick's cached .app in place under the provisioning App ID, so only an IPA input must
-        # still carry Spotify's own identifier; the build, UUID and transport checks below apply to both.
-        if not path.is_dir() and info.get("CFBundleIdentifier") != "com.spotify.client":
+    with zipfile.ZipFile(path) as archive, tempfile.TemporaryDirectory(prefix="spotify-transport-") as temp:
+        info = plistlib.loads(archive.read("Payload/Spotify.app/Info.plist"))
+        if info.get("CFBundleIdentifier") != "com.spotify.client":
             raise ValueError("Expected original Spotify bundle identifier")
         version = info.get("CFBundleShortVersionString")
         if require_version and version != require_version:
@@ -102,10 +70,8 @@ def scan(path, require_version=None, wireguard_compatible=False):
         result = {"version": version, "build": info.get("CFBundleVersion"), "images": {}}
         if wireguard_compatible:
             result["wireguard_compatibility"] = wireguard_version(version)
-            if info.get("CFBundleVersion") != INSPECTED_UUIDS[version]["build"]:
-                raise ValueError(f"Spotify {version} build differs from the inspected IPA")
         for name, classes in REQUIRED.items():
-            data = read_member(name, MAX_IMAGE_BYTES)
+            data = archive.read("Payload/Spotify.app/" + name)
             record = macho(data)
             expected = INSPECTED_UUIDS.get(version, {}).get(name)
             if (wireguard_compatible or require_version) and expected and record["uuid"] != expected:

@@ -92,28 +92,63 @@ static NSDictionary<NSNumber *, NSString *> *specifiers(NSString *format) {
 
 static NSString *sg_language = @"en";
 static NSDictionary<NSString *, NSString *> *sg_table;
+static NSInteger sg_loadedChoice;
+static BOOL sg_loaded;
+
+static NSRecursiveLock *localizationLock(void) {
+    static NSRecursiveLock *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [NSRecursiveLock new]; });
+    return lock;
+}
 
 static void load(void) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        NSBundle *bundle = resourceBundle();
-        if (!bundle) return;
-        NSInteger choice = [NSUserDefaults.standardUserDefaults integerForKey:SGKeyLanguage];
-        NSString *wanted = choice == 1 ? @"en" : choice == 2 ? @"ko" : appLanguage();
-        NSString *language = matchLanguage(wanted, bundle.localizations);
-        if ([language isEqualToString:@"en"]) return;
-        NSString *path = [bundle pathForResource:@"Localizable" ofType:@"strings" inDirectory:nil forLocalization:language];
-        NSDictionary *table = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
-        if (![table isKindOfClass:NSDictionary.class] || !table.count) return;
-        sg_table = table;
-        sg_language = language;
-    });
+    NSRecursiveLock *lock = localizationLock();
+    [lock lock];
+    NSInteger choice = [NSUserDefaults.standardUserDefaults integerForKey:SGKeyLanguage];
+    if (sg_loaded && choice == sg_loadedChoice) { [lock unlock]; return; }
+
+    NSBundle *bundle = resourceBundle();
+    NSString *wanted = choice == 1 ? @"en" : choice == 2 ? @"ko" : appLanguage();
+    NSString *language = bundle ? matchLanguage(wanted, bundle.localizations) : @"en";
+    NSMutableDictionary<NSString *, NSString *> *table = [NSMutableDictionary dictionary];
+    if (![language isEqualToString:@"en"]) {
+        // Localizable.strings is the mod's own table; the others sit beside it in the same .lproj so a page's words can
+        // be edited as a language pack of their own (WireGuard.strings: settings.wireguard.*). A key is looked for in all.
+        for (NSString *name in @[@"Localizable", @"WireGuard"]) {
+            NSString *path = [bundle pathForResource:name ofType:@"strings" inDirectory:nil forLocalization:language];
+            NSDictionary *part = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
+            if ([part isKindOfClass:NSDictionary.class]) [table addEntriesFromDictionary:part];
+        }
+    }
+    sg_table = table.count ? [table copy] : nil;
+    sg_language = table.count ? language : @"en";
+    sg_loadedChoice = choice;
+    sg_loaded = YES;
+    [lock unlock];
+}
+
+BOOL SGSetLanguageChoice(NSInteger choice) {
+    if (choice < 0 || choice > 2) choice = 0;
+    NSRecursiveLock *lock = localizationLock();
+    [lock lock];
+    NSInteger previous = sg_loaded ? sg_loadedChoice : [NSUserDefaults.standardUserDefaults integerForKey:SGKeyLanguage];
+    [NSUserDefaults.standardUserDefaults setInteger:choice forKey:SGKeyLanguage];
+    BOOL changed = !sg_loaded || previous != choice;
+    if (changed) sg_loaded = NO;
+    [lock unlock];
+    if (changed) load();
+    return changed;
 }
 
 NSString *SGL(NSString *key, NSString *english) {
     load();
-    if (!sg_table || !key) return english;
-    id text = sg_table[key];
+    if (!key) return english;
+    NSRecursiveLock *lock = localizationLock();
+    [lock lock];
+    id value = sg_table[key];
+    NSString *text = [value isKindOfClass:NSString.class] ? [value copy] : nil;
+    [lock unlock];
     if (![text isKindOfClass:NSString.class] || ![text length]) return english;
     if ([english rangeOfString:@"%"].location != NSNotFound || [text rangeOfString:@"%"].location != NSNotFound) {
         NSDictionary *wanted = specifiers(english), *read = specifiers(text);
@@ -124,5 +159,9 @@ NSString *SGL(NSString *key, NSString *english) {
 
 NSString *SGLanguage(void) {
     load();
-    return sg_language;
+    NSRecursiveLock *lock = localizationLock();
+    [lock lock];
+    NSString *language = [sg_language copy];
+    [lock unlock];
+    return language;
 }

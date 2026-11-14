@@ -46,7 +46,8 @@ to Spotify's own screens with everything else the mod adds on top. Both live in 
 
 ## Build it
 
-No IPA is distributed. Bring a decrypted **Spotify 9.1.78**, **9.1.88** or **9.1.90** IPA; you get an unsigned
+No IPA is distributed. Bring a decrypted **Spotify 9.1.78**, **9.1.88** or **9.1.90** IPA, or the
+**9.1.94** IPA whose WireGuard build was checked but whose app behavior is not device-tested; you get an unsigned
 `vitrine-<mod version>.ipa` to sign with SideStore, Feather or any certificate signer. Releases have no `.deb`:
 injected by hand, the tweak alone misses the app changes the redesign needs (its glass tab bar), the Live
 Activity, Music Haptics in the background and Connect's local discovery, so build the IPA instead.
@@ -56,6 +57,42 @@ Activity, Music Haptics in the background and Connect's local discovery, so buil
 Fork the repo, enable Actions, run **Build IPA from your own Spotify IPA**. It takes a direct link to
 your decrypted `.ipa` and hands the built IPA back as a workflow artifact. No Mac needed; the link is
 masked in the log and the result stays in your fork.
+
+Dropbox share links are accepted: the workflow changes `dl=0` to `dl=1` (or adds `dl=1`)
+before downloading. Other hosts must return the IPA bytes without login, not a share or preview page.
+An expired link or download-limit page can return HTTP 200 too. The workflow validates
+the ZIP contents, Spotify bundle identifier and executable before installing build tools;
+a MIME label alone does not determine whether a file is an IPA.
+
+Repeated Actions builds of the same Spotify version and source revision reuse the generated flag
+table, Live Activity extension, and compiled tweak package. WireGuard builds also reuse its Go
+library when the Go sources and Xcode version match. The IPA still downloads and is repackaged
+each run, so a newly supplied IPA is always validated.
+
+### Release workflow setup
+
+The **Release** workflow has two independent prerequisites in a fork:
+
+- In **Settings → Actions → General → Workflow permissions**, enable
+  **Allow GitHub Actions to create and approve pull requests**. The workflow already
+  requests `contents: write` and `pull-requests: write`; those declarations cannot
+  override this repository or organization setting. This fixes release-please's
+  “GitHub Actions is not permitted to create or approve pull requests” error.
+- The tweak compile check needs `SG_FLAG_LIST`, a generated table read from your own
+  decrypted Spotify IPA. On the Mac build environment described below, generate and
+  upload it (authenticate `gh` with access to your fork first):
+
+      make flags IPA=ipa/Spotify-9.1.90.ipa
+      set -o pipefail
+      gzip -9c tweak/Sources/Shared/Flags/SGFlagList.m | base64 | gh secret set SG_FLAG_LIST --repo kes158/vitrine
+
+  Use your own fork's repository name in place of `kes158/vitrine` when applicable.
+  This creates an Actions repository secret; do not commit the generated table or
+  paste it into issue comments. The manual **Build IPA from your own Spotify IPA**
+  workflow extracts its table from the supplied IPA and does not need this secret.
+
+After supplying the prerequisite, rerun the failed job. Missing flag data is an error;
+the compile check never substitutes a dummy table or silently skips compilation.
 
 ### Build on a Mac
 
@@ -159,3 +196,10 @@ the view trees are read through. The ad blocking and the Premium state are porte
 [EeveeSpotify Reincarnated](https://github.com/SideloadLabs/EeveeSpotifyReincarnated).
 
 GPL-3.0. Not affiliated with Spotify.
+
+### Optional in-app WireGuard / proxy
+
+Build with `WIREGUARD=1` (iOS 17+) using the inspected Spotify 9.1.90 or 9.1.94 decrypted IPA.
+Newer IPAs can pass a structural transport preflight, but remain unverified until tested on a device.
+Pixie remains limited to Spotify 9.1.90. Spotify 9.1.94 is not yet in Vitrine's device-tested version list.
+See [setup, coverage and validation](docs/wireguard.md).

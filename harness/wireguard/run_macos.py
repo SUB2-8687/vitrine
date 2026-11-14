@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Exercise Apple's session hooks and the engine with an explicit real profile.
+"""Run the app-local WireGuard core against Apple's real NSURLSession on macOS.
 
-The profile and fault variants live only in a temporary directory. No key,
-profile contents or unmasked exit address is printed. Native image admission
-uses test doubles here; real Spotify import slots require device acceptance.
+Builds the Go engine for macOS, the test WireGuard peer and the Objective-C
+harness, then checks (with freshly generated test keys only):
+
+* NSURLSession -> authenticated SOCKS5 (nw_proxy_config, failover disabled)
+  -> Go engine -> WireGuard handshake -> peer: HTTPS, HTTP 206, tunnel DNS
+* no direct fallback: a host reachable directly but not through the tunnel
+  is never contacted, also when the WireGuard peer is dead
+* Spotify delegate observers against fixtures matching the 9.1.90 selectors
+* diagnostics contain no private key, signed URL, host or address
+
+Usage: python3 harness/wireguard/run_macos.py [--out results.json]
 """
 import argparse
 import base64
@@ -14,8 +22,6 @@ import ssl
 import json
 import os
 import pathlib
-import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -209,8 +215,7 @@ def external_proxy_tests(harness, tmp, results):
                                        tls=extra if kind == "https" else None))
             port = proxy.server_address[1]
         before = Origin.hits
-        env = dict(os.environ, SGWG_TEST_ENABLED="1", SGWG_TEST_APP_VERSION="9.1.90",
-                   SGWG_TEST_KIND=kind, SGWG_TEST_HOST="127.0.0.1",
+        env = dict(os.environ, SGWG_TEST_ENABLED="1", SGWG_TEST_KIND=kind, SGWG_TEST_HOST="127.0.0.1",
                    SGWG_TEST_PORT=str(port), SGWG_TEST_USER=user, SGWG_TEST_PASS=client_pass,
                    SGWG_TEST_ORIGIN_URL=url, SGWG_TEST_CERT=str(der), SGWG_TEST_TRUST_SUFFIX="fixture.invalid",
                    SGWG_EXPECT_OK="1" if ok else "0")
@@ -233,51 +238,63 @@ def external_proxy_tests(harness, tmp, results):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=pathlib.Path)
-    parser.add_argument("--live-profile", type=pathlib.Path, required=True)
-    parser.add_argument("--expect-country", required=True)
+    parser.add_argument("--live-profile", type=pathlib.Path,
+                        help="real WireGuard .conf: run only the live checks against that server")
+    parser.add_argument("--expect-country", default="", help="expected exit country code for --live-profile")
     args = parser.parse_args()
     results = []
     with tempfile.TemporaryDirectory(prefix="sgwg-") as tmp:
         tmp = pathlib.Path(tmp)
-        profile = tmp / "client.conf"
-        shutil.copyfile(args.live_profile, profile)
-        profile.chmod(0o600)
         env = dict(os.environ, CGO_ENABLED="1")
+        sh(["go", "build", "-o", str(tmp / "testpeer"), "./cmd/sgwg-testpeer"], cwd=WG, env=env)
         sh(["go", "build", "-buildmode=c-archive", "-o", str(tmp / "libsgwg-macos.a"), "."], cwd=WG, env=env)
         harness = tmp / "harness"
         sh(["xcrun", "clang", "-fobjc-arc", "-fmodules", "-DSGWG_TESTING", "-mmacosx-version-min=14.0", "-Wall",
             "-I", str(ROOT / "tweak/Sources"),
             str(ROOT / "tweak/Sources/Shared/WireGuard/SGWGCore.m"), str(ROOT / "tweak/Sources/Shared/WireGuard/SGWGTransport.m"),
             str(ROOT / "tweak/Sources/Shared/WireGuard/SGWGNative.m"),
-            str(ROOT / "tweak/Sources/Shared/WireGuard/SGWGAdmission.m"),
             str(ROOT / "harness/wireguard/harness.m"), str(tmp / "libsgwg-macos.a"),
             "-framework", "Foundation", "-framework", "Network", "-framework", "Security",
             "-framework", "CoreFoundation", "-lresolv", "-o", str(harness)])
 
-        with urllib.request.urlopen("https://www.cloudflare.com/cdn-cgi/trace", timeout=20) as response:
-            direct_trace = dict(line.split("=", 1) for line in response.read(8192).decode().splitlines() if "=" in line)
-        if not direct_trace.get("ip"):
-            raise SystemExit("Direct exit baseline did not return an IP")
-        print("Direct Mac exit country:", direct_trace.get("loc", "unknown"))
-        direct = http.server.ThreadingHTTPServer(("0.0.0.0", 0), DirectHandler)
-        thread = threading.Thread(target=direct.serve_forever, daemon=True)
-        thread.start()
+        if args.live_profile:
+            env_live = dict(os.environ, SGWG_TEST_ENABLED="1", SGWG_TEST_PROFILE=str(args.live_profile),
+                            SGWG_EXPECT_COUNTRY=args.expect_country)
+            proc = subprocess.run([str(harness), "live"], env=env_live, capture_output=True, text=True, timeout=300)
+            sys.stdout.write(proc.stdout)
+            sys.stderr.write(proc.stderr)
+            if proc.returncode != 0:
+                raise SystemExit(f"FAILED: live check (exit {proc.returncode})")
+            return
+
+        peer_dir = tmp / "peer"
+        peer_dir.mkdir()
+        peer = subprocess.Popen([str(tmp / "testpeer"), "-out", str(peer_dir)])
         try:
+            for _ in range(100):
+                if (peer_dir / "ready.json").exists():
+                    break
+                time.sleep(0.1)
+            ready = json.loads((peer_dir / "ready.json").read_text())
+            stats_url = f"http://127.0.0.1:{ready['statsPort']}/"
+
+            def stats():
+                with urllib.request.urlopen(stats_url, timeout=5) as r:
+                    return json.load(r)
+
+            direct = http.server.ThreadingHTTPServer(("0.0.0.0", 0), DirectHandler)
+            threading.Thread(target=direct.serve_forever, daemon=True).start()
             ip = lan_ip()
+            direct_url = f"http://{ip}:{direct.server_port}/direct" if ip else ""
             if not ip:
-                raise SystemExit("No LAN address for the direct-fallback probe")
-            direct_url = f"http://{ip}:{direct.server_port}/direct"
-            with urllib.request.urlopen(direct_url, timeout=5) as response:
-                if response.status != 200:
-                    raise SystemExit("Direct sentinel baseline failed")
-            DirectHandler.hits = 0
-            base = dict(os.environ, SGWG_TEST_ENABLED="1", SGWG_TEST_PROFILE=str(profile),
-                        SGWG_TEST_DIRECT_URL=direct_url, SGWG_DIRECT_IP=direct_trace["ip"],
-                        SGWG_EXPECT_COUNTRY=args.expect_country,
-                        SGWG_TEST_APP_VERSION="9.1.90", SGWG_TEST_APP_BUILD="919002269", SGWG_EXPECT_ACTIVE="1")
+                print("NOTE no non-loopback IPv4 address; direct-fallback probe skipped", flush=True)
+
+            base = dict(os.environ, SGWG_TEST_ENABLED="1", SGWG_TEST_PROFILE=str(peer_dir / "client.conf"),
+                        SGWG_TEST_CERT=str(peer_dir / "fixture.der"), SGWG_TEST_DIRECT_URL=direct_url,
+                        SGWG_TEST_APP_VERSION="9.1.90", SGWG_EXPECT_ACTIVE="1")
 
             def run(name, mode, **extra):
-                proc = subprocess.run([str(harness), mode], env=dict(base, **extra), capture_output=True, text=True, timeout=300)
+                proc = subprocess.run([str(harness), mode], env=dict(base, **extra), capture_output=True, text=True, timeout=180)
                 sys.stdout.write(proc.stdout)
                 sys.stderr.write(proc.stderr)
                 if proc.returncode != 0:
@@ -287,38 +304,43 @@ def main():
 
             run("unit: Spotify delegates, ABI guards, proxy enforcement and redaction", "unit")
             run("unit: disabled -> no hooks", "unit", SGWG_TEST_ENABLED="0", SGWG_EXPECT_ACTIVE="0")
-            run("failclosed: saved opt-in on an uninspected version", "failclosed",
-                SGWG_TEST_APP_VERSION="9.1.95", SGWG_EXPECT_BLOCKED="1")
-            run("failclosed: wrong build", "failclosed", SGWG_TEST_APP_BUILD="919002270", SGWG_EXPECT_BLOCKED="1")
-            out = run("live Proton: handshake, US exit, HTTPS and range", "live")
+
+            before = stats()
+            out = run("net: NSURLSession through WireGuard (HTTPS, 206, tunnel DNS, shared session, NSData)", "net")
+            after = stats()
+            assert after["dns"] > before["dns"], ("tunnel DNS not used", before, after)
+            assert after["https"] > before["https"] and after["range"] > before["range"], (before, after)
+            assert DirectHandler.hits == 0, "direct server was contacted"
+            results.append(f"peer counters: dns +{after['dns'] - before['dns']}, https +{after['https'] - before['https']}, range +{after['range'] - before['range']}; direct hits 0")
             report = out[out.find("Vitrine app-local WireGuard diagnostics"):]
-            source = profile.read_text()
-            for name, field, replacement in [
-                ("bad endpoint", "Endpoint", "127.0.0.1:1"),
-                ("wrong peer key", "PublicKey", base64.b64encode(bytes([1]) * 32).decode()),
-            ]:
-                changed, count = re.subn(rf"(?mi)^\s*{field}\s*=.*$", f"{field} = {replacement}", source)
-                if count != 1:
-                    raise SystemExit(f"Expected exactly one {field} for fault injection")
-                fault = tmp / "fault.conf"
-                fault.write_text(changed)
-                fault.chmod(0o600)
-                run(f"failclosed: {name}", "failclosed", SGWG_TEST_PROFILE=str(fault))
-            if DirectHandler.hits != 0:
-                raise SystemExit("Direct server was contacted by a covered request")
-            results.append("direct sentinel: zero hits with live and faulted profiles")
+
+            # Dead peer: profile points at a UDP port nobody serves.
+            dead = (peer_dir / "client.conf").read_text()
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            probe.bind(("127.0.0.1", 0))
+            dead_port = probe.getsockname()[1]
+            probe.close()
+            dead = "\n".join(f"Endpoint = 127.0.0.1:{dead_port}" if l.startswith("Endpoint = ") else l for l in dead.split("\n"))
+            (tmp / "dead.conf").write_text(dead)
+            run("failclosed: unreachable WireGuard peer, no direct fallback", "failclosed", SGWG_TEST_PROFILE=str(tmp / "dead.conf"))
+            (tmp / "invalid.conf").write_text("[Interface]\nPrivateKey = invalid\n")
+            run("failclosed: invalid profile -> engine failed, traffic blocked", "failclosed",
+                SGWG_TEST_PROFILE=str(tmp / "invalid.conf"), SGWG_EXPECT_FAILED="1")
+            run("failclosed: unusable external proxy configuration", "failclosed",
+                SGWG_TEST_KIND="http", SGWG_TEST_HOST="", SGWG_TEST_PORT="0")
+            assert DirectHandler.hits == 0, "direct server was contacted"
             external_proxy_tests(harness, tmp, results)
-        finally:
             direct.shutdown()
-            direct.server_close()
-            thread.join()
+        finally:
+            peer.terminate()
+            peer.wait(timeout=10)
 
     summary = {
         "platform": f"macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()} (Foundation + Network.framework, same proxy API as iOS 17+)",
         "passed": results,
         "diagnostics_sample": report,
-        "not_covered": ["real Spotify image admission and import slots", "UIKit settings screen",
-                        "music playback, next track, lock-screen playback", "Wi-Fi/cellular switching"],
+        "not_covered": ["iPhone installation and UIKit settings screen", "real Spotify process and servers",
+                        "music playback, next track, lock-screen playback", "Wi-Fi/cellular switching", "real WireGuard provider"],
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if args.out:

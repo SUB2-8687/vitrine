@@ -72,9 +72,6 @@ BOOL SGWGSaveConnection(NSString *k, NSString *h, NSString *p, NSString *u, NSSt
 NSString *SGWGActiveKind(void) { return @""; }
 BOOL SGWGActiveThisLaunch(void) { return NO; }
 BOOL SGWGIsSupportedOS(void) { return YES; }
-BOOL SGWGIsSupportedVersion(void) { return YES; }
-BOOL SGWGReady(void) { return NO; }
-BOOL SGWGGuardsInstalled(void) { return NO; }
 SGWGState SGWGCurrentState(void) { return SGWGStateOff; }
 BOOL SGWGHasProfile(void) { return NO; }
 NSDictionary *SGWGStoredProfileSummary(void) { return nil; }

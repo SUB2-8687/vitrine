@@ -139,7 +139,7 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
         case SGWGStateUnsupported: text = SGL(@"settings.wireguard.state_unsupported", @"Requires iOS 17 or later"); break;
         case SGWGStateWaitingProfile: text = SGL(@"settings.wireguard.state_waiting", @"Waiting for Keychain (unlock the device)"); break;
         case SGWGStateStarting: text = SGL(@"settings.wireguard.state_starting", @"Starting"); break;
-        case SGWGStateRunning: text = SGL(@"settings.wireguard.state_running", @"Engine started"); break;
+        case SGWGStateRunning: text = SGL(@"settings.wireguard.state_running", @"Running"); break;
         case SGWGStateFailed: text = SGL(@"settings.wireguard.state_failed", @"Failed — proxied requests are blocked"); break;
         case SGWGStateExternalProxy: text = [NSString stringWithFormat:SGL(@"settings.wireguard.state_proxy", @"%@ proxy applied"), SGWGActiveKind().uppercaseString]; break;
         case SGWGStateBlocked: text = SGL(@"settings.wireguard.state_blocked", @"Settings unusable — proxied requests are blocked"); break;
@@ -147,14 +147,10 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
     if (state == SGWGStateRunning) {
         NSDictionary *status = SGWGEngineStatus();
         long long age = [status[@"handshakeAgeSec"] longLongValue];
-        NSString *handshake = age < 0 ? SGL(@"settings.wireguard.handshake_none", @"Tunnel health unconfirmed — no handshake")
+        NSString *handshake = age < 0 ? SGL(@"settings.wireguard.handshake_none", @"no handshake yet")
                                       : [NSString stringWithFormat:SGL(@"settings.wireguard.handshake_ago", @"handshake %lld s ago"), age];
         text = [NSString stringWithFormat:@"%@ · %@", text, handshake];
     }
-    if (SGWGActiveThisLaunch())
-        text = [NSString stringWithFormat:@"%@\n%@", SGWGGuardsInstalled()
-            ? SGL(@"settings.wireguard.guards_installed", @"Inspected-path guards installed")
-            : SGL(@"settings.wireguard.guards_incomplete", @"Guard installation incomplete — protection unavailable"), text];
     BOOL kindChanged = SGWGActiveThisLaunch() && ![SGWGActiveKind() isEqualToString:SGWGSettingKind()];
     if ((SGWGSettingEnabled() != SGWGActiveThisLaunch() || kindChanged) && state != SGWGStateUnsupported)
         text = [text stringByAppendingFormat:@"\n%@", SGL(@"settings.wireguard.restart_needed", @"Restart the app to apply the change")];
@@ -210,9 +206,9 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
 - (NSString *)footerTextForSection:(NSInteger)section {
     switch (section) {
         case WGSectionTunnel:
-            return SGL(@"settings.wireguard.footer_tunnel", @"EXPERIMENTAL. Routes inspected Spotify paths through the tunnel or proxy and blocks guarded paths when unavailable. Not a leak-proof or device-wide VPN. Background sessions, web sign-in, AVURLAsset, pre-initializer traffic and local-network exemptions are outside coverage. Builds without WireGuard drop enforcement even if enabled previously. Restart after changes.");
+            return SGL(@"settings.wireguard.footer_tunnel", @"Routes Spotify URLSession requests through an in-app WireGuard tunnel or an external proxy. Requires iOS 17. Restart after changes. Other transports, web sign-in and remote playback devices are not covered; this is not a device-wide VPN.");
         case WGSectionServer:
-            return self.selectedWireGuard ? nil : SGL(@"settings.wireguard.footer_server", @"HTTP and HTTPS use CONNECT. HTTP sends proxy credentials without encryption; prefer HTTPS. HTTPS verifies the proxy certificate. Credentials are bound to the connection type, server, port and user, and cleared when these change.");
+            return self.selectedWireGuard ? nil : SGL(@"settings.wireguard.footer_server", @"HTTP and HTTPS use CONNECT. HTTPS verifies the proxy certificate. Host names are resolved by the proxy. Passwords are kept in the Keychain.");
         case WGSectionProfile:
             if (!self.selectedWireGuard) return nil;
             return SGL(@"settings.wireguard.footer_profile", @"Standard WireGuard .conf with one [Peer] and AllowedIPs 0.0.0.0/0. The private key is stored only in this device's Keychain and is never shown or copied into diagnostics.");
@@ -393,12 +389,6 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
         [self alert:SGL(@"settings.wireguard.unsupported_title", @"Not supported") message:SGL(@"settings.wireguard.state_unsupported", @"Requires iOS 17 or later")];
         return;
     }
-    if (sender.on && !SGWGIsSupportedVersion()) {
-        sender.on = NO;
-        [self alert:SGL(@"settings.wireguard.unsupported_title", @"Not supported")
-            message:SGL(@"settings.wireguard.version_unsupported", @"This Spotify version has not passed the WireGuard transport check. Use an inspected IPA before enabling this connection.")];
-        return;
-    }
     BOOL wireguard = [SGWGSettingKind() isEqualToString:SGWGKindWireGuard];
     if (sender.on && !wireguard && ![SGWGSettingExternalProxy()[@"host"] length]) {
         sender.on = NO;
@@ -447,7 +437,6 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
 }
 
 - (void)importText:(NSString *)text fromPasteboard:(BOOL)fromPasteboard {
-    if (fromPasteboard) UIPasteboard.generalPasteboard.items = @[];
     if (!text.length || text.length > 65536) {
         [self alert:SGL(@"settings.wireguard.import_failed", @"Could not import") message:SGL(@"settings.wireguard.import_hint", @"Choose a standard WireGuard .conf file (64 KB or smaller).")];
         return;
@@ -458,10 +447,15 @@ static NSArray<NSString *> *Kinds(void) { return @[SGWGKindWireGuard, SGWGKindHT
             message:[NSString stringWithFormat:@"%@\n\n%@", SGL(@"settings.wireguard.import_hint", @"Choose a standard WireGuard .conf file (64 KB or smaller)."), reason ?: @""]];
         return;
     }
+    // Do not leave the private key on the clipboard. Only touch the pasteboard
+    // when the profile came from it (reading it would otherwise prompt).
+    if (fromPasteboard) UIPasteboard.generalPasteboard.string = @"";
     [self reloadState];
-    if (SGWGSettingEnabled()) [self offerRestart];
-    else [self alert:SGL(@"settings.wireguard.saved", @"Saved")
-             message:SGL(@"settings.wireguard.saved_enable", @"Turn on \"Use this connection in the app\", then restart the app.")];
+    if (!SGWGSettingEnabled() && SGWGIsSupportedOS() && [SGWGSettingKind() isEqualToString:SGWGKindWireGuard]) {
+        SGWGSetSettingEnabled(YES);
+        [self reloadState];
+    }
+    [self offerRestart];
 }
 
 - (void)confirmDelete {
@@ -620,34 +614,3 @@ static NSString *ErrorText(NSError *error) {
 }
 
 @end
-
-void SGWGNotifyRecovery(void) {
-    if (!SGWGActiveThisLaunch()) return;
-    NSDictionary *status = SGWGEngineStatus();
-    BOOL failedTunnel = [SGWGActiveKind() isEqualToString:SGWGKindWireGuard] &&
-        [status[@"handshakeAgeSec"] longLongValue] < 0 && [status[@"connections"][@"failed"] unsignedLongLongValue] > 0;
-    if (SGWGReady() && !failedTunnel) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        static BOOL shown;
-        if (shown) return;
-        UIViewController *presenter = nil;
-        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-            if (scene.activationState != UISceneActivationStateForegroundActive || ![scene isKindOfClass:UIWindowScene.class]) continue;
-            for (UIWindow *window in ((UIWindowScene *)scene).windows)
-                if (window.isKeyWindow) presenter = window.rootViewController;
-        }
-        if (!presenter) return;
-        while (presenter.presentedViewController) presenter = presenter.presentedViewController;
-        if ([presenter isKindOfClass:UIAlertController.class]) return;
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:
-            SGL(@"settings.wireguard.recovery_title", @"Experimental in-app VPN unavailable")
-            message:SGL(@"settings.wireguard.recovery_message", @"Installed guards continue blocking unavailable paths. Other transports are not protected. Turn off the in-app VPN and restart Spotify to recover direct access.")
-            preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:SGL(@"settings.wireguard.turn_off", @"Turn off in-app VPN")
-            style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) { SGWGSetSettingEnabled(NO); }]];
-        [alert addAction:[UIAlertAction actionWithTitle:SGL(@"settings.wireguard.later", @"Later") style:UIAlertActionStyleCancel handler:nil]];
-        SGPresentDark(alert);
-        [presenter presentViewController:alert animated:YES completion:nil];
-        shown = YES;
-    });
-}

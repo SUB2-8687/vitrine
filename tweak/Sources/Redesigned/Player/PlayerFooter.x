@@ -17,9 +17,7 @@
 // Spotify has no lyrics control down here, so that one is the Kit's glyph button, and it turns the
 // lyrics in the player on and off (PlayerLyrics.x): filled while they are up, dimmed and dead for a
 // track that has none. With Music app icons off it draws Spotify's Encore microphone instead
-// (SGRPlayerFooterGlyph), lit and dimmed the same way. In the iPad two column player (PlayerLyrics.x) Lyrics picks the
-// side column's lines and a queue glyph of the Kit's, where the row puts Spotify's queue button, picks its queue; each
-// is lit while its side shows.
+// (SGRPlayerFooterGlyph), lit and dimmed the same way.
 //
 // The row sits lower than Spotify puts it, just over the home indicator the way the Music app's does
 // (issue #54): the footer unit's view is translated down, the controls follow it part of the way, and a
@@ -62,15 +60,14 @@ static const CGFloat kRowAboveSafeArea = 20, kRowMinBottom = 34;
 static const CGFloat kControlsShare = 0.3;
 // The volume row's sides, the player's own margin.
 static const CGFloat kVolumeMargin = 24;
+// And the controls go up this much over it, so the gaps above and below the volume row match.
+static const CGFloat kVolumeLift = 10;
 
 // "airplayaudio" is the name iOS 16 knows; iOS 18 calls it airplay.audio and keeps this one as its alias.
 static NSString *const kConnectSymbol = @"airplayaudio", *const kQueueSymbol = @"list.bullet";
 
 static char kConnectKey, kShareKey, kTrimmerKey, kSharedByKey, kQueueKey, kQueueIconKey, kLyricsGlyphKey, kReachKey, kRowKey;
-static char kSideQueueKey;
-static __weak SGRGlyphButton *sg_lyricsGlyph, *sg_sideQueueGlyph;
-// Spotify's queue button, taken off the row while the two columns' queue glyph stands in its place.
-static NSHashTable<UIView *> *sg_queueStoodIn;
+static __weak SGRGlyphButton *sg_lyricsGlyph;
 
 // The view the footer's stack view arranges around `view`.
 static UIView *arrangedAround(UIView *view, UIView *host) {
@@ -153,21 +150,9 @@ UIView *SGRPlayerFooterGlyph(SGRGlyphButton *button, NSString *encoreName) {
 
 #pragma mark - lyrics
 
-// The two columns' queue glyph, lit while the side column shows the queue, the way Lyrics is lit while it shows the lines.
-static void markSideQueue(void) {
-    SGRGlyphButton *queue = sg_sideQueueGlyph;
-    if (!queue) return;
-    BOOL shown = SGRPlayerQueueSideShown();
-    UIColor *tint = shown ? SGRPrimary() : SGRSecondary();
-    if (![queue.glyph.tintColor isEqual:tint]) queue.glyph.tintColor = tint;
-    queue.accessibilityTraits = UIAccessibilityTraitButton | (shown ? UIAccessibilityTraitSelected : 0);
-    paintEncore(queue);
-}
-
 void SGRPlayerLyricsChanged(void) {
     SGRPlayerMotionLyricsChanged();
     SGRPlayerVisualiserUpdate();
-    markSideQueue();
     SGRGlyphButton *glyph = sg_lyricsGlyph;
     if (!glyph) return;
     BOOL enabled = SGRPlayerLyricsAvailable() || SGRPlayerLyricsOpen(), open = SGRPlayerLyricsOpen();
@@ -477,10 +462,7 @@ void SGRPlayerLowerRow(UIView *row) {
     CGFloat middle = [stack convertPoint:row.center toView:player].y;
     CGFloat height = player.bounds.size.height;
     CGFloat target = height - MAX(window.safeAreaInsets.bottom + kRowAboveSafeArea, kRowMinBottom);
-    BOOL columns = SGRPlayerTwoColumns();
-    if (columns) target = CGRectGetMaxY(SGRPlayerVisibleSafeArea(player)) - row.bounds.size.height / 2 - kRowAboveSafeArea;
-    CGFloat move = round(target - middle);
-    if (!columns) move = MAX(0, move);
+    CGFloat move = MAX(0, round(target - middle));
     CGAffineTransform down = CGAffineTransformMakeTranslation(0, move);
     if (!CGAffineTransformEqualToTransform(row.transform, down)) row.transform = down;
 
@@ -493,8 +475,8 @@ void SGRPlayerLowerRow(UIView *row) {
     // The volume row is placed against the controls where they would stand for it; one that does not show leaves them
     // following the footer as they do without it.
     BOOL volume = SGRPlayerVolumeOn() && controls;
-    CGFloat share = volume ? 0 : kControlsShare;
-    CGAffineTransform follow = CGAffineTransformMakeTranslation(0, controls ? round(move * share) : 0);
+    CGFloat share = volume ? 0 : kControlsShare, lift = volume ? kVolumeLift : 0;
+    CGAffineTransform follow = CGAffineTransformMakeTranslation(0, controls ? round(move * share) - lift : 0);
     if (above && controls && !CGAffineTransformEqualToTransform(above.transform, follow)) above.transform = follow;
     SGRPlayerPaintCover(stack);
     if (volume && !SGRPlayerPlaceVolume(stack, above, row, kVolumeMargin)) {
@@ -523,41 +505,6 @@ void SGRPlayerLowerRow(UIView *row) {
         SGLog(@"redesign player: footer row from %.0f to %.0f of %.0f (safe area %.0f), controls %@ %.0f, volume %@", middle, middle + move, height,
               window.safeAreaInsets.bottom, controls ? @"follow" : @"stay", controls ? round(move * share) : 0, SGRPlayerVolumeOn() ? @"on" : @"off");
     });
-}
-
-// The two columns' queue glyph (PlayerLyrics.x), where the row puts Spotify's queue button: it picks the side column's
-// queue rather than a sheet of its own. 9.1.90's iPad player has no queue button in its row; one that a row does have
-// is taken off it for as long as the glyph stands there, and given back with the one column.
-static void placeSideQueue(UIView *host, UIView *spotifyQueue, CGPoint center) {
-    SGRGlyphButton *glyph = objc_getAssociatedObject(host, &kSideQueueKey);
-    if (!sg_queueStoodIn) sg_queueStoodIn = [NSHashTable weakObjectsHashTable];
-    if (!SGRPlayerTwoColumns()) {
-        [glyph removeFromSuperview];
-        for (UIView *view in sg_queueStoodIn) {
-            view.alpha = 1;
-            view.userInteractionEnabled = YES;
-            view.accessibilityElementsHidden = NO;
-        }
-        [sg_queueStoodIn removeAllObjects];
-        return;
-    }
-    if (!glyph) {
-        glyph = [SGRGlyphButton buttonWithSymbol:kQueueSymbol pointSize:kLyricsGlyphSize title:SGL(@"settings.player.ipad.queue", @"Queue")];
-        glyph.accessibilityIdentifier = @"vitrine.player.queue";
-        glyph.onTap = ^{ SGRPlayerToggleQueueSide(); };
-        objc_setAssociatedObject(host, &kSideQueueKey, glyph, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    if (glyph.superview != host) [host addSubview:glyph];
-    glyph.bounds = CGRectMake(0, 0, kFooterPlatter, kFooterPlatter);
-    glyph.center = center;
-    if (spotifyQueue) {
-        SGRVanish(spotifyQueue);
-        [sg_queueStoodIn addObject:spotifyQueue];
-    }
-    sg_sideQueueGlyph = glyph;
-    UIView *drawn = SGRPlayerFooterGlyph(glyph, @"queue");
-    markSideQueue();
-    SGRPressGlyph(glyph, drawn, host, kFooterPlatter, drawn == glyph.glyph ? 0 : SGRPressScale);
 }
 
 %hook _TtC20NowPlaying_ModesImpl18FooterElementsUnit
@@ -596,9 +543,7 @@ static void placeSideQueue(UIView *host, UIView *spotifyQueue, CGPoint center) {
 
     UIView *queue = SGRFindByIdentifier(host, @"QueueButtonNowPlaying", &kQueueKey);
     standInForQueue((SPTEncoreIconView *)SGRFindByIdentifier(queue, @"Encore.IconView", &kQueueIconKey));
-    CGFloat queueX = round(width * (rtl ? kLeading : kTrailing));
-    CGFloat queueFrom = moveTo(arrangedAround(queue, host), queue, CGPointMake(CGRectGetMidX(queue.bounds), CGRectGetMidY(queue.bounds)), host, queueX);
-    placeSideQueue(host, arrangedAround(queue, host), CGPointMake(queueX, middleY));
+    CGFloat queueFrom = moveTo(arrangedAround(queue, host), queue, CGPointMake(CGRectGetMidX(queue.bounds), CGRectGetMidY(queue.bounds)), host, round(width * (rtl ? kLeading : kTrailing)));
 
     SGRPlayerLowerRow(host);
     SGRPlayerCoverConnect(arrangedAround(connect, host), glyph);
@@ -615,7 +560,7 @@ static void placeSideQueue(UIView *host, UIView *spotifyQueue, CGPoint center) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         SGLog(@"redesign player: footer lyrics at %.0f, connect %.0f (%@) to %.0f, queue %.0f to %.0f, share %@", lyrics.center.x,
-              connectFrom, glyph ? @"glyph" : @"button", round(width * kMiddle), queueFrom, queueX, share ? @"gone" : @"not found");
+              connectFrom, glyph ? @"glyph" : @"button", round(width * kMiddle), queueFrom, round(width * (rtl ? kLeading : kTrailing)), share ? @"gone" : @"not found");
     });
 }
 %end

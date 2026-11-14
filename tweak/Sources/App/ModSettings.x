@@ -1,3 +1,6 @@
+#if SG_WIREGUARD
+#import "Shared/WireGuard/SGWGSettingsController.h"
+#endif
 // Settings: a Mod Settings row at the end of Spotify's settings list opens the mod's own page, its rows
 // grouped by what they are as the system Settings app groups its own, in cards with no headings: what the
 // app looks like (Redesigned UI's switch, Appearance, Tab bar), the screens a page of its own changes
@@ -34,9 +37,6 @@
 #import "Shared/Player/PlayerSettings.h"
 #import "Shared/Sing/Sing.h"
 #import "Shared/Haptics/Haptics.h"
-#if SG_WIREGUARD
-#import "Shared/WireGuard/SGWGSettingsController.h"
-#endif
 #import "App/About/About.h"
 #import "App/Onboarding/Onboarding.h"
 #import "Redesigned/Album/Album.h"
@@ -74,13 +74,13 @@ static NSString *namedForLook(NSString *name) {
 }
 
 // A look-named row of the main page, remembered in `looked` as (row, name) so the page can name it again when the
-// stored look changes under the open page (modSettingsPage's end).
+// stored look changes under the open page (SGModSettingsPage's end).
 static SGModRow *foundByLook(NSMutableArray<NSArray *> *looked, SGModRow *row, NSString *name, NSString *keywords) {
     [looked addObject:@[row, name]];
     return foundBy(row, namedForLook(name), keywords);
 }
 
-static UIViewController *modSettingsPage(void) {
+UIViewController *SGModSettingsPage(void) {
     // Opening the page is the only thing that asks; the cache keeps it to once every six hours.
     SGCheckForUpdate(NO);
     NSMutableArray<SGModSection *> *sections = [NSMutableArray array];
@@ -298,12 +298,12 @@ static UIViewController *settingsListIn(UIViewController *page, Class kind) {
     }
     UIViewController *presenting = self.drawer ? owner.presentingViewController : nil;
     if (!presenting) {
-        SGShowPage(owner, modSettingsPage());
+        SGShowPage(owner, SGModSettingsPage());
         return;
     }
     [presenting dismissViewControllerAnimated:YES completion:^{
         UINavigationController *nav = (UINavigationController *)settingsListIn(presenting, UINavigationController.class);
-        SGShowPage(nav.topViewController ?: presenting, modSettingsPage());
+        SGShowPage(nav.topViewController ?: presenting, SGModSettingsPage());
     }];
 }
 
@@ -318,7 +318,7 @@ void SGOpenModSettings(UIView *source) {
     UINavigationController *nav = nil;
     for (UIViewController *page = owner; page && !nav; page = page.parentViewController)
         nav = (UINavigationController *)settingsListIn(page, UINavigationController.class);
-    SGShowPage(nav.topViewController ?: SGTopController(), modSettingsPage());
+    SGShowPage(nav.topViewController ?: SGTopController(), SGModSettingsPage());
 }
 
 // At the end of the settings list, or above the first row of the drawer's, with the inset for it

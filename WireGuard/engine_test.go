@@ -81,12 +81,12 @@ func TestErrorsAndSummaryContainNoSecrets(t *testing.T) {
 	}
 	p, _ := ParseProfile(strings.Replace(validProfile(), "AllowedIPs", "PresharedKey = "+testKey+"\nAllowedIPs", 1))
 	b, _ := json.Marshal(p.Summary())
-	for _, secret := range []string{testKey, string(p.privateKeyHex), string(p.publicKeyHex)} {
+	for _, secret := range []string{testKey, p.privateKeyHex, p.publicKeyHex} {
 		if strings.Contains(string(b), secret) {
 			t.Fatalf("summary leaks key material: %s", b)
 		}
 	}
-	if !strings.Contains(string(p.uapi(mustAddrPort("127.0.0.1:1"))), "private_key=") {
+	if !strings.Contains(p.uapi(mustAddrPort("127.0.0.1:1")), "private_key=") {
 		t.Fatal("uapi must carry the key to wireguard-go")
 	}
 }
@@ -112,9 +112,9 @@ func socksHandshake(t *testing.T, c net.Conn, methods []byte, user, pass string)
 
 func pipeEngine() (*Engine, net.Conn, chan struct{}) {
 	a, b := net.Pipe()
-	e := &Engine{user: []byte("user-0123"), pass: []byte("pass-4567"), clients: map[net.Conn]struct{}{}, dialTimeout: time.Second}
+	e := &Engine{user: []byte("user-0123"), pass: []byte("pass-4567"), clients: map[net.Conn]struct{}{}}
 	done := make(chan struct{})
-	go func() { e.serve(a, func() {}); a.Close(); close(done) }()
+	go func() { e.serve(a); a.Close(); close(done) }()
 	b.SetDeadline(time.Now().Add(2 * time.Second))
 	return e, b, done
 }

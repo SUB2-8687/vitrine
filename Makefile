@@ -10,6 +10,7 @@ WIREGUARD ?= 0
 export WIREGUARD
 PIXIE ?= 0
 PIXIE_ARG := $(if $(filter 1,$(PIXIE)),--pixie,)
+# NO_PLUGINS=1 takes every app extension (PlugIns/) out of the IPA: make release NO_PLUGINS=1
 NO_PLUGINS ?= 0
 NO_PLUGINS_ARG := $(if $(filter 1,$(NO_PLUGINS)),--no-plugins,)
 

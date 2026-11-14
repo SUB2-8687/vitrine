@@ -28,6 +28,7 @@ static NSString *symbolFor(NSString *kind) {
     return symbols[kind] ?: @"circle.fill";
 }
 
+// The name a kind of change is given on the sheet; a kind this build does not know keeps the release's own word.
 static NSString *titleFor(NSString *kind) {
     NSDictionary<NSString *, NSString *> *titles = @{
         @"Features": SGL(@"settings.whatsnew.kind.features", @"Features"),

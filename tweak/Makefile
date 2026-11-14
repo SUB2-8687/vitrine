@@ -29,7 +29,7 @@ WIREGUARD ?= 0
 ifneq ($(WIREGUARD),1)
 spotifyglass_FILES := $(filter-out Sources/Shared/WireGuard/%,$(spotifyglass_FILES))
 endif
-spotifyglass_CFLAGS := -fobjc-arc -ISources -DSG_VERSION=\"$(SG_VERSION)\"
+spotifyglass_CFLAGS := -DSG_WIREGUARD=$(WIREGUARD) -fobjc-arc -ISources -DSG_VERSION=\"$(SG_VERSION)\"
 # The phone driver (Diagnostics/Driver.m) goes only into builds that carry FLEX: scripts/pipeline.sh sets
 # SG_DRIVER=1 for those, and every other build (make release, the release workflow's .deb) leaves it out.
 SG_DRIVER ?= 0
@@ -50,14 +50,15 @@ Sources/Shared/AudioEffects/SGDSPCrossfeed.m_CFLAGS := -isystem $(SG_AUDIO)/libb
 Sources/Shared/AudioEffects/SGDSPLiveprog.m_CFLAGS := -isystem $(SG_AUDIO)/wdl/eel2
 
 ifeq ($(WIREGUARD),1)
-spotifyglass_CFLAGS += -DSG_WIREGUARD=1
 spotifyglass_OBJ_FILES += ../WireGuard/build/libsgwg.a
 spotifyglass_FRAMEWORKS += Network Security CoreFoundation
 spotifyglass_LIBRARIES += resolv
 spotifyglass.all.tweak.variables: sg-wireguard
 .PHONY: sg-wireguard
 sg-wireguard:
-	@bash ../WireGuard/build-ios.sh
+	@if [ "$${SG_WG_PREBUILT:-0}" = 1 ] && [ -s ../WireGuard/build/libsgwg.a ] && [ -s ../WireGuard/build/libsgwg.h ]; then \
+		echo "==> reusing cached WireGuard library"; \
+	else bash ../WireGuard/build-ios.sh; fi
 
 after-stage::
 	@mkdir -p "$(THEOS_STAGING_DIR)$(THEOS_PACKAGE_INSTALL_PREFIX)/Library/Application Support/Vitrine.bundle"
@@ -65,17 +66,6 @@ after-stage::
 endif
 
 include $(THEOS_MAKE_PATH)/tweak.mk
-
-# Theos caches objects by flags but does not relink when a source list shrinks.
-# Make the mode a link-only prerequisite, excluded from the linker's $^ inputs.
-# Cached objects are reused; the output path remains the one quick.sh consumes.
-ifeq ($(THEOS_CURRENT_INSTANCE),spotifyglass)
-.PHONY: sg-wireguard-mode
-$(THEOS_OBJ_DIR)/.wireguard-mode: sg-wireguard-mode
-	@mkdir -p "$(THEOS_OBJ_DIR)"
-	@printf '%s\n' "$(WIREGUARD)" | cmp -s - "$@" || printf '%s\n' "$(WIREGUARD)" > "$@"
-$(THEOS_OBJ_DIR)/spotifyglass.dylib $(THEOS_OBJ_DIR)/spotifyglass.dylib.$(_THEOS_OUT_FILE_TAG).unsigned: private .EXTRA_PREREQS := $(THEOS_OBJ_DIR)/.wireguard-mode
-endif
 
 # The library is brought up to date before the tweak's instance builds, so the link finds it current.
 spotifyglass.all.tweak.variables: sg-audio

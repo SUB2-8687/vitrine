@@ -4,6 +4,9 @@
 #   scripts/pipeline.sh <decrypted.ipa> [-o out.ipa] [--no-flex] [--pixie] [--install] [--name N] [--icon P.png] [--keep-watch] [--no-plugins]
 #   (or: make build / make install)
 #
+# --no-plugins removes every app extension (the whole PlugIns/ folder: widget, Siri intents, notification
+# service ...) from the result, Vitrine's own Live Activity extension included, so it is not built either.
+#
 # --keep-watch keeps Spotify's Apple Watch app, untested. Only its arm64 build is decrypted in an IPA dumped on an
 # iPhone (the arm64_32 one older Watches run stays encrypted and is taken out), so it can only run on a Watch from
 # Series 9 and Ultra 2 on. Its companion key names com.spotify.client until it is signed: the signer has to rename
@@ -43,7 +46,7 @@ while [ $# -gt 0 ]; do
     --install) INSTALL=1; shift ;;
     --keep-watch) KEEP_WATCH=1; shift ;;
     --no-plugins) NO_PLUGINS=1; shift ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) IN="$1"; shift ;;
   esac
 done
@@ -56,8 +59,7 @@ if [ "$PIXIE" = 1 ]; then
   python3 -B "$ROOT/NativeDownloads/tools/build_vitrine_9190.py" "$IN" --check-input ${OUT:+--output "$OUT"}
 fi
 if [ "${WIREGUARD:-0}" = 1 ]; then
-  command -v go >/dev/null 2>&1 || { echo "WIREGUARD=1 requires Go; install the toolchain from WireGuard/go.mod" >&2; exit 1; }
-  python3 -B "$ROOT/scripts/spotify-transport-scan.py" "$IN" --wireguard-compatible
+  python3 "$ROOT/scripts/spotify-transport-scan.py" "$IN" --wireguard-compatible
 fi
 mkdir -p "$ROOT/out"
 
@@ -124,26 +126,29 @@ if ! xcrun -sdk iphoneos --find clang >/dev/null 2>&1; then
 fi
 # Theos builds its Swift support tools only at MAKELEVEL 0, and `make release` hands this script MAKELEVEL 1.
 # A build with FLEX carries the phone driver too (tweak/Makefile, SG_DRIVER); --no-flex leaves it out.
-env -u MAKELEVEL gmake -C "$ROOT/tweak" clean package SG_DRIVER="$WITH_FLEX"
-TWEAK_DEB="$(ls -t "$ROOT"/tweak/packages/*.deb | head -1)"
+if [ "${SG_REUSE_TWEAK_DEB:-0}" = 1 ]; then
+  TWEAK_DEB="$(find "$ROOT/tweak/packages" -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"
+  [ -n "$TWEAK_DEB" ] && [ -s "$TWEAK_DEB" ] || { echo "cached tweak package missing" >&2; exit 1; }
+  echo "    reusing exact-match tweak package"
+else
+  env -u MAKELEVEL gmake -C "$ROOT/tweak" clean package SG_DRIVER="$WITH_FLEX" >/dev/null
+  TWEAK_DEB="$(ls -t "$ROOT"/tweak/packages/*.deb | head -1)"
+fi
 echo "    $TWEAK_DEB"
 
 FILES=("$TWEAK_DEB")
 [ "$WITH_FLEX" = 1 ] && FILES+=("$FLEX_DEB")
 
-# Source-built Live Activity and share-sheet action extensions.
+# The Live Activity (Shared/LiveActivity) draws in a widget extension of its own.
 if [ "$NO_PLUGINS" = 1 ]; then
-  echo "==> --no-plugins: not building Live Activity or Open in Vitrine extensions"
+  echo "==> --no-plugins: not building the Live Activity extension"
 elif xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
   EXT_DIR="$ROOT/out/extension"
   unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
   # Built again only when what it is made from changed: its sources, the host's Info.plist or Xcode.
   EXT_STAMP="$( { cat "$ROOT/scripts/build-extension.sh" "$ROOT"/extension/LiveActivity/* \
-    "$ROOT"/extension/OpenInVitrine/*.{m,plist} "$ROOT"/extension/OpenInVitrine/*.lproj/*.strings \
-    "$ROOT"/tweak/Sources/Shared/Navigation/LinkURL.{h,m} \
     "$ROOT"/tweak/Sources/Shared/LiveActivity/*.swift "$ROOT/out/.info.plist"; xcodebuild -version; } | shasum | cut -d' ' -f1)"
   if [ "$(cat "$EXT_DIR/.stamp" 2>/dev/null)" = "$EXT_STAMP" ] && [ -d "$EXT_DIR/SpotifyGlassLiveActivity.appex" ] \
-     && [ -d "$EXT_DIR/OpenInVitrine.appex" ] \
      && [ -e "$EXT_DIR/app/Metadata.appintents" ]; then
     echo "==> SpotifyGlassLiveActivity.appex is up to date"
   else
@@ -152,9 +157,9 @@ elif xcrun --sdk iphoneos --find swiftc >/dev/null 2>&1; then
     echo "$EXT_STAMP" > "$EXT_DIR/.stamp"
   fi
   rm -f "$ROOT/out/.info.plist"
-  FILES+=("$EXT_DIR/SpotifyGlassLiveActivity.appex" "$EXT_DIR/OpenInVitrine.appex")
+  FILES+=("$EXT_DIR/SpotifyGlassLiveActivity.appex")
 else
-  echo "==> no Xcode selected: building without the Live Activity and Open in Vitrine extensions"
+  echo "==> no Xcode selected: building without the Live Activity extension"
 fi
 
 # Spotify's widget reads what the app writes through App Group suites the re-signed IPA is not entitled
@@ -173,19 +178,6 @@ FILES+=("$GROUPS_DYLIB")
 OVERLAY="$ROOT/out/.overlay.plist"
 unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist"
 python3 -B "$ROOT/scripts/merge-overlay.py" "$ROOT/plist/liquid-glass.plist" "$ROOT/out/.info.plist" "$OVERLAY"
-python3 -B - "$ROOT/out/.info.plist" "$OVERLAY" <<'PY'
-import plistlib, sys
-with open(sys.argv[1], 'rb') as f:
-    host = plistlib.load(f)
-with open(sys.argv[2], 'rb') as f:
-    overlay = plistlib.load(f)
-types = list(host.get('CFBundleURLTypes', []))
-if not any('vitrine' in item.get('CFBundleURLSchemes', []) for item in types):
-    types.append({'CFBundleURLName': 'vitrine', 'CFBundleURLSchemes': ['vitrine']})
-overlay['CFBundleURLTypes'] = types
-with open(sys.argv[2], 'wb') as f:
-    plistlib.dump(overlay, f)
-PY
 rm -f "$ROOT/out/.info.plist"
 
 echo "==> injecting"
@@ -209,14 +201,18 @@ if [ -n "$KEEP_WATCH" ]; then
   (cd "$PATCH" && zip -q -r "$OUT_ABS" "${APP_DIR}Watch")
   rm -rf "$PATCH"
 fi
-# The widget reads the App Group suites; Siri (IntentsExtension) and the notification service sign in
-# with the credentials the app keeps in the keychain (extension/AppGroups/AppGroups.m, issue #60).
+# --no-plugins: take every app extension out of the IPA (scripts/remove-plugins.sh). Runs after cyan and
+# before anything below that would open an .appex, so the App Group shim loop finds nothing to patch.
 if [ "$NO_PLUGINS" = 1 ]; then
   bash "$ROOT/scripts/remove-plugins.sh" "$OUT"
-else
+fi
+# The widget reads the App Group suites; Siri (IntentsExtension) and the notification service sign in
+# with the credentials the app keeps in the keychain (extension/AppGroups/AppGroups.m, issue #60).
 PATCH="$(mktemp -d)"
 EXT_BINS=()
-for EXT in WidgetExtension IntentsExtension NotificationServiceExtension; do
+EXT_NAMES=(WidgetExtension IntentsExtension NotificationServiceExtension)
+[ "$NO_PLUGINS" = 1 ] && EXT_NAMES=()
+for EXT in ${EXT_NAMES[@]+"${EXT_NAMES[@]}"}; do
   echo "==> loading the App Group shim in $EXT"
   EXT_BIN="${APP_DIR}PlugIns/$EXT.appex/$EXT"
   if unzip -l "$OUT" "$EXT_BIN" >/dev/null 2>&1; then
@@ -237,10 +233,9 @@ if [ ${#EXT_BINS[@]} -gt 0 ]; then
 fi
 rm -rf "$PATCH"
 
-fi
-# Localized InfoPlist.strings wins over the overlay's English permission text.
+# The overlay's permission wording is English; a ko InfoPlist.strings of Spotify's would win over it on a Korean iPhone.
 echo "==> Korean permission prompts (ko InfoPlist.strings)"
-python3 -B "$ROOT/scripts/patch-infoplist-ko.py" "$OUT" "$APP_DIR" "$IN"
+python3 -B "$ROOT/scripts/patch-infoplist-ko.py" "$OUT" "$APP_DIR"
 
 shopt -s nullglob
 ICONS=("$ROOT"/icons/*.png)

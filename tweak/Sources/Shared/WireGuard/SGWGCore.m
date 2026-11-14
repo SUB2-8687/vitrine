@@ -1,6 +1,5 @@
 #import "SGWGCore.h"
 #import "SGWGBridge.h"
-#import "SGWGABI.h"
 #import <Network/Network.h>
 #import <Security/Security.h>
 #import <objc/message.h>
@@ -14,7 +13,6 @@
 #import <sys/utsname.h>
 #import <unistd.h>
 #import <arpa/inet.h>
-#import <mach-o/dyld.h>
 
 NSString *const SGWGVersion = @"1.0";
 
@@ -31,9 +29,7 @@ NSString *const SGWGKindSOCKS5 = @"socks5";
 #pragma mark - State
 
 static atomic_int gState = SGWGStateOff;
-static atomic_bool gActive;       // armed before checking any capability
-static atomic_bool gReady, gGuardsReady, gEngineReady;
-static BOOL gSessionGuards;
+static BOOL gActive;              // hooks installed in this launch
 static int gPort = -1;            // local proxy port (fixed for the launch)
 static int gListenerFD = -1;      // reserved socket handed to Go on start
 static char gUser[33], gPass[33]; // per-launch random proxy credentials
@@ -47,13 +43,10 @@ static atomic_uint gRebinds;
 static NSString *gKind = @"";
 static char gProxyHost[256], gProxyPort[8];
 static char *gProxyUser, *gProxyPass; // strdup'ed, NULL when no authentication
-static atomic_bool gBlockAll;
-static atomic_int gCredentialStatus;
+static BOOL gBlockAll;                // enabled but unusable configuration: block, never direct
 
 SGWGState SGWGCurrentState(void) { return (SGWGState)atomic_load(&gState); }
 BOOL SGWGActiveThisLaunch(void) { return gActive; }
-BOOL SGWGReady(void) { return atomic_load_explicit(&gReady, memory_order_acquire); }
-BOOL SGWGGuardsInstalled(void) { return atomic_load(&gGuardsReady); }
 
 NSString *SGWGStateDescription(SGWGState state) {
     switch (state) {
@@ -122,14 +115,6 @@ NSString *SGWGAppVersion(void) {
 #endif
     id v = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     return [v isKindOfClass:NSString.class] ? v : @"?";
-}
-
-BOOL SGWGIsSupportedVersion(void) {
-    NSString *version = SGWGAppVersion();
-#define SGWG_TARGET(number, revision, mainUUID, sharedUUID) if ([version isEqualToString:@number]) return YES;
-#include "SGWGTargets.inc"
-#undef SGWG_TARGET
-    return NO;
 }
 
 #pragma mark - iOS 17 proxy API (resolved at runtime; the repo builds with the iOS 16.5 SDK)
@@ -216,10 +201,9 @@ static void BlockConfiguration(NSURLSessionConfiguration *config) {
 
 // One nw_proxy_config for the mode of this launch. NULL means "block".
 static id CreateProxyConfig(void) {
-    if (!SGWGIsSupportedOS()) return nil;
     // WebSocket tasks do not use NSURLProtocol. Give an invalid configuration
     // a real, fail-closed proxy too, so those tasks cannot use a direct route.
-    if (gBlockAll || (![gKind isEqualToString:SGWGKindWireGuard] && !atomic_load(&gEngineReady))) {
+    if (gBlockAll) {
         nw_endpoint_t endpoint = nw_endpoint_create_host("127.0.0.1", "1");
         return endpoint ? (__bridge_transfer id)pCreateSocks((__bridge void *)endpoint) : nil;
     }
@@ -246,25 +230,26 @@ static id CreateProxyConfig(void) {
 }
 
 id SGWGCreateNativeProxyConfig(void) {
-    id proxy = SGWGReady() ? CreateProxyConfig() : nil;
+    id proxy = gActive ? CreateProxyConfig() : nil;
     if (proxy) pSetFailover((__bridge void *)proxy, false);
     return proxy;
 }
 
-@interface SGWGUnavailableProtocol : SGWGBlockedURLProtocol
-@end
-@implementation SGWGUnavailableProtocol
-+ (BOOL)canInitWithRequest:(NSURLRequest *)request {
-    return !SGWGReady() && [super canInitWithRequest:request];
+BOOL SGWGNativeSOCKSEndpoint(int *port, const char **user, const char **password) {
+    if (!gActive || gBlockAll) return NO;
+    if ([gKind isEqualToString:SGWGKindWireGuard]) {
+        if (port) *port = gPort;
+        if (user) *user = gUser;
+        if (password) *password = gPass;
+        return YES;
+    }
+    // Native socket forwarding is currently limited to the in-app SOCKS listener.
+    return NO;
 }
-@end
 
 static void ApplyProxy(NSURLSessionConfiguration *config) {
     if (!gActive || ![config isKindOfClass:NSURLSessionConfiguration.class]) return;
     NSArray *classes = config.protocolClasses ?: @[];
-    if (![classes containsObject:SGWGUnavailableProtocol.class])
-        classes = [@[SGWGUnavailableProtocol.class] arrayByAddingObjectsFromArray:classes];
-    config.protocolClasses = classes;
     if (![classes containsObject:SGWGLocalAddressProtocol.class])
         config.protocolClasses = [@[SGWGLocalAddressProtocol.class] arrayByAddingObjectsFromArray:classes];
     @try {
@@ -284,9 +269,9 @@ static void ApplyProxy(NSURLSessionConfiguration *config) {
 
 #pragma mark - Hooks
 
-static IMP ReplaceMethod(Class cls, SEL sel, IMP replacement, const char *result, NSArray<NSString *> *arguments) {
+static IMP ReplaceMethod(Class cls, SEL sel, IMP replacement) {
     Method method = class_getInstanceMethod(cls, sel);
-    if (!SGWGMethodMatches(method, result, arguments)) return NULL;
+    if (!method) return NULL;
     IMP original = method_getImplementation(method);
     // class_addMethod first so an inherited implementation is not modified for
     // unrelated superclasses.
@@ -362,19 +347,12 @@ static BOOL IsWebURL(id url) {
 // Some callers use it for manifests and cover art, so route it through
 // a tunnelled session instead.
 static NSData *TunnelFetch(NSURL *url, NSError **outError) {
-    // Synchronous Foundation I/O must never turn a UI caller into a tunnel
-    // startup wait. Background callers have one eight-second terminal deadline.
-    if (!SGWGReady() || NSThread.isMainThread) {
-        if (outError) *outError = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNotConnectedToInternet userInfo:nil];
-        return nil;
-    }
-    static const NSTimeInterval timeoutSeconds = 8;
     static NSURLSession *session;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSURLSessionConfiguration *c = [NSURLSessionConfiguration defaultSessionConfiguration];
-        c.timeoutIntervalForRequest = timeoutSeconds;
-        c.timeoutIntervalForResource = timeoutSeconds;
+        c.timeoutIntervalForRequest = 30;
+        c.timeoutIntervalForResource = 120;
         NSOperationQueue *queue = [NSOperationQueue new];
         queue.maxConcurrentOperationCount = 4;
         session = [NSURLSession sessionWithConfiguration:c delegate:nil delegateQueue:queue];
@@ -383,32 +361,16 @@ static NSData *TunnelFetch(NSURL *url, NSError **outError) {
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     __block NSData *result;
     __block NSError *failure;
-    __block BOOL terminal = NO;
-    NSObject *lock = [NSObject new];
-    NSURLSessionDataTask *task = [session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        @synchronized (lock) {
-            if (terminal) return;
-            terminal = YES;
-            NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? [(NSHTTPURLResponse *)response statusCode] : 0;
-            if (!error && status >= 200 && status < 300) result = data ?: [NSData data];
-            else failure = error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:nil];
-        }
+    [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? [(NSHTTPURLResponse *)response statusCode] : 0;
+        if (!error && status >= 200 && status < 300) result = data ?: [NSData data];
+        else failure = error ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadServerResponse userInfo:nil];
         dispatch_semaphore_signal(done);
-    }];
-    [task resume];
-    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSeconds * NSEC_PER_SEC)))) {
-        @synchronized (lock) {
-            if (!terminal) {
-                terminal = YES;
-                failure = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
-            }
-        }
-        [task cancel];
-    }
-    @synchronized (lock) {
-        if (!result && outError) *outError = failure;
-        return result;
-    }
+    }] resume];
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 125 * NSEC_PER_SEC)))
+        failure = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorTimedOut userInfo:nil];
+    if (!result && outError) *outError = failure;
+    return result;
 }
 
 static id MutableIfNeeded(id cls, NSData *data) {
@@ -424,84 +386,28 @@ static id HookDataURLOptions(id self, SEL _cmd, id url, NSUInteger options, NSEr
     return MutableIfNeeded(self, TunnelFetch(url, error));
 }
 
-static BOOL InstallInitializers(void) {
-    BOOL valid = YES;
-    SEL sessionInit = NSSelectorFromString(@"initWithConfiguration:delegate:delegateQueue:delegateDispatchQueue:");
-    for (NSString *name in @[@"NSURLSession", @"__NSURLSessionLocal"]) {
-        Class cls = NSClassFromString(name);
-        Method method = class_getInstanceMethod(cls, sessionInit);
-        if (!SGWGMethodMatches(method, "@", @[@"@", @"@", @"@", @"@"])) { valid = NO; continue; }
-        void *(*original)(void *, SEL, id, id, id, id) = (void *)method_getImplementation(method);
-        IMP replacement = imp_implementationWithBlock(^void *(void *receiver, NSURLSessionConfiguration *configuration,
-                                                             id delegate, id queue, id dispatchQueue) {
-            NSURLSessionConfiguration *copy = [configuration copy];
-            ApplyProxy(copy);
-            return original(receiver, sessionInit, copy, delegate, queue, dispatchQueue);
-        });
-        if (!ReplaceMethod(cls, sessionInit, replacement, "@", @[@"@", @"@", @"@", @"@"])) valid = NO;
-    }
-    const uint8_t byte = 0;
-    NSArray *instances = @[[NSData alloc], [NSMutableData alloc], [NSData data],
-        [NSData dataWithBytes:&byte length:1], [NSMutableData data]];
-    NSMutableSet *classes = [NSMutableSet setWithObjects:NSData.class, NSMutableData.class, nil];
-    for (id instance in instances) [classes addObject:object_getClass(instance)];
-    for (Class cls in classes) {
-        for (NSNumber *options in @[@NO, @YES]) {
-            SEL selector = options.boolValue ? @selector(initWithContentsOfURL:options:error:) : @selector(initWithContentsOfURL:);
-            NSArray *arguments = options.boolValue ? @[@"@", @(@encode(NSUInteger)), @"^@"] : @[@"@"];
-            Method method = class_getInstanceMethod(cls, selector);
-            if (!SGWGMethodMatches(method, "@", arguments)) { valid = NO; continue; }
-            IMP original = method_getImplementation(method), replacement;
-            if (options.boolValue) {
-                replacement = imp_implementationWithBlock(^void *(void *receiver, NSURL *url, NSUInteger flags, NSError **error) {
-                    if (!IsWebURL(url)) return ((void *(*)(void *, SEL, id, NSUInteger, NSError **))original)(receiver, selector, url, flags, error);
-                    id consumed = CFBridgingRelease(receiver);
-                    NSData *data = TunnelFetch(url, error);
-                    id result = [consumed isKindOfClass:NSMutableData.class] ? [data mutableCopy] : data;
-                    return (void *)CFBridgingRetain(result);
-                });
-            } else {
-                replacement = imp_implementationWithBlock(^void *(void *receiver, NSURL *url) {
-                    if (!IsWebURL(url)) return ((void *(*)(void *, SEL, id))original)(receiver, selector, url);
-                    id consumed = CFBridgingRelease(receiver);
-                    NSData *data = TunnelFetch(url, NULL);
-                    id result = [consumed isKindOfClass:NSMutableData.class] ? [data mutableCopy] : data;
-                    return (void *)CFBridgingRetain(result);
-                });
-            }
-            if (!ReplaceMethod(cls, selector, replacement, "@", arguments)) valid = NO;
-        }
-    }
-    return valid;
-}
-
-static BOOL InstallSessionHooks(void) {
+static void InstallSessionHooks(void) {
     Class configMeta = object_getClass(NSURLSessionConfiguration.class);
     Class sessionMeta = object_getClass(NSURLSession.class);
-    origDefault = (void *)ReplaceMethod(configMeta, @selector(defaultSessionConfiguration), (IMP)HookDefault, "@", @[]);
-    origEphemeral = (void *)ReplaceMethod(configMeta, @selector(ephemeralSessionConfiguration), (IMP)HookEphemeral, "@", @[]);
-    origBackground = (void *)ReplaceMethod(configMeta, @selector(backgroundSessionConfigurationWithIdentifier:), (IMP)HookBackground, "@", @[@"@"]);
-    origSession = (void *)ReplaceMethod(sessionMeta, @selector(sessionWithConfiguration:), (IMP)HookSession, "@", @[@"@"]);
-    origSessionDelegate = (void *)ReplaceMethod(sessionMeta, @selector(sessionWithConfiguration:delegate:delegateQueue:), (IMP)HookSessionDelegate, "@", @[@"@", @"@", @"@"]);
-    origShared = (void *)ReplaceMethod(sessionMeta, @selector(sharedSession), (IMP)HookShared, "@", @[]);
+    origDefault = (void *)ReplaceMethod(configMeta, @selector(defaultSessionConfiguration), (IMP)HookDefault);
+    origEphemeral = (void *)ReplaceMethod(configMeta, @selector(ephemeralSessionConfiguration), (IMP)HookEphemeral);
+    origBackground = (void *)ReplaceMethod(configMeta, @selector(backgroundSessionConfigurationWithIdentifier:), (IMP)HookBackground);
+    origSession = (void *)ReplaceMethod(sessionMeta, @selector(sessionWithConfiguration:), (IMP)HookSession);
+    origSessionDelegate = (void *)ReplaceMethod(sessionMeta, @selector(sessionWithConfiguration:delegate:delegateQueue:), (IMP)HookSessionDelegate);
+    origShared = (void *)ReplaceMethod(sessionMeta, @selector(sharedSession), (IMP)HookShared);
 
     SEL setHTTP3 = NSSelectorFromString(@"setAssumesHTTP3Capable:");
     SEL getHTTP3 = NSSelectorFromString(@"assumesHTTP3Capable");
     Method m = class_getInstanceMethod(NSMutableURLRequest.class, setHTTP3);
-    BOOL http3Valid = !m || SGWGMethodMatches(m, "v", @[@(@encode(BOOL))]);
-    if (m && http3Valid)
-        origSetHTTP3 = (void *)ReplaceMethod(NSMutableURLRequest.class, setHTTP3, (IMP)HookSetHTTP3, "v", @[@(@encode(BOOL))]);
+    if (m && method_getNumberOfArguments(m) == 3)
+        origSetHTTP3 = (void *)ReplaceMethod(NSMutableURLRequest.class, setHTTP3, (IMP)HookSetHTTP3);
     m = class_getInstanceMethod(NSURLRequest.class, getHTTP3);
-    http3Valid &= !m || SGWGMethodMatches(m, @encode(BOOL), @[]);
-    if (m && http3Valid)
-        origGetHTTP3 = (void *)ReplaceMethod(NSURLRequest.class, getHTTP3, (IMP)HookGetHTTP3, @encode(BOOL), @[]);
+    if (m && method_getNumberOfArguments(m) == 2)
+        origGetHTTP3 = (void *)ReplaceMethod(NSURLRequest.class, getHTTP3, (IMP)HookGetHTTP3);
 
     Class dataMeta = object_getClass(NSData.class);
-    origDataURL = (void *)ReplaceMethod(dataMeta, @selector(dataWithContentsOfURL:), (IMP)HookDataURL, "@", @[@"@"]);
-    origDataURLOptions = (void *)ReplaceMethod(dataMeta, @selector(dataWithContentsOfURL:options:error:), (IMP)HookDataURLOptions, "@", @[@"@", @(@encode(NSUInteger)), @"^@"]);
-    BOOL initializers = InstallInitializers();
-    return origDefault && origEphemeral && origBackground && origSession && origSessionDelegate && origShared &&
-        origDataURL && origDataURLOptions && http3Valid && initializers;
+    origDataURL = (void *)ReplaceMethod(dataMeta, @selector(dataWithContentsOfURL:), (IMP)HookDataURL);
+    origDataURLOptions = (void *)ReplaceMethod(dataMeta, @selector(dataWithContentsOfURL:options:error:), (IMP)HookDataURLOptions);
 }
 
 NSDictionary *SGWGProxyCounters(void) {
@@ -539,10 +445,6 @@ static OSStatus KeychainWrite(NSString *account, NSData *data) {
     return status;
 }
 
-static NSArray *ProxyIdentity(NSString *kind, NSString *host, NSString *port, NSString *user) {
-    return @[kind ?: @"", host.lowercaseString ?: @"", @(port.integerValue).stringValue, user ?: @""];
-}
-
 static NSString *ReadProxyPassword(OSStatus *outStatus) {
 #ifdef SGWG_TESTING
     if (TestEnv(@"SGWG_TEST_HOST")) {
@@ -557,16 +459,7 @@ static NSString *ReadProxyPassword(OSStatus *outStatus) {
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
     if (outStatus) *outStatus = status;
     if (status != errSecSuccess || !result) return nil;
-    NSData *data = CFBridgingRelease(result);
-    id value = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    NSDictionary *settings = SGWGSettingExternalProxy();
-    NSArray *identity = ProxyIdentity(SGWGSettingKind(), settings[@"host"], settings[@"port"], settings[@"username"]);
-    if (![value isKindOfClass:NSDictionary.class] || ![value[@"identity"] isEqual:identity] ||
-        ![value[@"password"] isKindOfClass:NSString.class] || ![value[@"password"] length]) {
-        if (outStatus) *outStatus = errSecDecode;
-        return nil;
-    }
-    return value[@"password"];
+    return [[NSString alloc] initWithData:CFBridgingRelease(result) encoding:NSUTF8StringEncoding];
 }
 
 BOOL SGWGHasStoredProxyPassword(void) { return ReadProxyPassword(NULL).length > 0; }
@@ -596,13 +489,6 @@ BOOL SGWGSaveConnection(NSString *kind, NSString *host, NSString *port, NSString
             if (reason) *reason = @"import a WireGuard .conf first";
             return NO;
         }
-        if (![SGWGSettingKind() isEqualToString:kind]) {
-            OSStatus status = SecItemDelete((__bridge CFDictionaryRef)KeychainQueryFor(kKeychainProxyAccount));
-            if (status != errSecSuccess && status != errSecItemNotFound) {
-                if (reason) *reason = @"could not clear previous proxy credentials";
-                return NO;
-            }
-        }
         SetSetting(@"kind", kind);
         return YES;
     }
@@ -610,19 +496,9 @@ BOOL SGWGSaveConnection(NSString *kind, NSString *host, NSString *port, NSString
     port = [port stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
     username = username ?: @"";
     if (!ValidateExternal(kind, host, port, username, reason)) return NO;
-    NSDictionary *previous = SGWGSettingExternalProxy();
-    NSArray *identity = ProxyIdentity(kind, host, port, username);
-    if (![identity isEqual:ProxyIdentity(SGWGSettingKind(), previous[@"host"], previous[@"port"], previous[@"username"])]) {
-        OSStatus status = SecItemDelete((__bridge CFDictionaryRef)KeychainQueryFor(kKeychainProxyAccount));
-        if (status != errSecSuccess && status != errSecItemNotFound) {
-            if (reason) *reason = @"could not clear previous proxy credentials";
-            return NO;
-        }
-    }
     if (password) {
         OSStatus status = password.length
-            ? KeychainWrite(kKeychainProxyAccount, [NSJSONSerialization dataWithJSONObject:
-                @{@"identity": identity, @"password": password} options:0 error:nil])
+            ? KeychainWrite(kKeychainProxyAccount, [password dataUsingEncoding:NSUTF8StringEncoding])
             : SecItemDelete((__bridge CFDictionaryRef)KeychainQueryFor(kKeychainProxyAccount));
         if (status != errSecSuccess && status != errSecItemNotFound) {
             if (reason) *reason = [NSString stringWithFormat:@"Keychain error %d", (int)status];
@@ -648,9 +524,7 @@ static NSString *ReadProfile(OSStatus *outStatus) {
     if (outStatus) *outStatus = status;
     if (status != errSecSuccess || !result) return nil;
     NSData *data = CFBridgingRelease(result);
-    NSString *profile = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (!profile.length && outStatus) *outStatus = errSecDecode;
-    return profile;
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 }
 
 BOOL SGWGHasProfile(void) { return ReadProfile(NULL).length > 0; }
@@ -707,23 +581,20 @@ NSDictionary *SGWGEngineStatus(void) {
 static void StartEngine(void) {
     dispatch_async(gQueue, ^{
         SGWGState state = SGWGCurrentState();
-        if (atomic_load(&gEngineReady) || state == SGWGStateFailed) return;
+        if (state == SGWGStateRunning || state == SGWGStateFailed) return;
         OSStatus status = errSecSuccess;
         NSString *profile = ReadProfile(&status);
         if (!profile.length) {
-            atomic_store(&gCredentialStatus, status);
-            atomic_store(&gState, (status == errSecInteractionNotAllowed || status == errSecNotAvailable)
-                ? SGWGStateWaitingProfile : SGWGStateBlocked);
+            // Locked Keychain (e.g. background launch before first unlock):
+            // keep blocking traffic and retry when the app becomes active.
+            atomic_store(&gState, SGWGStateWaitingProfile);
             return;
         }
-        atomic_store(&gCredentialStatus, errSecSuccess);
         atomic_store(&gState, SGWGStateStarting);
         int fd = gListenerFD;
         gListenerFD = -1; // ownership moves to Go
         int port = SGWGStart((char *)profile.UTF8String, gUser, gPass, fd, gPort);
-        atomic_store(&gEngineReady, port == gPort);
         atomic_store(&gState, port == gPort ? SGWGStateRunning : SGWGStateFailed);
-        SGWGRefreshReadiness();
     });
 }
 
@@ -832,12 +703,9 @@ static void StartExternalProxy(void) {
     if (!gBlockAll && user.length) {
         OSStatus status = errSecSuccess;
         pass = ReadProxyPassword(&status);
-        atomic_store(&gCredentialStatus, status);
-        if (status != errSecSuccess || !pass.length) {
-            atomic_store(&gState, (status == errSecInteractionNotAllowed || status == errSecNotAvailable)
-                ? SGWGStateWaitingProfile : SGWGStateBlocked);
-            return;
-        }
+        // Locked Keychain: block rather than connect without credentials.
+        if (status != errSecSuccess && status != errSecItemNotFound) gBlockAll = YES;
+        pass = pass ?: @"";
     }
     if (!gBlockAll) {
         strlcpy(gProxyHost, host.UTF8String, sizeof(gProxyHost));
@@ -848,76 +716,35 @@ static void StartExternalProxy(void) {
         }
     }
     atomic_store(&gState, gBlockAll ? SGWGStateBlocked : SGWGStateExternalProxy);
-    atomic_store(&gEngineReady, !gBlockAll);
-    SGWGRefreshReadiness();
-}
-
-void SGWGRefreshReadiness(void) {
-    BOOL native = SGWGInstallNativePatches();
-    BOOL guards = gSessionGuards && native;
-    atomic_store(&gGuardsReady, guards);
-    BOOL ready = guards && SGWGIsSupportedOS() && SGWGAdmissionReady() && atomic_load(&gEngineReady) && !gBlockAll;
-    atomic_store_explicit(&gReady, ready, memory_order_release);
-}
-
-static void ImageChanged(const struct mach_header *header, intptr_t slide) {
-    if (!gActive) return;
-    atomic_store_explicit(&gReady, false, memory_order_release);
-    dispatch_async(gQueue, ^{ SGWGRefreshReadiness(); });
+    InstallSessionHooks();
+    SGWGInstallTransportPatches();
+    SGWGInstallNativePatches();
 }
 
 __attribute__((constructor)) static void SGWGInit(void) {
     @autoreleasepool {
         gQueue = dispatch_queue_create("vitrine.wireguard", DISPATCH_QUEUE_SERIAL);
         if (!SGWGSettingEnabled()) return;
-        atomic_store(&gActive, true);
-        gKind = SGWGSettingKind();
-        RandomHex(gUser);
-        RandomHex(gPass);
-        if (!ReserveListener()) { gBlockAll = YES; gPort = 1; }
-        gSessionGuards = InstallSessionHooks();
-        SGWGRefreshReadiness();
-        _dyld_register_func_for_add_image(ImageChanged);
-        _dyld_register_func_for_remove_image(ImageChanged);
-        static dispatch_source_t recovery;
-        recovery = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, gQueue);
-        dispatch_source_set_timer(recovery, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), 5 * NSEC_PER_SEC, NSEC_PER_SEC);
-        dispatch_source_set_event_handler(recovery, ^{
-            if (!SGWGReady()) SGWGRefreshReadiness();
-            if (SGWGCurrentState() == SGWGStateWaitingProfile) {
-                if ([gKind isEqualToString:SGWGKindWireGuard]) StartEngine();
-                else StartExternalProxy();
-            } else if (SGWGCurrentState() == SGWGStateBlocked && !gBlockAll &&
-                       !atomic_load(&gEngineReady) && !atomic_load(&gCredentialStatus) &&
-                       SGWGIsSupportedOS() && SGWGAdmissionReady()) {
-                if ([gKind isEqualToString:SGWGKindWireGuard]) StartEngine();
-                else StartExternalProxy();
-            }
-#ifndef SGWG_TESTING
-            SGWGNotifyRecovery();
-#endif
-        });
-        dispatch_resume(recovery);
         if (!SGWGIsSupportedOS()) {
             atomic_store(&gState, SGWGStateUnsupported);
             return;
         }
-        // A saved opt-in may survive an app update. Do not start a tunnel or
-        // touch Spotify's delegates on an uninspected version. The stable Apple
-        // entry points still block their covered traffic, not the whole app.
-        if (!SGWGAdmissionReady()) {
-            atomic_store(&gState, SGWGStateBlocked);
-            return;
-        }
-        SGWGInstallTransportPatches();
+        gKind = SGWGSettingKind();
         if (![gKind isEqualToString:SGWGKindWireGuard]) {
             StartExternalProxy();
             return;
         }
+        RandomHex(gUser);
+        RandomHex(gPass);
         // Reserve the loopback port synchronously: hooks may run before the Go
         // runtime of this image is initialized, and Go must never be entered
         // from a constructor (it would wait for its own initializer).
+        if (!ReserveListener()) gPort = 1; // closed port: fail closed, never direct
+        gActive = YES;
         atomic_store(&gState, SGWGStateStarting);
+        InstallSessionHooks();
+        SGWGInstallTransportPatches();
+        SGWGInstallNativePatches();
         ObserveLifecycle();
         StartEngine();
     }
@@ -957,10 +784,6 @@ NSString *SGWGDiagnosticsReport(NSDictionary<NSString *, NSString *> *checks) {
     [lines addObject:[NSString stringWithFormat:@"setting.enabled: %@ | active this launch: %@ | supported OS: %@",
         SGWGSettingEnabled() ? @"yes" : @"no", gActive ? @"yes" : @"no", SGWGIsSupportedOS() ? @"yes" : @"no"]];
     [lines addObject:[NSString stringWithFormat:@"state: %@", SGWGStateDescription(SGWGCurrentState())]];
-    [lines addObject:[NSString stringWithFormat:@"guards: %@; ready: %@; credential-status: %d",
-        SGWGGuardsInstalled() ? @"installed" : @"incomplete", SGWGReady() ? @"yes" : @"no", atomic_load(&gCredentialStatus)]];
-    [lines addObject:SGWGIsSupportedVersion() ? @"transport.version: inspected version; IPA UUID preflight required" :
-        @"transport.version: uninspected; covered traffic blocked when enabled on a supported OS"];
     // The external proxy host is intentionally not included.
     NSString *mode = gActive ? gKind : SGWGSettingKind();
     [lines addObject:[NSString stringWithFormat:@"mode: %@%@", mode,

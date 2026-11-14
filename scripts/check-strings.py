@@ -5,7 +5,7 @@
   scripts/check-strings.py --sync   also rewrite en.lproj from Vitrine's SGL(...) and Pixie's SAPL(...) calls
 
 Checks: every SGL(@"key", @"English") key is well formed and stands for one English text; en.lproj holds exactly
-those keys and texts; every other .lproj has the same keys, and each translation reads the same format specifiers
+those keys and texts; every other .lproj has the same keys (Localizable.strings plus the extra tables, e.g. WireGuard.strings for settings.wireguard.*), and each translation reads the same format specifiers
 (kind and number, in argument order; %2$@ may reorder them); the bundle's Info.plist and tables lint; and the
 source files pass no new untranslated text to a row, section, alert, label or title list (scripts/strings-allow.txt
 lists the deliberate exceptions, such as brand names)."""
@@ -16,6 +16,9 @@ SOURCES = os.path.join(ROOT, 'tweak', 'Sources')
 PIXIE_SOURCES = os.path.join(ROOT, 'NativeDownloads', 'src')
 BUNDLE = os.path.join(ROOT, 'tweak', 'layout', 'Library', 'Application Support', 'Vitrine.bundle')
 ALLOW = os.path.join(ROOT, 'scripts', 'strings-allow.txt')
+# Tables beside Localizable.strings in each .lproj, one per page that is translated as a pack of its own: file name
+# (without .strings) -> the key prefix it holds. Core/SGLocalize.m reads them all as one table.
+EXTRA_TABLES = {'WireGuard': 'settings.wireguard.'}
 KEY = re.compile(r'^[a-z0-9]+(\.[a-z0-9_]+)+$')
 problems = []
 
@@ -156,6 +159,30 @@ def write_strings(path, table, header):
         lines.append(f'"{key}" = "{escape(table[key])}";')
     open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 
+def table_names():
+    return ['Localizable'] + list(EXTRA_TABLES)
+
+def table_path(lang, name):
+    return os.path.join(BUNDLE, lang, f'{name}.strings')
+
+def table_of(key):
+    """The table a key belongs to: an extra table's when its prefix matches, else Localizable."""
+    for name, prefix in EXTRA_TABLES.items():
+        if key.startswith(prefix): return name
+    return 'Localizable'
+
+def read_lang(lang):
+    """All tables of one .lproj merged, a key in the wrong table reported."""
+    merged = {}
+    for name in table_names():
+        path = table_path(lang, name)
+        if not os.path.exists(path): continue
+        for k, v in read_strings(path).items():
+            if table_of(k) != name: problem(f'{lang}/{name}.strings holds {k}, which belongs in {table_of(k)}.strings')
+            if k in merged: problem(f'{lang}: {k} appears in two tables')
+            merged[k] = v
+    return merged
+
 # --- sources -----------------------------------------------------------------------------------------------------
 LOCALIZE_CALL = re.compile(r'\b(?:SGL|SAPL)\(\s*$')
 ROW_CALL = re.compile(r'\bSG(?:Switch|Hide|Shown|Option|Unstable|Flag|Kill|Stat|Action|Warning|Page|Choice|Slider|Menu|Link|StatAction)Row\(|\bSG(?:Noted)?Section\(|SGModPage alloc')
@@ -224,19 +251,23 @@ def scan_sources():
 def main():
     sync = '--sync' in sys.argv
     used, ui = scan_sources()
-    en_path = os.path.join(BUNDLE, 'en.lproj', 'Localizable.strings')
     english = {k: v[0] for k, v in used.items()}
     if sync:
-        write_strings(en_path, english, '/* Vitrine\'s English, written by scripts/check-strings.py --sync from SGL(...) and SAPL(...) source calls. */')
-    en = read_strings(en_path) if os.path.exists(en_path) else {}
+        for name in table_names():
+            part = {k: v for k, v in english.items() if table_of(k) == name}
+            header = ('/* Vitrine\'s English, written by scripts/check-strings.py --sync from SGL(...) and SAPL(...) source calls. */'
+                      if name == 'Localizable' else
+                      f'/* Vitrine\'s English for the app-local WireGuard / proxy page ({EXTRA_TABLES[name]}*). Edited beside Localizable.strings; scripts/check-strings.py --sync writes this file from the SGL(...) calls. */')
+            if part or os.path.exists(table_path('en.lproj', name)):
+                write_strings(table_path('en.lproj', name), part, header)
+    en = read_lang('en.lproj')
     for k in sorted(set(english) - set(en)): problem(f'en.lproj lacks {k} (run scripts/check-strings.py --sync)')
     for k in sorted(set(en) - set(english)): problem(f'en.lproj has {k}, which no SGL(...) uses (run --sync)')
     for k in sorted(set(en) & set(english)):
         if en[k] != english[k]: problem(f'en.lproj {k} reads {en[k]!r}, the source {english[k]!r} (run --sync)')
     langs = sorted(d for d in os.listdir(BUNDLE) if d.endswith('.lproj') and d != 'en.lproj')
     for lang in langs:
-        path = os.path.join(BUNDLE, lang, 'Localizable.strings')
-        table = read_strings(path)
+        table = read_lang(lang)
         for k in sorted(set(english) - set(table)): problem(f'{lang} lacks {k}: {english[k]!r}')
         for k in sorted(set(table) - set(english)): problem(f'{lang} has {k}, which no SGL(...) uses')
         for k in sorted(set(table) & set(english)):
@@ -254,7 +285,8 @@ def main():
         if ('*', text) in allowed or (rel, text) in allowed: continue
         problem(f'{rel}:{line}: untranslated text {text!r}: wrap it in SGL(@"key", ...) or list it in scripts/strings-allow.txt')
     if shutil.which('plutil'):
-        targets = [os.path.join(BUNDLE, 'Info.plist')] + [os.path.join(BUNDLE, d, 'Localizable.strings') for d in ['en.lproj'] + langs]
+        targets = [os.path.join(BUNDLE, 'Info.plist')] + [table_path(d, n) for d in ['en.lproj'] + langs for n in table_names()
+                                                           if os.path.exists(table_path(d, n))]
         for t in targets:
             r = subprocess.run(['plutil', '-lint', t], capture_output=True, text=True)
             if r.returncode: problem(f'plutil: {r.stdout.strip() or r.stderr.strip()}')

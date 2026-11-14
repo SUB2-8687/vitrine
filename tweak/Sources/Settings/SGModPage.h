@@ -55,6 +55,8 @@
 @property (nonatomic, copy) NSArray<NSString *> *choiceNotes;
 @property (nonatomic, copy) NSString *choiceFooter;   // under a choice row's list
 @property (nonatomic, copy) void (^chosen)(NSInteger index);
+// Runs after the choice page has popped and its parent is visible again.
+@property (nonatomic, copy) void (^chosenAfterDismiss)(NSInteger index);
 // A slider row's (SGSliderRow): its range and step, and the blocks that read its number, store one and
 // write one out.
 @property (nonatomic) double minimum, maximum, step;

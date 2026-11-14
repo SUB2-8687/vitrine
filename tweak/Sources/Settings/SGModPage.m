@@ -101,7 +101,8 @@ SGModRow *SGPageRow(NSString *title, UIViewController *(^page)(void)) {
 // it came from reads the new name out and the page it sits on rebuilds around it.
 @interface SGChoicePage : SGPage
 - (instancetype)initWithTitle:(NSString *)title key:(NSString *)key choices:(NSArray<NSString *> *)choices notes:(NSArray<NSString *> *)notes
-                       footer:(NSString *)footer fallback:(NSInteger)fallback chosen:(void (^)(NSInteger index))chosen;
+                       footer:(NSString *)footer fallback:(NSInteger)fallback chosen:(void (^)(NSInteger index))chosen
+           chosenAfterDismiss:(void (^)(NSInteger index))chosenAfterDismiss;
 @end
 
 @implementation SGChoicePage {
@@ -109,11 +110,13 @@ SGModRow *SGPageRow(NSString *title, UIViewController *(^page)(void)) {
     NSArray<NSString *> *_choices, *_notes;
     NSInteger _fallback;
     void (^_chosen)(NSInteger index);
+    void (^_chosenAfterDismiss)(NSInteger index);
     UIView *_footer;
 }
 
 - (instancetype)initWithTitle:(NSString *)title key:(NSString *)key choices:(NSArray<NSString *> *)choices notes:(NSArray<NSString *> *)notes
-                       footer:(NSString *)footer fallback:(NSInteger)fallback chosen:(void (^)(NSInteger index))chosen {
+                       footer:(NSString *)footer fallback:(NSInteger)fallback chosen:(void (^)(NSInteger index))chosen
+           chosenAfterDismiss:(void (^)(NSInteger index))chosenAfterDismiss {
     if (!(self = [super initWithStyle:UITableViewStyleInsetGrouped])) return nil;
     self.title = title;
     _key = key;
@@ -121,6 +124,7 @@ SGModRow *SGPageRow(NSString *title, UIViewController *(^page)(void)) {
     _notes = notes;
     _fallback = fallback;
     _chosen = chosen;
+    _chosenAfterDismiss = chosenAfterDismiss;
     _footer = footer ? SGNote(footer) : nil;
     return self;
 }
@@ -171,7 +175,16 @@ SGModRow *SGPageRow(NSString *title, UIViewController *(^page)(void)) {
     SGSetInt(_key, path.row);
     if (_chosen) _chosen(path.row);
     [table reloadData];
-    [self.navigationController popViewControllerAnimated:YES];
+    UINavigationController *navigation = self.navigationController;
+    [navigation popViewControllerAnimated:YES];
+    if (_chosenAfterDismiss) {
+        void (^afterDismiss)(NSInteger) = _chosenAfterDismiss;
+        id<UIViewControllerTransitionCoordinator> transition = navigation.transitionCoordinator;
+        BOOL scheduled = transition && [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+            if (!context.isCancelled) afterDismiss(path.row);
+        }];
+        if (!scheduled) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ afterDismiss(path.row); });
+    }
 }
 
 @end
@@ -190,7 +203,8 @@ SGModRow *SGChoiceRow(NSString *title, NSString *subtitle, NSString *key, NSArra
     };
     __weak SGModRow *weakRow = row;
     row.page = ^UIViewController *{
-        return [[SGChoicePage alloc] initWithTitle:title key:key choices:choices notes:weakRow.choiceNotes footer:weakRow.choiceFooter fallback:fallback chosen:weakRow.chosen];
+        return [[SGChoicePage alloc] initWithTitle:title key:key choices:choices notes:weakRow.choiceNotes footer:weakRow.choiceFooter
+                                          fallback:fallback chosen:weakRow.chosen chosenAfterDismiss:weakRow.chosenAfterDismiss];
     };
     return row;
 }

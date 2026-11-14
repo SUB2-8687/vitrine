@@ -41,14 +41,8 @@ BOOL SGWGSaveConnection(NSString *kind, NSString *_Nullable host, NSString *_Nul
 NSString *SGWGActiveKind(void); // kind applied in this launch, or @"" when inactive
 
 BOOL SGWGIsSupportedOS(void);
-BOOL SGWGIsSupportedVersion(void);
 SGWGState SGWGCurrentState(void);
 BOOL SGWGActiveThisLaunch(void);
-BOOL SGWGReady(void);
-BOOL SGWGGuardsInstalled(void);
-BOOL SGWGAdmissionReady(void);
-void SGWGRefreshReadiness(void);
-void SGWGNotifyRecovery(void);
 NSString *SGWGStateDescription(SGWGState state);
 
 // Profile (Keychain, this device only). Summaries never contain keys.
@@ -80,9 +74,11 @@ NSArray<NSString *> *SGWGTransportReportLines(void);
 NSArray<NSString *> *SGWGScanTransportClasses(void);
 
 // Native Network.framework and BSD socket paths imported by Spotify's image.
-BOOL SGWGInstallNativePatches(void);
+void SGWGInstallNativePatches(void);
 NSArray<NSString *> *SGWGNativeReportLines(void);
 id _Nullable SGWGCreateNativeProxyConfig(void);
+BOOL SGWGNativeSOCKSEndpoint(int * _Nullable port, const char * _Nullable * _Nullable user,
+                             const char * _Nullable * _Nullable password);
 
 // Implemented in SGWGCore.m; used by SGWGTransport.m.
 NSString *SGWGAppVersion(void);
