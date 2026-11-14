@@ -75,9 +75,12 @@ static void watchPinnedHold(UIView *page,BOOL freeze) {
     __block SGRArtworkField *heldField=nil;
     __block BOOL observedHold=NO;
     const NSTimeInterval holdDeadlineSeconds=10;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(holdDeadlineSeconds*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
-        if(!done)HARNESS_FAIL(@"pinned hold precondition timed out after %.0f s: %lu frames, %lu under the veil, controlled hold observed %d",
-                             holdDeadlineSeconds,(unsigned long)frames,(unsigned long)veiled,observedHold);
+    // Counted from the end of launch, not from here: building the page in didFinishLaunching takes ~9 s on a slow CI runner.
+    dispatch_async(dispatch_get_main_queue(),^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(holdDeadlineSeconds*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+            if(!done)HARNESS_FAIL(@"pinned hold precondition timed out after %.0f s: %lu frames, %lu under the veil, controlled hold observed %d",
+                                 holdDeadlineSeconds,(unsigned long)frames,(unsigned long)veiled,observedHold);
+        });
     });
     CFRunLoopObserverRef observer=CFRunLoopObserverCreateWithHandler(NULL,kCFRunLoopBeforeWaiting|kCFRunLoopExit,true,2000001,^(CFRunLoopObserverRef obs,CFRunLoopActivity activity){
         if(done)return;
