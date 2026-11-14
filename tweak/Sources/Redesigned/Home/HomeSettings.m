@@ -15,8 +15,8 @@
 static const NSUInteger kLargeCards = 4;
 static const CGFloat kLargeCard = 96, kLargeFooter = 30, kLargeRadius = 10, kLargeGap = 8, kFooterBar = 7, kFooterBarShare = 0.7;
 static const CGFloat kHeadingFont = 13, kHeadingGap = 8;
-// The shortcuts: two rows of two tiles, the first playing, so the DJ under them ends clear of the tab bar. In the
-// Home look a tile is a pill of its cover's color with its name bold; without it, Spotify's tile with its cover at
+// The shortcuts: two rows of two tiles, the first playing, so the DJ under them ends clear of the tab bar. With Glass
+// shortcuts a tile is a pill of its cover's color with its name bold; without it, Spotify's tile with its cover at
 // the leading end.
 static const NSUInteger kShortcutRows = 2, kShortcutColumns = 2;
 static const CGFloat kShortcut = 26, kShortcutGap = 6, kPillRadius = 7, kTileRadius = 4, kShortcutPad = 8;
@@ -82,7 +82,7 @@ static SGRPagePreview *homePreview(NSArray<NSString *> *shelves, NSDictionary<NS
         for (UIView *view in @[cover, bar, playing]) [tile addSubview:view];
         [tiles addObject:@[tile, cover, bar, playing]];
     }
-    __block BOOL look = YES;
+    __block BOOL glass = YES;
     UIView *shortcuts = [card addPartWithLayout:^CGFloat(UIView *part, CGFloat width, CGFloat unit) {
         CGFloat gap = kShortcutGap * unit, height = kShortcut * unit, pad = kShortcutPad * unit;
         CGFloat tileWidth = (width - 2 * SGRPagePreviewMargin - (kShortcutColumns - 1) * gap) / kShortcutColumns;
@@ -90,11 +90,11 @@ static SGRPagePreview *homePreview(NSArray<NSString *> *shelves, NSDictionary<NS
             NSUInteger row = i / kShortcutColumns, column = i % kShortcutColumns;
             UIColor *color = SGRFieldColorFor(SGRPreviewColor(i + kCoversPerShelf));
             views[0].frame = CGRectMake(SGRPagePreviewMargin + column * (tileWidth + gap), row * (height + gap), tileWidth, height);
-            views[0].layer.cornerRadius = (look ? kPillRadius : kTileRadius) * unit;
-            views[0].backgroundColor = look ? SGRElevated(color) : SGRElevated(UIColor.blackColor);
+            views[0].layer.cornerRadius = (glass ? kPillRadius : kTileRadius) * unit;
+            views[0].backgroundColor = glass ? SGRElevated(color) : SGRElevated(UIColor.blackColor);
             views[1].frame = CGRectMake(0, 0, height, height);
-            views[1].alpha = !look;
-            CGFloat barHeight = (look ? kBoldBar : kShortcutBar) * unit, x = look ? pad : height + pad;
+            views[1].alpha = !glass;
+            CGFloat barHeight = (glass ? kBoldBar : kShortcutBar) * unit, x = glass ? pad : height + pad;
             views[2].frame = CGRectMake(x, (height - barHeight) / 2, (tileWidth - x) * kShortcutBarShare, barHeight);
             CGFloat glyph = kPlaying * unit;
             views[3].frame = CGRectMake(tileWidth - pad - glyph, (height - glyph) / 2, glyph, glyph);
@@ -143,6 +143,7 @@ static SGRPagePreview *homePreview(NSArray<NSString *> *shelves, NSDictionary<NS
     card.state = ^id<NSObject> {
         NSMutableDictionary *state = [NSMutableDictionary dictionary];
         state[SGRKeyHomeLook] = @(SGEnabled(SGRKeyHomeLook));
+        state[SGRKeyHomeShortcutGlass] = @(SGRHomeShortcutGlassStored());
         state[SGRKeyHomeTopPicks] = @(SGEnabled(SGRKeyHomeTopPicks));
         state[SGRKeyHomeTopPicksColour] = @(SGEnabled(SGRKeyHomeTopPicksColour));
         state[SGRKeyHomeTopPicksHeading] = @(SGHidden(SGRKeyHomeTopPicksHeading));
@@ -166,7 +167,9 @@ static SGRPagePreview *homePreview(NSArray<NSString *> *shelves, NSDictionary<NS
         } else {
             source = [identities indexOfObjectPassingTest:^BOOL(id identity, NSUInteger i, BOOL *stop) { return !shelfHidden(identity); }];
         }
-        look = on(SGRKeyHomeLook);
+        BOOL look = on(SGRKeyHomeLook);
+        if (glass != on(SGRKeyHomeShortcutGlass)) [preview revealPart:shortcuts];
+        glass = on(SGRKeyHomeShortcutGlass);
         BOOL topShown = look && on(SGRKeyHomeTopPicks) && source != NSNotFound;
         if (title.inPill != look || title.hardEdge != on(SGRKeyHomeKeepTitle)) [preview revealPart:title.part];
         title.inPill = look;
@@ -211,7 +214,10 @@ UIViewController *SGRHomeSettingsPage(void) {
         if (index == 0) [NSUserDefaults.standardUserDefaults removeObjectForKey:SGRKeyHomeTopPicksFrom];
         else [NSUserDefaults.standardUserDefaults setObject:sources[(NSUInteger)index] forKey:SGRKeyHomeTopPicksFrom];
     });
-    SGModRow *look = SGSwitchRow(SGL(@"settings.home.look.title", @"Home look"), SGL(@"settings.home.look.subtitle", @"Top picks, the tinted shortcut pills and the title's glass pill; off, Home as the redesign had it"), SGRKeyHomeLook);
+    SGModRow *look = SGSwitchRow(SGL(@"settings.home.look.title", @"Home look"), SGL(@"settings.home.look.subtitle", @"Top picks and its color, and the title's glass pill; off, Home as the redesign had it"), SGRKeyHomeLook);
+    SGModRow *glass = SGSwitchRow(SGL(@"settings.home.shortcut_glass.title", @"Glass shortcuts"), SGL(@"settings.home.shortcut_glass.subtitle", @"The shortcuts as tinted glass pills with bold names"), SGRKeyHomeShortcutGlass);
+    // Unset, the switch is what the Home look is.
+    glass.readSwitch = ^BOOL { return SGRHomeShortcutGlassStored(); };
     SGModRow *topPicks = SGRHomeTopPicksRow();
     topPicks.waitsOn = SGRKeyHomeLook;
     from.waitsOn = SGRKeyHomeTopPicks;
@@ -237,7 +243,7 @@ UIViewController *SGRHomeSettingsPage(void) {
     for (SGModRow *row in [@[look, topPicks] arrayByAddingObjectsFromArray:onHome]) names[row.key] = row.title;
 
     return SGRPagePreviewPage(SGL(@"settings.home.title", @"Home"), homePreview(shelves, names), SGRestartNote, @[
-        SGNotedSection(nil, @[look, topPicks, from, colour, heading],
+        SGNotedSection(nil, @[look, glass, topPicks, from, colour, heading],
                        SGL(@"settings.home.top_picks_missing.note", @"A shelf Home does not show today leaves Top picks off until it is back.")),
         SGSection(SGL(@"settings.home.on_home.header", @"On Home"), onHome),
         SGNotedSection(SGL(@"settings.home.shelves.header", @"Shelves"), rows, SGL(@"settings.home.shelves.note", @"The shelves Home has shown in the last 30 days. A shelf is known by its heading, so one "

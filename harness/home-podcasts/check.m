@@ -1,13 +1,18 @@
 // Podcasts and audiobooks on Home. HomeHeader.x's Logos output is included, so the filter menu and the way back from a hidden
 // filter are driven over Spotify's chips as recorded on a device (Home_PillUIKit pills with the identifiers
-// home-feed-default, home-feed-music-chip, home-feed-podcasts-chip).
+// home-feed-default, home-feed-music-chip, home-feed-podcasts-chip). Also the pill's Friday ring, by the weekday.
 #import <UIKit/UIKit.h>
 #import "harness-fail.h"
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Home.h"
 
+// HomeHeader.x reads Reduce Motion from the harness, which switches it without touching the Mac's own setting.
+static BOOL sg_reduceMotion;
+static BOOL harnessReduceMotion(void) { return sg_reduceMotion; }
+#define SGRReduceMotion harnessReduceMotion
 #include "HomeHeader.gen.m"
+#undef SGRReduceMotion
 
 #pragma mark - helpers
 
@@ -128,10 +133,91 @@ static void checkLive(void) {
     setHidePodcasts(NO);
 }
 
+#pragma mark - Friday
+
+// The device's calendar answers the weekday a check asks for (Sunday 1); 0 leaves it the calendar's own.
+static NSInteger sg_weekday;
+static IMP sg_component;
+static NSInteger answerComponent(NSCalendar *self, SEL _cmd, NSCalendarUnit unit, NSDate *date) {
+    if (unit == NSCalendarUnitWeekday && sg_weekday) return sg_weekday;
+    return ((NSInteger (*)(NSCalendar *, SEL, NSCalendarUnit, NSDate *))sg_component)(self, _cmd, unit, date);
+}
+
+static void answerWeekday(NSInteger weekday) {
+    if (!sg_component) {
+        Method method = class_getInstanceMethod(NSCalendar.currentCalendar.class, @selector(component:fromDate:));
+        sg_component = method_setImplementation(method, (IMP)answerComponent);
+    }
+    sg_weekday = weekday;
+}
+
+static CAAnimation *ringTurn(CALayer *ring) {
+    return [ring.sublayers.firstObject animationForKey:@"turn"];
+}
+
+static void switchReduceMotion(BOOL on) {
+    sg_reduceMotion = on;
+    [NSNotificationCenter.defaultCenter postNotificationName:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil];
+    spin(0.1);
+}
+
+static void scrollPillAwayAndBack(UIView *glass) {
+    riseGlass(glass, CGAffineTransformMakeTranslation(0, -40), 0);
+    spin(0.5);
+    riseGlass(glass, CGAffineTransformIdentity, 1);
+}
+
+// The pill's ring: only on a Friday, one turn in 6 s at no more than 30 frames a second, going and coming back with the
+// pill's material as the title row scrolls, still while gone, and stopped and resumed by Reduce Motion as it is switched.
+static void checkFriday(void) {
+    UIWindow *window = [(id)UIApplication.sharedApplication.delegate window];
+    UIView *glass = [[UIView alloc] initWithFrame:CGRectMake(200, 100, 100, 44)];
+    [window addSubview:glass];
+    // riseGlass fades a material; SGRGlassCapsuleInside, a test double here, makes none.
+    objc_setAssociatedObject(glass, &kPillGlassKey, [UIView new], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    CGSize size = glass.bounds.size;
+
+    answerWeekday(5);
+    layoutFriday(glass, size);
+    CHECK(objc_getAssociatedObject(glass, &kFridayKey) == nil);
+
+    answerWeekday(6);
+    layoutFriday(glass, size);
+    CALayer *ring = objc_getAssociatedObject(glass, &kFridayKey);
+    CHECK(ring && !ring.hidden && ring.superlayer == glass.layer && ring.opacity == 1);
+    CHECK(CGRectEqualToRect(ring.frame, CGRectMake(0, 0, 100, 44)));
+    CABasicAnimation *turn = (CABasicAnimation *)ringTurn(ring);
+    CHECK(turn.duration == 6 && turn.preferredFrameRateRange.maximum == 30);
+
+    riseGlass(glass, CGAffineTransformMakeTranslation(0, -40), 0);
+    CHECK(ring.opacity == 0);
+    spin(0.5);
+    CHECK(ringTurn(ring) == nil);
+    riseGlass(glass, CGAffineTransformIdentity, 1);
+    CHECK(ring.opacity == 1);
+    CHECK(ringTurn(ring) != nil);
+
+    // Reduce Motion switched with no layout after it.
+    switchReduceMotion(YES);
+    CHECK(ringTurn(ring) == nil);
+    switchReduceMotion(NO);
+    CHECK(ringTurn(ring) != nil);
+
+    // Saturday's layout hides the ring, and the pill scrolled away and back leaves it still.
+    answerWeekday(7);
+    layoutFriday(glass, size);
+    CHECK(ring.hidden && ringTurn(ring) == nil);
+    scrollPillAwayAndBack(glass);
+    CHECK(ringTurn(ring) == nil);
+    answerWeekday(0);
+    [glass removeFromSuperview];
+}
+
 static void run(void) {
     checkMenu();
     checkLeaving();
     checkLive();
+    checkFriday();
     [defaults() removeObjectForKey:SGRKeyHomeHidePodcasts];
     printf("[harness] home-podcasts: %lu checks passed\n", (unsigned long)sg_checks);
     fflush(stdout);

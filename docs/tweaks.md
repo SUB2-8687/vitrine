@@ -1480,8 +1480,8 @@ Redesigned:
                   line under the cover, the player's lyrics and landscape/full-screen lyrics to 75–130% of their own size,
                   Default changing nothing, the line under the cover keeping the iPhone's text size and its fitting. Laid out on the Mac against
                   harness/lyrics/; the page against harness/lyrics-page/
-    Home/         Home decluttered to music on black (an allow list of its sections: shortcuts, the DJ without its heading and
-                  transcript, the shelves of cards, each with a switch on the Home page of Mod Settings; the previews and the
+    Home/         Home decluttered to music on black (an allow list of its sections: shortcuts, the DJ without its heading and its
+                  Beta badge, what it says kept, the shelves of cards, each with a switch on the Home page of Mod Settings; the previews and the
                   song suggestions only when switched on), a large title where the filter pills were, the title rising and
                   fading with the feed as it scrolls, as the Music app's does (or, with Title stays on scroll, staying put
                   over the feed's hard top edge, shaped to the row, and no scroll observer), the shelves' headings at the
@@ -1491,10 +1491,15 @@ Redesigned:
                   drives Spotify's own chips, with the device picker and the top shelf's Show all; with Podcasts and audiobooks
                   hidden on the Home page, `spotifyglass.redesign.home.hidePodcasts`, shown unless set, it leaves out the
                   Podcasts and Audiobooks chips and takes Home back to the default chip once when one was chosen, at once
-                  when flipped; harness/home-podcasts/) and the avatar, Top picks
+                  when flipped; harness/home-podcasts/) and the avatar, on a Friday (the device's calendar, read as the
+                  header lays out) a thin ring of pinks and purples turning round that pill (a turn in 6 s at no more than
+                  30 frames a second, still under Reduce Motion, going and coming back with the pill as the title row
+                  scrolls and still while gone), and Top picks
                   (the first shelf, or the one Cards from names, found in Spotify's feed model before its cells are
                   built, moved above the shortcuts and drawn as large cards in their covers' colors with no heading
-                  unless Show Top picks heading is on, the page tinted by the first card) and each shortcut tile as
+                  unless Show Top picks heading is on, the page tinted by the first card); under Glass shortcuts (the
+                  row after Home look, `spotifyglass.redesign.home.shortcutGlass`, read at launch; unset, it is what the
+                  Home look is, so turning the look off before it existed still means plain shortcuts) each shortcut tile as
                   a glass pill in its cover's color with its name in bold on up to two lines; in FLEX builds a meter
                   of each scroll's frames and the hooks' time (Home.h lists its files)
     Search/       the Browse page decluttered to its category cards (an allow list of the list's cells: the watch feed

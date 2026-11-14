@@ -1,19 +1,71 @@
-// Real tile styling and image observation; palette work and Home preferences are test doubles.
+// Real tile styling, image observation, tint cache and Home preferences (HomeShelves.m); the palette is a test double
+// answering one color per strength.
 #import <UIKit/UIKit.h>
+#import "Core/SGCore.h"
 #import "Redesigned/Home/Home.h"
 #import "Redesigned/Kit/SGRPalette.h"
 #import "../harness-fail.h"
 
-BOOL SGRHomeLook(void) { return YES; }
 CFTimeInterval SGRHomeProbeBegin(void) { return 0; }
 void SGRHomeProbeEnd(SGRHomeProbe probe, CFTimeInterval began) {}
 UIColor *SGRAccentColor(void) { return nil; }
+// Kit/SGRRestyle.m rolls the player's digits, which no tile has.
+void SGRRollingDigitsMovedToWindow(UILabel *label) {}
+void SGRRollingDigitsTextChanged(UILabel *label, NSAttributedString *before) {}
+BOOL SGRRollingDigitsWatched(UILabel *label) { return NO; }
+
+static UIColor *strongTint(void) { return UIColor.redColor; }
+static UIColor *weakTint(void) { return UIColor.blueColor; }
 
 @implementation SGRPalette
 + (void)tintForImage:(UIImage *)image surface:(UIColor *)surface strong:(BOOL)strong completion:(void (^)(UIColor *))completion {
-    completion(nil);
+    completion(strong ? strongTint() : weakTint());
 }
 @end
+
+static void setPreference(NSString *key, NSNumber *on) {
+    if (on) [NSUserDefaults.standardUserDefaults setBool:on.boolValue forKey:key];
+    else [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+    SGPrefsChanged();
+}
+
+// Glass shortcuts: unset, it is what the Home look is, on or off; set, its own whatever the look.
+static void checkShortcutGlassPreference(void) {
+    setPreference(SGRKeyHomeShortcutGlass, nil);
+    setPreference(SGRKeyHomeLook, @NO);
+    HARNESS_CHECK(!SGRHomeShortcutGlassStored());
+    setPreference(SGRKeyHomeLook, @YES);
+    HARNESS_CHECK(SGRHomeShortcutGlassStored());
+    setPreference(SGRKeyHomeShortcutGlass, @NO);
+    HARNESS_CHECK(!SGRHomeShortcutGlassStored());
+    setPreference(SGRKeyHomeLook, @NO);
+    setPreference(SGRKeyHomeShortcutGlass, @YES);
+    HARNESS_CHECK(SGRHomeShortcutGlassStored());
+    // As an existing user has it, neither key written: the launch read is glass, which the tiles below are styled with.
+    setPreference(SGRKeyHomeShortcutGlass, nil);
+    setPreference(SGRKeyHomeLook, nil);
+    HARNESS_CHECK(SGRHomeShortcutGlass());
+    NSLog(@"[harness] PASS Glass shortcuts follows the Home look until set");
+}
+
+static UIColor *tintFor(UIImage *image, BOOL strong) {
+    __block UIColor *answer;
+    SGRHomeTintForCover(image, strong, ^(UIColor *color) { answer = color; });
+    return answer;
+}
+
+// One cover asked for at both strengths: Top picks' strong tint is not the shortcuts' weak one cached first, nor the
+// other way round.
+static void checkTintStrengths(void) {
+    UIImage *cover = [[[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(8, 8)] imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [UIColor.greenColor setFill];
+        [context fillRect:CGRectMake(0, 0, 8, 8)];
+    }];
+    HARNESS_CHECK([tintFor(cover, NO) isEqual:weakTint()]);
+    HARNESS_CHECK([tintFor(cover, YES) isEqual:strongTint()]);
+    HARNESS_CHECK([tintFor(cover, NO) isEqual:weakTint()]);
+    NSLog(@"[harness] PASS a cover's tint is kept apart per strength");
+}
 
 static void checkReuse(BOOL measured) {
     UIView *tile = [[UIView alloc] initWithFrame:CGRectMake(0, 0, measured ? 181 : 0, 48)];
@@ -58,6 +110,8 @@ static void checkReuse(BOOL measured) {
 @implementation HomeTilesController
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    checkShortcutGlassPreference();
+    checkTintStrengths();
     checkReuse(YES);
     checkReuse(NO);
     NSLog(@"[harness] done");

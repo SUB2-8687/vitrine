@@ -637,7 +637,8 @@ static void tintCard(UIView *card, UIImageView *cover) {
     if (objc_getAssociatedObject(card, &kShownKey) == image) return;
     objc_setAssociatedObject(card, &kShownKey, image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak UIView *weakCard = card;
-    SGRHomeTintForCover(image, ^(UIColor *color) {
+    // Top picks is the Home look's, whose cards take the strong tint.
+    SGRHomeTintForCover(image, YES, ^(UIColor *color) {
         UIView *strongCard = weakCard;
         // A card reused for another cover in the meantime has asked for that one.
         if (!strongCard || objc_getAssociatedObject(strongCard, &kShownKey) != image) return;

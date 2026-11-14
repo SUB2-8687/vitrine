@@ -258,6 +258,110 @@ static void place(UIView *view, CGRect frame) {
     if (!CGPointEqualToPoint(view.center, center)) view.center = center;
 }
 
+// New Music Friday: on a Friday the pill wears a thin ring of pinks and purples, turning slowly round it, as a nod to the
+// week's new releases. A layer of the pill's glass holder, cut to a capsule's outline. It goes and comes back with the
+// pill's material as the title row scrolls away (riseGlass); the next layout after midnight hides it, and Reduce Motion
+// stops its turn as soon as it goes on. A turn of 6 s needs no more than 30 frames a second.
+static char kFridayKey;
+// The pill's ring, for the Reduce Motion observer: Home has one header at a time (sg_header).
+static __weak CALayer *sg_ring;
+static const CGFloat kFridayRing = 1.5;
+static const CFTimeInterval kFridayTurn = 6;
+static const float kFridayMinFPS = 10, kFridayMaxFPS = 30;
+static const NSInteger kFriday = 6;   // NSCalendarUnitWeekday counts Sunday as 1
+
+// Whether the pill's glass material is shown (riseGlass), which the ring follows.
+static BOOL sg_glassShown = YES;
+
+static BOOL isFriday(void) {
+    return [NSCalendar.currentCalendar component:NSCalendarUnitWeekday fromDate:NSDate.date] == kFriday;
+}
+
+// The ring's turn, on only while it can be seen: on a Friday, laid out (not hidden) and with the pill's material shown,
+// so a ring faded out with the material keeps no endless animation going under a page scrolled down; never under
+// Reduce Motion.
+static void turnRing(CALayer *ring) {
+    CALayer *colors = ring.sublayers.firstObject;
+    if (!colors) return;
+    if (ring.hidden || !sg_glassShown || !isFriday() || SGRReduceMotion()) {
+        [colors removeAnimationForKey:@"turn"];
+        return;
+    }
+    if ([colors animationForKey:@"turn"]) return;
+    CABasicAnimation *turn = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
+    turn.fromValue = @0;
+    turn.toValue = @(2 * M_PI);
+    turn.duration = kFridayTurn;
+    turn.repeatCount = HUGE_VALF;
+    turn.removedOnCompletion = NO;
+    turn.preferredFrameRateRange = CAFrameRateRangeMake(kFridayMinFPS, kFridayMaxFPS, kFridayMaxFPS);
+    [colors addAnimation:turn forKey:@"turn"];
+}
+
+// Reduce Motion switched while the ring is up stops or resumes its turn at once, not at the next layout. One observer
+// for the process, added with the first ring.
+static void watchReduceMotion(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [NSNotificationCenter.defaultCenter addObserverForName:UIAccessibilityReduceMotionStatusDidChangeNotification object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            CALayer *ring = sg_ring;
+            if (ring) turnRing(ring);
+        }];
+    });
+}
+
+static void layoutFriday(UIView *holder, CGSize size) {
+    CALayer *ring = objc_getAssociatedObject(holder, &kFridayKey);
+    if (!isFriday() || size.width <= 1) {
+        ring.hidden = YES;
+        if (ring) turnRing(ring);
+        return;
+    }
+    CAGradientLayer *colors;
+    if (!ring) {
+        ring = [CALayer layer];
+        colors = [CAGradientLayer layer];
+        colors.type = kCAGradientLayerConic;
+        colors.startPoint = CGPointMake(0.5, 0.5);
+        colors.endPoint = CGPointMake(0.5, 0);
+        UIColor *pink = [UIColor colorWithRed:1 green:0.36 blue:0.72 alpha:1], *violet = [UIColor colorWithRed:0.62 green:0.36 blue:1 alpha:1];
+        UIColor *magenta = [UIColor colorWithRed:0.92 green:0.3 blue:1 alpha:1], *rose = [UIColor colorWithRed:1 green:0.55 blue:0.8 alpha:1];
+        colors.colors = @[(id)pink.CGColor, (id)violet.CGColor, (id)magenta.CGColor, (id)rose.CGColor, (id)pink.CGColor];
+        [ring addSublayer:colors];
+        CAShapeLayer *outline = [CAShapeLayer layer];
+        outline.fillColor = nil;
+        outline.strokeColor = UIColor.whiteColor.CGColor;
+        outline.lineWidth = kFridayRing;
+        ring.mask = outline;
+        // Over the glass's material, which the holder's shape draws.
+        ring.zPosition = 101;
+        ring.opacity = sg_glassShown ? 1 : 0;
+        objc_setAssociatedObject(holder, &kFridayKey, ring, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        sg_ring = ring;
+        watchReduceMotion();
+    }
+    colors = (CAGradientLayer *)ring.sublayers.firstObject;
+    if (ring.superlayer != holder.layer) [holder.layer addSublayer:ring];
+    ring.hidden = NO;
+    CGRect bounds = (CGRect){CGPointZero, size};
+    if (!CGRectEqualToRect(ring.frame, bounds)) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        ring.frame = bounds;
+        // Square and wider than the pill, so it covers the outline whichever way it has turned.
+        CGFloat side = hypot(size.width, size.height);
+        colors.bounds = CGRectMake(0, 0, side, side);
+        colors.position = CGPointMake(size.width / 2, size.height / 2);
+        CAShapeLayer *outline = (CAShapeLayer *)ring.mask;
+        outline.frame = bounds;
+        CGRect line = CGRectInset(bounds, kFridayRing / 2, kFridayRing / 2);
+        outline.path = [UIBezierPath bezierPathWithRoundedRect:line cornerRadius:line.size.height / 2].CGPath;
+        [CATransaction commit];
+    }
+    turnRing(ring);
+}
+
 static CGFloat layoutPill(UIView *header, UIStackView *stack, UIView *face) {
     SGRHomePillButtons *buttons = buttonsIn(header);
     UIView *glass = glassIn(header);
@@ -271,6 +375,7 @@ static CGFloat layoutPill(UIView *header, UIStackView *stack, UIView *face) {
     CGRect filter = CGRectMake(kPillPad, 0, kPillButton, kPillHeight);
     if (!CGRectEqualToRect(buttons.filter.frame, filter)) buttons.filter.frame = filter;
     SGRGlassCapsuleInside(glass, &kPillGlassKey, pill.size, NO);
+    layoutFriday(glass, pill.size);
     return CGRectGetMinX(pill);
 }
 
@@ -352,7 +457,6 @@ static void rise(UIView *part, CGAffineTransform transform, CGFloat alpha) {
 // The pill's glass takes no alpha (SGRGlass.h): it rises with the row, and its material goes off once the row is
 // half faded and comes back with it.
 static const NSTimeInterval kGlassFade = 0.15;
-static BOOL sg_glassShown = YES;
 // When the material's last change ends: until then the glass keeps rising after the row has faded.
 static CFTimeInterval sg_glassFadeEnds;
 static void riseGlass(UIView *glass, CGAffineTransform transform, CGFloat alpha) {
@@ -364,6 +468,16 @@ static void riseGlass(UIView *glass, CGAffineTransform transform, CGFloat alpha)
     sg_glassShown = shown;
     sg_glassFadeEnds = CACurrentMediaTime() + kGlassFade;
     [UIView animateWithDuration:kGlassFade animations:^{ SGRShowGlass(shape, shown); }];
+    // The Friday ring goes and comes back with the material, over the same time.
+    CALayer *ring = objc_getAssociatedObject(glass, &kFridayKey);
+    if (!ring) return;
+    if (shown) turnRing(ring);
+    [CATransaction begin];
+    [CATransaction setAnimationDuration:kGlassFade];
+    // Faded out, it stops turning (turnRing), unless it has come back meanwhile.
+    if (!shown) [CATransaction setCompletionBlock:^{ if (!sg_glassShown) turnRing(ring); }];
+    ring.opacity = shown ? 1 : 0;
+    [CATransaction commit];
 }
 
 static void followScroll(UIScrollView *scroll) {

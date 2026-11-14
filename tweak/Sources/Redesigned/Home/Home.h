@@ -9,10 +9,11 @@
 //     HomeFeed.swift   every section's shelf identity from Spotify's model of the feed, built or not
 //     HomeSettings.m   the Home page of Mod Settings: Top picks, what stays on Home, one switch per shelf
 //     HomeHeader.x     a large title where the filter pills were, the avatar at the trailing edge, no scrim; the
-//                      Podcasts and Audiobooks chips out of the filter menu while hidden
+//                      Podcasts and Audiobooks chips out of the filter menu while hidden; on a Friday a turning ring
+//                      of pinks and purples round the pill
 //     HomeHeadings.x   the shelves' headings in the Music app's size, drawn over Spotify's
 //     HomeCards.x      the Encore button every card is: shortcut tiles (HomeTiles.m), continuous corners on the
-//                      shelf covers, the DJ card at the card radius without its talking transcript
+//                      shelf covers, the DJ card at the card radius without its Beta badge, what the DJ says kept
 //     HomeTiles.m      a shortcut tile's picture run across the tile, blurred behind its title
 //     HomeTopPicks.x   Top picks: the shelf nearest the top drawn large and moved above the shortcuts, each card
 //                      the cover over a footer in its color
@@ -22,12 +23,18 @@
 // Threading: main thread only.
 #import <UIKit/UIKit.h>
 
-// The Home look (the first row of the Home page): Top picks and the color behind it, the tinted glass shortcut
-// pills with their bold names, the title's glass pill with the filter menu and the page's color. Off, none of
-// those hooks install and Home has the plain shortcuts and title. On until switched off; read at launch
-// (SGRHomeLook).
+// The Home look (the first row of the Home page): Top picks and the color behind it, the title's glass pill with the
+// filter menu and the page's color. Off, none of those hooks install and Home has the plain title. On until switched
+// off; read at launch (SGRHomeLook).
 #define SGRKeyHomeLook @"spotifyglass.redesign.home.look"
 BOOL SGRHomeLook(void);
+// The shortcut tiles as tinted glass pills (HomeTiles.m): the rim, the stronger tint, the rounder pill and cover and the
+// bold names; off, Spotify's tiles. Its own switch, apart from the Home look; unset, it is what the Home look is, so
+// whoever had the look off keeps the plain shortcuts. SGRHomeShortcutGlass is read at launch; ...Stored as it is now,
+// for the settings page.
+#define SGRKeyHomeShortcutGlass @"spotifyglass.redesign.home.shortcutGlass"
+BOOL SGRHomeShortcutGlass(void);
+BOOL SGRHomeShortcutGlassStored(void);
 // Top picks (HomeTopPicks.x): the shelf nearest the top drawn large above the shortcuts. On until switched off.
 #define SGRKeyHomeTopPicks @"spotifyglass.redesign.home.topPicks"
 // The shelf Top picks draws, by its identity (SGRHomeShelfIdentity); unset, the first shelf.
@@ -89,8 +96,8 @@ extern const CGFloat SGRHomeTileRadius;
 
 // The surface color a cover gives a tile or a card (Kit/SGRPalette.h, +tintForImage:), kept by the image while it
 // lives: from the cache at once, else worked out off the main thread. nil when the image has no bitmap to read.
-// Main thread, calls back on it.
-void SGRHomeTintForCover(UIImage *image, void (^completion)(UIColor *color));
+// `strong` as Kit/SGRPalette.h has it. Main thread, calls back on it.
+void SGRHomeTintForCover(UIImage *image, BOOL strong, void (^completion)(UIColor *color));
 
 // Styles a shelf card (id=Components.UI.HomeCard) drawn large by Top picks (HomeTopPicks.x): a footer in the
 // cover's color under the cover. NO, and the card left as Spotify's, for one at Spotify's own size.

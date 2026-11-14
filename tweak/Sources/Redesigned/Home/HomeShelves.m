@@ -140,6 +140,16 @@ BOOL SGRHomeLook(void) {
     return state == 1;
 }
 
+BOOL SGRHomeShortcutGlassStored(void) {
+    return SGFlag(SGRKeyHomeShortcutGlass, SGEnabled(SGRKeyHomeLook));
+}
+
+BOOL SGRHomeShortcutGlass(void) {
+    static int state = -1;
+    if (state < 0) state = SGRHomeShortcutGlassStored() ? 1 : 0;
+    return state == 1;
+}
+
 NSString *SGRHomeTopPicksFrom(void) {
     NSString *from = [NSUserDefaults.standardUserDefaults stringForKey:SGRKeyHomeTopPicksFrom];
     return from.length ? from : nil;

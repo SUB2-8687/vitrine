@@ -6,8 +6,9 @@
 //                                  of its own (10.txt:2280-2286): cut at the cover radius, continuous, over the
 //                                  4pt Spotify bakes into the picture (an artist's round one sits inside it)
 //   in Discovery_MediumDensityCardKit.DJMDCView   the DJ card 370x192 r=8 that clips (01.txt:477-478): the card
-//                                  radius, and without the transcript Spotify's DJ talks through
-//                                  (Discovery_MediumDensityCardKit.TranscriptView, :500) or the Beta badge (:503)
+//                                  radius, and without the Beta badge (:503). The transcript Spotify's DJ talks
+//                                  through (Discovery_MediumDensityCardKit.TranscriptView, :500) stays, as it is
+//                                  without the redesign: taken off, the card had nothing to say
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Home.h"
@@ -33,12 +34,12 @@ static void roundCover(UIView *card) {
     }
 }
 
-// The transcript's own labels are plain UILabels the Kit keeps transparent; the Swift views around them
-// take their alpha again on every pass.
+// The badge's own labels are plain UILabels the Kit keeps transparent; the Swift views around them take their alpha
+// again on every pass.
 static void calmDJ(UIView *card) {
     for (UIView *sub in card.subviews) {
         NSString *name = NSStringFromClass(sub.class);
-        if (![name containsString:@"TranscriptView"] && ![name containsString:@"BetaBadge"]) continue;
+        if (![name containsString:@"BetaBadge"]) continue;
         if (sub.alpha != 0) sub.alpha = 0;
         sub.accessibilityElementsHidden = YES;
         SGForEachView(sub, ^(UIView *v) {
@@ -50,7 +51,7 @@ static void calmDJ(UIView *card) {
 // The button's content (Encore's card, the cover's holder, a tile's row with its playing indicator) is laid out after
 // the button's own pass otherwise; brought up to date now, the styling reads final frames.
 static void settle(UIView *button) {
-    if (!SGRHomeLook()) return;
+    if (!SGRHomeLook() && !SGRHomeShortcutGlass()) return;
     for (UIView *sub in button.subviews) [sub layoutIfNeeded];
 }
 
@@ -61,7 +62,7 @@ static void style(UIView *button) {
     if ([identifier isEqualToString:@"Shortcut.Card.Home"]) {
         settle(button);
         SGRHomeStyleLargeCard(button);
-        CGFloat radius = SGRHomeLook() ? SGRHomeTileRadius : SGRRadiusCover;
+        CGFloat radius = SGRHomeShortcutGlass() ? SGRHomeTileRadius : SGRRadiusCover;
         roundCorners(button, radius);
         if (button.superview.layer.cornerRadius > 0) roundCorners(button.superview, radius);
         SGRHomeStyleTile(button);
@@ -79,7 +80,7 @@ static void style(UIView *button) {
         roundCorners(button, SGRRadiusCard);
         calmDJ(button);
         static dispatch_once_t once;
-        dispatch_once(&once, ^{ SGLog(@"redesign home: DJ card at the card radius, transcript gone"); });
+        dispatch_once(&once, ^{ SGLog(@"redesign home: DJ card at the card radius, its Beta badge gone"); });
     }
 }
 
@@ -119,7 +120,8 @@ static void relayoutButtonAround(UIView *label) {
     if ([identifier isEqualToString:@"Shortcut.Card.Home"] || [identifier isEqualToString:@"Components.UI.HomeCard"]) [button setNeedsLayout];
 }
 
-// The hooks the Home look needs (SGRKeyHomeLook): none of them install while it is off.
+// The hooks the Home look and the shortcuts' glass need (SGRKeyHomeLook, SGRKeyHomeShortcutGlass): none of them install
+// while both are off.
 %group SGRHomeLook
 
 // The tile's playing indicator comes and goes with what plays, on its own, without the tile laying out: shown or
@@ -173,7 +175,7 @@ static void relayoutButtonAround(UIView *label) {
         @"_TtC19LegacyUI_ECMCoreKit31InteractableLayoutBackingButton",
         @"_TtC30Discovery_MediumDensityCardKit9DJMDCView",
     ]);
-    if (!SGRHomeLook()) return;
+    if (!SGRHomeLook() && !SGRHomeShortcutGlass()) return;
     %init(SGRHomeLook);
     SGRequireClasses(@[@"_TtC11Home_ECMKit36ShortcutCardHomePlayingIndicatorView", @"SPTEncoreLabel"]);
 }

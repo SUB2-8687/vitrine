@@ -793,7 +793,7 @@
 "settings.home.library.sort_artists_recent.title" = "Sort artists by recently updated";
 "settings.home.library.sort_playlists_recent.title" = "Sort playlists by recently updated";
 "settings.home.library.title" = "Library";
-"settings.home.look.subtitle" = "Top picks, the tinted shortcut pills and the title's glass pill; off, Home as the redesign had it";
+"settings.home.look.subtitle" = "Top picks and its color, and the title's glass pill; off, Home as the redesign had it";
 "settings.home.look.title" = "Home look";
 "settings.home.on_home.header" = "On Home";
 "settings.home.pill.devices" = "Devices";
@@ -808,6 +808,8 @@
 "settings.home.shelves.header" = "Shelves";
 "settings.home.shelves.none" = "None seen yet";
 "settings.home.shelves.note" = "The shelves Home has shown in the last 30 days. A shelf is known by its heading, so one Spotify names differently in another language is listed again.";
+"settings.home.shortcut_glass.subtitle" = "The shortcuts as tinted glass pills with bold names";
+"settings.home.shortcut_glass.title" = "Glass shortcuts";
 "settings.home.shortcuts.title" = "Shortcuts";
 "settings.home.show_all" = "Show all";
 "settings.home.show_all.titled" = "Show all · %@";

@@ -18,7 +18,7 @@
 
 // How far the cover sits in from the tile's top, bottom and leading edges, and its corners there (the reference's
 // 37pt covers at 5pt in, with corners of about 6).
-static const CGFloat kInset = 5, kCoverRadius = 6, kCoverRadiusBefore = 4;   // Before: with the Home look off.
+static const CGFloat kInset = 5, kCoverRadius = 6, kCoverRadiusBefore = 4;   // Before: with the shortcuts' glass off.
 const CGFloat SGRHomeTileRadius = 14;
 // The glass rim: a hairline of white around the tile, lit at the top and bottom edges and faint along the sides,
 // as the reference's pills are (brightness 178 over a fill of 65 in the first pixel row, none at the sides).
@@ -29,11 +29,11 @@ static void rim(UIView *surface);
 // The tile's trailing padding, after the title or the playing indicator.
 static const CGFloat kTrailing = 12;
 
-// Tints already worked out, by the image object while it lives (main thread only).
-static NSMapTable<UIImage *, UIColor *> *tints(void) {
-    static NSMapTable *table;
-    if (!table) table = [NSMapTable weakToStrongObjectsMapTable];
-    return table;
+// Tints already worked out, by the image object while it lives, one table per strength (main thread only).
+static NSMapTable<UIImage *, UIColor *> *tints(BOOL strong) {
+    static NSMapTable *tables[2];
+    if (!tables[strong]) tables[strong] = [NSMapTable weakToStrongObjectsMapTable];
+    return tables[strong];
 }
 
 static UIColor *untinted(void) {
@@ -77,7 +77,7 @@ static UIView *surfaceIn(UIView *tile, UIView *fill) {
         else [tile insertSubview:surface atIndex:0];
     }
     if (!CGRectEqualToRect(surface.frame, tile.bounds)) surface.frame = tile.bounds;
-    if (SGRHomeLook()) rim(surface);
+    if (SGRHomeShortcutGlass()) rim(surface);
     return surface;
 }
 
@@ -116,7 +116,7 @@ static void inset(UIView *square) {
     if (!CGAffineTransformEqualToTransform(square.transform, shrink)) square.transform = shrink;
     CALayer *layer = square.layer;
     // The radius is drawn scaled with the square.
-    CGFloat radius = (SGRHomeLook() ? kCoverRadius : kCoverRadiusBefore) / scale;
+    CGFloat radius = (SGRHomeShortcutGlass() ? kCoverRadius : kCoverRadiusBefore) / scale;
     if (layer.cornerRadius != radius) layer.cornerRadius = radius;
     if (layer.cornerCurve != kCACornerCurveContinuous) layer.cornerCurve = kCACornerCurveContinuous;
     if (!layer.masksToBounds) layer.masksToBounds = YES;
@@ -213,7 +213,7 @@ static void refresh(UIView *tile) {
     if (!cover || !square || square.bounds.size.width < 20 || tile.bounds.size.width <= square.bounds.size.width) return;
     UIView *surface = surfaceIn(tile, parts.fill);
     inset(square);
-    if (SGRHomeLook()) retitle(tile);
+    if (SGRHomeShortcutGlass()) retitle(tile);
 
     UIImage *image = cover.image;
     if (!image) {
@@ -225,7 +225,7 @@ static void refresh(UIView *tile) {
     objc_setAssociatedObject(tile, &kShownKey, image, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     __weak UIView *weakTile = tile;
-    SGRHomeTintForCover(image, ^(UIColor *color) {
+    SGRHomeTintForCover(image, SGRHomeShortcutGlass(), ^(UIColor *color) {
         UIView *strongTile = weakTile;
         // A tile reused for another cover in the meantime has asked for that one.
         if (!strongTile || objc_getAssociatedObject(strongTile, &kShownKey) != image) return;
@@ -233,15 +233,15 @@ static void refresh(UIView *tile) {
     });
 }
 
-void SGRHomeTintForCover(UIImage *image, void (^completion)(UIColor *color)) {
+void SGRHomeTintForCover(UIImage *image, BOOL strong, void (^completion)(UIColor *color)) {
     SGRHomeProbeEnd(SGRHomeProbeTint, SGRHomeProbeBegin());
-    UIColor *known = [tints() objectForKey:image];
+    UIColor *known = [tints(strong) objectForKey:image];
     if (known) {
         completion(known);
         return;
     }
-    [SGRPalette tintForImage:image surface:untinted() strong:SGRHomeLook() completion:^(UIColor *color) {
-        if (color) [tints() setObject:color forKey:image];
+    [SGRPalette tintForImage:image surface:untinted() strong:strong completion:^(UIColor *color) {
+        if (color) [tints(strong) setObject:color forKey:image];
         completion(color);
     }];
 }

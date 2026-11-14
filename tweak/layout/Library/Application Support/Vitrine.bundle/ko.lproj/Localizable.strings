@@ -845,7 +845,7 @@
 "settings.home.library.sort_artists_recent.title" = "최근 업데이트순으로 아티스트 정렬";
 "settings.home.library.sort_playlists_recent.title" = "최근 업데이트순으로 플레이리스트 정렬";
 "settings.home.library.title" = "라이브러리";
-"settings.home.look.subtitle" = "추천 항목, 색상이 적용된 바로가기 버튼 및 제목의 글래스 버튼. 끄면 재설계 초기 홈으로 표시됩니다";
+"settings.home.look.subtitle" = "추천 항목과 그 색상, 제목의 글래스 버튼. 끄면 재설계 초기 홈으로 표시됩니다";
 "settings.home.look.title" = "홈 화면 모양";
 "settings.home.on_home.header" = "홈 화면 표시 항목";
 "settings.home.pill.devices" = "기기";
@@ -860,6 +860,8 @@
 "settings.home.shelves.note" = "지난 30일 동안 홈 화면에 표시된 선반입니다. 선반은 제목으로 구분되므로 다른 언어로 설정된 Spotify에서 이름이 다른 선반은 별도로 나열됩니다.";
 "settings.home.podcasts.subtitle" = "홈 필터 메뉴의 팟캐스트 및 오디오북 칩";
 "settings.home.podcasts.title" = "팟캐스트 및 오디오북";
+"settings.home.shortcut_glass.subtitle" = "바로가기를 이름이 굵게 표시된 색상 글래스 버튼으로 표시합니다";
+"settings.home.shortcut_glass.title" = "글래스 바로가기";
 "settings.home.shortcuts.title" = "바로가기";
 "settings.home.song_suggestions.subtitle" = "홈 화면에서 제공할 때 들어볼 노래를 보여주는 Spotify의 캐러셀";
 "settings.home.song_suggestions.title" = "노래 추천";

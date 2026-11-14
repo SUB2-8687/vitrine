@@ -7,7 +7,7 @@ SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
     -I"$SRC" -I"$SRC/Redesigned/Home" -isysroot "$SDK" -Wno-deprecated-declarations \
     "$(dirname "$0")/main.m" "$(dirname "$0")/../scene.m" \
-    "${HOME_TILES_SOURCE:-$SRC/Redesigned/Home/HomeTiles.m}" \
+    "${HOME_TILES_SOURCE:-$SRC/Redesigned/Home/HomeTiles.m}" "$SRC/Redesigned/Home/HomeShelves.m" \
     "$SRC/Redesigned/Kit/SGRRestyle.m" "$SRC/Redesigned/Kit/SGRTokens.m" \
     "$SRC/Core/SGLog.m" "$SRC/Core/SGViewTree.m" "$SRC/Settings/SGPageStyle.m" "$SRC/Core/SGLocalize.m" \
     "$SRC/Core/SGPrefs.m" "$SRC/Core/SGUIMode.m" "$SRC/Core/SGFlagForce.m" "$SRC/Core/SGGlass.m" \
