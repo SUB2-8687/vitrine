@@ -22,6 +22,8 @@
 #import <objc/message.h>
 
 static char kBarKey, kApartBarKey, kHostKey, kFadeKey, kItemIconKey;
+// On a UITabBarItem: the SF Symbol Apple symbols drew it with, none for a glyph off the tab's own icon (fillBar).
+static char kItemSymbolKey;
 // On a UITabBarItem: the keys of the icons its image and selectedImage were drawn from (glyphKeysOf, fillBar).
 static char kGlyphKeysKey;
 static const NSUInteger kMinimumMinimizedTabs = 2;
@@ -224,20 +226,63 @@ static UIImage *glyphOf(UIView *item, BOOL active) {
     return glyphOfIcon(iconIn(item), active);
 }
 
+// A tab's icon as a tab of the mod's own is given it (SGTabIconView, an Encore glyph or an SF Symbol), drawn white
+// at the glyphs' size.
+static UIImage *iconGlyph(NSString *icon, BOOL symbol, BOOL active) {
+    UIView *holder = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 24, 24)];
+    UIView *view = SGTabIconView(icon, symbol, UIColor.whiteColor);
+    view.translatesAutoresizingMaskIntoConstraints = YES;
+    view.frame = holder.bounds;
+    if ([view isKindOfClass:UIImageView.class]) view.contentMode = UIViewContentModeScaleAspectFit;
+    [holder addSubview:view];
+    [holder layoutIfNeeded];
+    return glyphOf(holder, active);
+}
+
+#pragma mark - Apple symbols
+
+// The SF Symbol for each page Spotify's tabs open (SGRNavbarStockURIs). 9.1.78 to 9.1.90 open Search as spotify:find
+// and Create as the playlist creation container; spotify:search and spotify:create-menu are the same pages by the
+// names the router also takes.
+static NSDictionary<NSString *, NSString *> *pageSymbols(void) {
+    return @{
+        @"spotify:home": @"house",
+        @"spotify:find": @"magnifyingglass",
+        @"spotify:search": @"magnifyingglass",
+        @"spotify:collection": @"books.vertical",
+        @"spotify:internal:playlist-creation-container": @"plus",
+        @"spotify:create-menu": @"plus",
+    };
+}
+// Premium's pages (spotify:upsell:premium_in_app_destination, spotify:premium-page:… in the binary), and any other
+// tab Spotify adds.
+static NSString *const kPremiumSymbol = @"crown";
+static NSString *const kOtherTabSymbol = @"square.grid.2x2";
+
+// Apple symbols' SF Symbol for the tab of Spotify's named `title`; nil with the switch off, and for a tab whose page
+// Spotify's list has not named, which keeps Spotify's own glyph.
+static NSString *stockSymbol(NSString *title) {
+    if (!SGFlag(SGRKeyNavbarSymbols, NO) || !title) return nil;
+    NSString *uri = SGRNavbarStockURIs()[title];
+    if (!uri) return nil;
+    if (pageSymbols()[uri]) return pageSymbols()[uri];
+    if ([uri hasPrefix:@"spotify:upsell:"] || [uri hasPrefix:@"spotify:premium"]) return kPremiumSymbol;
+    return kOtherTabSymbol;
+}
+
+// The symbol on the tab, its filled variant on the selected tab where the symbol has one.
+static UIImage *symbolGlyph(NSString *symbol, BOOL active) {
+    NSString *filled = [symbol stringByAppendingString:@".fill"];
+    return iconGlyph(active && [UIImage systemImageNamed:filled] ? filled : symbol, YES, active);
+}
+
 // For the Tab bar page's list and preview: a tab of Spotify's drawn from its item on the bar, hidden or not,
-// found by the label its entry is named after; a tab of the mod's own drawn from its entry, as Navbar.x
-// draws it on the bar. Nil while Spotify's item has not been built.
+// found by the label its entry is named after, or with Apple symbols' symbol; a tab of the mod's own drawn from
+// its entry, as Navbar.x draws it on the bar. Nil while Spotify's item has not been built.
 UIImage *SGRNavbarGlyph(NSDictionary *entry, BOOL active) {
-    if (entry[SGRNavbarURI]) {
-        UIView *holder = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 24, 24)];
-        UIView *icon = SGTabIconView(entry[SGRNavbarIcon], [entry[SGRNavbarIconSet] isEqual:SGTabIconSetSymbols], UIColor.whiteColor);
-        icon.translatesAutoresizingMaskIntoConstraints = YES;
-        icon.frame = holder.bounds;
-        if ([icon isKindOfClass:UIImageView.class]) icon.contentMode = UIViewContentModeScaleAspectFit;
-        [holder addSubview:icon];
-        [holder layoutIfNeeded];
-        return glyphOf(holder, active);
-    }
+    if (entry[SGRNavbarURI]) return iconGlyph(entry[SGRNavbarIcon], [entry[SGRNavbarIconSet] isEqual:SGTabIconSetSymbols], active);
+    NSString *symbol = stockSymbol(entry[SGRNavbarID]);
+    if (symbol) return symbolGlyph(symbol, active);
     for (UIView *item in SGRowIn(sg_stockBar).arrangedSubviews) {
         if ([NSStringFromClass(item.class) isEqualToString:@"SGRTabItemView"]) continue;
         if ([labelIn(item).text isEqualToString:entry[SGRNavbarID]]) return glyphOf(item, active);
@@ -585,17 +630,23 @@ static BOOL fillBar(SGRSystemTabBar *bar, NSArray<UIView *> *sources, BOOL hideL
         // one or one with no variant both; an Encore.Icon holds both glyphs. The item keeps the keys it was drawn
         // from (glyphKeysOf) and is drawn again when the view holds an icon outside them, so a filled SPTEncoreIcon
         // whose outline drew the item changes nothing. Another icon view (a tab of the mod's own given another icon,
-        // which has no Encore name when it is an image) draws the item anew too.
+        // which has no Encore name when it is an image) draws the item anew too, and so does Apple symbols coming,
+        // going or naming another symbol: one of Spotify's tabs is then drawn with its symbol, not off its view.
         UIView *live = iconIn(sources[i]);
-        if (objc_getAssociatedObject(item, &kItemIconKey) != live) {
+        BOOL own = [NSStringFromClass(sources[i].class) isEqualToString:@"SGRTabItemView"];
+        NSString *symbol = own ? nil : stockSymbol(labelIn(sources[i]).text);
+        NSString *drawnSymbol = objc_getAssociatedObject(item, &kItemSymbolKey);
+        if (objc_getAssociatedObject(item, &kItemIconKey) != live || ((symbol || drawnSymbol) && ![symbol isEqualToString:drawnSymbol])) {
             item.image = nil;
             item.selectedImage = nil;
             objc_setAssociatedObject(item, &kGlyphKeysKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             objc_setAssociatedObject(item, &kItemIconKey, live, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(item, &kItemSymbolKey, symbol, OBJC_ASSOCIATION_COPY_NONATOMIC);
         }
-        NSArray<NSString *> *keys = glyphKeysOf(live);
+        NSArray<NSString *> *keys = symbol ? nil : glyphKeysOf(live);
         if (!item.image || !item.selectedImage || (keys && ![objc_getAssociatedObject(item, &kGlyphKeysKey) containsObject:keys.firstObject])) {
-            setGlyphs(item, glyphOfIcon(live, NO), glyphOfIcon(live, YES));
+            if (symbol) setGlyphs(item, symbolGlyph(symbol, NO), symbolGlyph(symbol, YES));
+            else setGlyphs(item, glyphOfIcon(live, NO), glyphOfIcon(live, YES));
             if (item.image && item.selectedImage) objc_setAssociatedObject(item, &kGlyphKeysKey, keys, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         missing |= !item.image || !item.selectedImage;

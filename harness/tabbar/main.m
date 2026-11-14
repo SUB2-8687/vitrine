@@ -7,6 +7,7 @@
 #import "Core/SGViewTree.h"
 #import "Core/SGPrefs.h"
 #import "Redesigned/Navbar/Navbar.h"
+#import "Shared/Navigation/TabIcons.h"
 
 #pragma mark - Spotify's classes, by the names the hooks look for
 
@@ -46,6 +47,14 @@
 @end
 @implementation _TtGC7SwiftUI14_UIHostingViewV19Jam_AttachmentsImpl13JamHatElement_
 @end
+
+// A tab of the mod's own (Navbar.x), for `symbols`.
+@interface SGRTabItemView : UIControl
+@end
+@implementation SGRTabItemView
+@end
+NSString *const SGHarnessOwnTabTitle = @"Liked Songs";
+NSString *const SGHarnessOwnTabSymbol = @"heart.fill";
 
 static BOOL sgJam, sgColorful, sgGlyphs, sgSwiftIcons;
 static __weak UIView *sgJamStrip;
@@ -272,9 +281,24 @@ static __weak UIView *sgJamStrip;
     for (UIView *v = tap.view; v; v = v.superview) [v setNeedsLayout];
 }
 
-static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
+static UIView *tab(Class cls, NSString *title, UIView *icon, BOOL active) {
     UIView *item = [cls new];
     [item addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:_TtC23NavigationUI_TabBarImpl19TabBarContainerImpl.class action:@selector(tapped:)]];
+    icon.frame = CGRectMake(0, 5.67, 24, 24);
+    icon.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+    UILabel *label = [UILabel new];
+    label.text = title;
+    label.font = [UIFont systemFontOfSize:10];
+    label.textColor = active ? UIColor.whiteColor : [UIColor colorWithWhite:0xB3 / 255.0 alpha:1];
+    label.textAlignment = NSTextAlignmentCenter;
+    label.frame = CGRectMake(0, 35, 100, 14);
+    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [item addSubview:icon];
+    [item addSubview:label];
+    return item;
+}
+
+static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
     UIView *icon;
     if (sgGlyphs) {
         SGHarnessEncoreIcon *outline = [SGHarnessEncoreIcon outlineNamed:symbol square:NO];
@@ -288,18 +312,7 @@ static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
         image.contentMode = UIViewContentModeScaleAspectFit;
         icon = image;
     }
-    icon.frame = CGRectMake(0, 5.67, 24, 24);
-    icon.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
-    UILabel *label = [UILabel new];
-    label.text = title;
-    label.font = [UIFont systemFontOfSize:10];
-    label.textColor = active ? UIColor.whiteColor : [UIColor colorWithWhite:0xB3 / 255.0 alpha:1];
-    label.textAlignment = NSTextAlignmentCenter;
-    label.frame = CGRectMake(0, 35, 100, 14);
-    label.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [item addSubview:icon];
-    [item addSubview:label];
-    return item;
+    return tab(cls, title, icon, active);
 }
 
 - (void)viewDidLoad {
@@ -352,6 +365,11 @@ static UIView *item(Class cls, NSString *title, NSString *symbol, BOOL active) {
     ]];
     if ([args containsObject:@"five"]) {
         [tabs addObject:item(_TtC23NavigationUI_TabBarImpl21TabBarItemElementView.class, longNames ? @"Discover Weekly" : @"Liked Songs", @"heart", NO)];
+    }
+    // `symbols`: a tab of the mod's own after Spotify's, under the class name Navbar.x gives one, with the SF Symbol
+    // picked for it drawn as Navbar.x draws it (SGTabIconView).
+    if (args.count > 1 && [args[1] isEqualToString:@"symbols"]) {
+        [tabs addObject:tab(SGRTabItemView.class, SGHarnessOwnTabTitle, SGTabIconView(SGHarnessOwnTabSymbol, YES, [UIColor colorWithWhite:0xB3 / 255.0 alpha:1]), NO)];
     }
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:tabs];
     row.distribution = UIStackViewDistributionFillEqually;
@@ -973,15 +991,22 @@ static NSString *const kWatched[4] = {@"platter", @"glyph", @"split platter", @"
 
 #pragma mark - the app
 
-// Before every %ctor, so the redesign's gate reads on; the fade under the bars on unless the launch line says `off`.
+// Before every %ctor, so the redesign's gate reads on; the fade under the bars on unless the launch line says `off`;
+// Apple symbols off, as a run before may have left it (`symbols` sets it itself), and the tabs' names as the product's
+// default has them, hidden, but shown from the bar's first pass with `symbols`, whose setting outlives its run.
 __attribute__((constructor(101))) static void sgr_harnessDefaults(void) {
     NSUserDefaults *store = NSUserDefaults.standardUserDefaults;
+    NSArray<NSString *> *args = NSProcessInfo.processInfo.arguments;
     [store setBool:YES forKey:@"spotifyglass.redesign"];
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"off"]) [store setBool:NO forKey:SGRKeyNavbarFade];
+    if ([args containsObject:@"off"]) [store setBool:NO forKey:SGRKeyNavbarFade];
     else [store removeObjectForKey:SGRKeyNavbarFade];
+    [store removeObjectForKey:SGRKeyNavbarSymbols];
+    if (args.count > 1 && [args[1] isEqualToString:@"symbols"]) [store setBool:NO forKey:SGRKeyNavbarHideLabels];
+    else [store removeObjectForKey:SGRKeyNavbarHideLabels];
 }
 
 void SGHarnessRunNavbarPage(SGHarnessChrome *chrome, void (^barChecked)(BOOL on));
+void SGHarnessRunSymbols(SGHarnessChrome *chrome);
 
 @interface SGHarnessApp : UIResponder <UIApplicationDelegate>
 @end
@@ -1077,6 +1102,11 @@ static void after(double seconds, dispatch_block_t block) {
     // `navsettings`: the Tab bar page over the bar (navsettings.m).
     if ([mode isEqualToString:@"navsettings"]) {
         after(1.0, ^{ SGHarnessRunNavbarPage(chrome, ^(BOOL on) { expectFade(chrome, on, on ? @"the page's switch on" : @"the page's switch off"); }); });
+        return;
+    }
+    // `symbols`: Apple symbols from the Tab bar page over the bar, a tab of the mod's own on it (navsettings.m).
+    if ([mode isEqualToString:@"symbols"]) {
+        after(1.0, ^{ SGHarnessRunSymbols(chrome); });
         return;
     }
     // `jam`: in a Jam from the start, and out of it at 3.5 s.
@@ -1382,7 +1412,7 @@ static void after(double seconds, dispatch_block_t block) {
 int main(int argc, char *argv[]) {
     sgJam = argc > 1 && strcmp(argv[1], "jam") == 0;
     sgColorful = argc > 1 && (strcmp(argv[1], "fade") == 0 || strcmp(argv[1], "navsettings") == 0);
-    sgGlyphs = argc > 1 && strcmp(argv[1], "glyphs") == 0;
+    sgGlyphs = argc > 1 && (strcmp(argv[1], "glyphs") == 0 || strcmp(argv[1], "symbols") == 0);
     sgSwiftIcons = sgGlyphs && argc > 2 && strcmp(argv[2], "swift") == 0;
     Class glyphView = objc_allocateClassPair(SGHarnessGlyphView.class, "SPTEncoreIconView", 0);
     class_addIvar(glyphView, "icon", sizeof(void *), __builtin_ctz(sizeof(void *)), sgSwiftIcons ? "" : "@");

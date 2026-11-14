@@ -1,6 +1,7 @@
 #!/bin/sh
 # The tabs' glyphs and the now playing card's edges (README, `glyphs` and `edges`) in an iOS simulator of the run's
-# own, made for the run and deleted after it, plus `audit` (single-tab minimizing and a tab's icon view replaced).
+# own, made for the run and deleted after it, plus `symbols` (Apple symbols) and `audit` (single-tab minimizing and a
+# tab's icon view replaced).
 # Exits nonzero on the first failed check.
 #     THEOS=$HOME/theos OUT=/tmp/<dir> ./bar-check.sh
 set -eu
@@ -27,6 +28,7 @@ run() {
 
 run "PASS all glyphs" glyphs
 run "PASS all glyphs" glyphs swift
+run "PASS all symbols" symbols
 run "PASS single-tab minimization" audit
 run "PASS all edges" none edges
 run "PASS all edges" split edges

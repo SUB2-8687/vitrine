@@ -2570,6 +2570,8 @@
 "settings.tabbar.split_tabs.title" = "Split Tabs";
 "settings.tabbar.status.hidden" = "Hidden";
 "settings.tabbar.status.stock_tab" = "Spotify's own tab";
+"settings.tabbar.symbols.subtitle" = "Spotify's tabs drawn with SF Symbols; tabs you added keep their icons";
+"settings.tabbar.symbols.title" = "Apple symbols";
 "settings.tabbar.tab.albums" = "Albums";
 "settings.tabbar.tab.artists" = "Artists";
 "settings.tabbar.tab.audiobooks" = "Audiobooks";

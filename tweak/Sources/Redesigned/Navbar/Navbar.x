@@ -420,17 +420,31 @@ void SGRRefreshTabBar(void) {
 
 // Whether Spotify reads its own item list through this ObjC bridge decides whether the bar can be
 // composed at the model level, where the order, the taps and the widths would all follow by
-// themselves, instead of by moving views about. Silence in the log says it cannot.
+// themselves, instead of by moving views about. Silence in the log says it cannot. It does read it (phone log,
+// 9.1.90: 홈 · spotify:home, 검색하기 · spotify:find, 내 라이브러리 · spotify:collection, 만들기 ·
+// spotify:internal:playlist-creation-container), each title the label under the tab's icon, so the pages the tabs
+// open are kept by those labels for Apple symbols (SGRNavbarStockURIs). The bar lays out again when they change, on the
+// main queue, as nothing says Spotify reads the list on the main thread.
 %hook _TtC28NavigationUI_TabBarItemsImpl29TabBarItemsNavigationListImpl
 - (NSArray *)items {
     NSArray *items = %orig;
     NSMutableString *out = [NSMutableString stringWithFormat:@"list read, %lu items", (unsigned long)items.count];
-    for (id item in items) [out appendFormat:@"\n  %@ · %@", [item valueForKey:@"title"], [item valueForKey:@"viewURI"]];
-    static NSString *last;
-    if (![out isEqualToString:last]) {
-        last = [out copy];
-        SGLogLong(@"navbar", out);
+    NSMutableDictionary<NSString *, NSString *> *uris = [NSMutableDictionary dictionary];
+    for (id item in items) {
+        id title = [item valueForKey:@"title"], uri = [item valueForKey:@"viewURI"];
+        [out appendFormat:@"\n  %@ · %@", title, uri];
+        NSString *page = [uri isKindOfClass:NSURL.class] ? [uri absoluteString] : [uri isKindOfClass:NSString.class] ? uri : nil;
+        if ([title isKindOfClass:NSString.class] && page.length) uris[title] = page;
     }
+    SGRSetNavbarStockURIs(uris);
+    // Spotify may read the list on any thread; the dedupe's last line is shared between them.
+    static NSString *last;
+    BOOL changed;
+    @synchronized ([(id)self class]) {
+        changed = ![out isEqualToString:last];
+        if (changed) last = [out copy];
+    }
+    if (changed) SGLogLong(@"navbar", out);
     return items;
 }
 %end

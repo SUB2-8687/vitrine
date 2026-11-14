@@ -595,6 +595,7 @@ static const CGFloat kPictureHeight = 76;
 typedef NS_ENUM(NSInteger, SGRNavbarSection) {
     SGRNavbarSectionSwitch,
     SGRNavbarSectionLabels,
+    SGRNavbarSectionSymbols,
     SGRNavbarSectionFade,
     SGRNavbarSectionTabs,
     SGRNavbarSectionLinks,   // Add a tab, Use Spotify's tabs
@@ -631,7 +632,8 @@ typedef NS_ENUM(NSInteger, SGRNavbarSection) {
 
 @end
 
-// The tab editor: a preview of the bar, how it labels its tabs, whether the page fades under it, the tabs in the order the bar shows them
+// The tab editor: a preview of the bar, how it labels its tabs, whether Spotify's tabs take SF Symbols (Apple symbols),
+// whether the page fades under it, the tabs in the order the bar shows them
 // (the circle shows or hides one, the handle drags it, a tap on one of the mod's own opens it in the Add a
 // Tab sheet to edit or remove), then adding one, going back to Spotify's tabs and splitting tabs apart.
 // Spotify's own tabs are named by their label and drawn by Spotify, so they can be hidden but not renamed,
@@ -832,6 +834,16 @@ typedef NS_ENUM(NSInteger, SGRNavbarSection) {
             cell.accessoryView = toggle;
             break;
         }
+        case SGRNavbarSectionSymbols: {
+            SGFillCell(cell, SGL(@"settings.tabbar.symbols.title", @"Apple symbols"),
+                       SGL(@"settings.tabbar.symbols.subtitle", @"Spotify's tabs drawn with SF Symbols; tabs you added keep their icons"), nil, nil);
+            UISwitch *toggle = [UISwitch new];
+            toggle.onTintColor = SGGreen();
+            toggle.on = SGFlag(SGRKeyNavbarSymbols, NO);
+            [toggle addTarget:self action:@selector(symbolsToggled:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = toggle;
+            break;
+        }
         case SGRNavbarSectionFade: {
             SGFillCell(cell, SGL(@"settings.tabbar.fade.title", @"Fade under the bar"),
                        SGL(@"settings.tabbar.fade.subtitle", @"The page darkens toward the foot of the screen, behind the tab bar and the now playing bar"), nil, nil);
@@ -962,6 +974,16 @@ typedef NS_ENUM(NSInteger, SGRNavbarSection) {
     [[UISelectionFeedbackGenerator new] selectionChanged];
     SGRRefreshTabBar();
     [self showChoices];
+}
+
+// The bar, the preview and the cards, and the list's glyphs, all at once.
+- (void)symbolsToggled:(UISwitch *)toggle {
+    SGSetEnabled(SGRKeyNavbarSymbols, toggle.on);
+    SGRRefreshTabBar();
+    [self showChoices];
+    [UIView performWithoutAnimation:^{
+        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:SGRNavbarSectionTabs] withRowAnimation:UITableViewRowAnimationNone];
+    }];
 }
 
 - (void)fadeToggled:(UISwitch *)toggle {

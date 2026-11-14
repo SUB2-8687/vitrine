@@ -1227,7 +1227,13 @@ Redesigned:
                   bars the pages fade to half black (SGRBarFade, the stock bar's own subview; Fade under the bar on the Tab bar
                   page, spotifyglass.redesign.navbar.fade, on until switched off, applies as the bar lays out again and
                   lets the fade go altogether, and the page's preview draws the same ramp, 88 pt above the bar, over rows
-                  of its own). A page scrolled down
+                  of its own). Apple symbols on the Tab bar page (spotifyglass.redesign.navbar.symbols, off unless
+                  switched on, applies as the bar lays out again) draws each of Spotify's tabs with an SF Symbol for the
+                  page it opens, filled on the selected tab where the symbol has a filled variant: Home house, Search
+                  magnifyingglass, Your Library books.vertical, Create plus, Premium crown, any other square.grid.2x2. The
+                  page comes from the list of tabs Spotify reads (Navbar.x keeps each label's URI, SGRNavbarStockURIs), so it
+                  holds in any language; a tab whose page the list has not named keeps Spotify's glyph, and a tab of the
+                  mod's own keeps the icon picked for it. A page scrolled down
                   minimizes the bar to two circles, the first or current tab and the last, with the now playing card
                   between them, and a scroll back up, its top, another tab or the player brings it back
                   (TabBarMinimize.x, MinimizeStep.h; the Player page's Apple Music style). Spotify's container is no
@@ -2041,15 +2047,17 @@ up, and a second tap goes back to that page. In the redesign (Redesigned/Navbar/
 with a preview of the glass bar, drawn by the same system UITabBar as the bar itself from the list as it
 stands, the split tabs on a bar of their own, and changing with every change on the page; then Custom tab
 bar (off, the bar is Spotify's own tabs in Spotify's order, the list kept); two picture cards for the labels,
-Icons and names or Icons only (the default: the glass bar's names hidden, applying straight away); Fade under the bar (on until switched off, applying straight away, the preview showing the
+Icons and names or Icons only (the default: the glass bar's names hidden, applying straight away); Apple symbols (off
+until switched on, applying straight away to the bar, the preview, the cards and the list: Spotify's tabs take SF
+Symbols, the tabs you added keep their icons); Fade under the bar (on until switched off, applying straight away, the preview showing the
 fade over a page's rows); the tabs, each with a
-check circle that shows or hides it, its glyph (TabBar.x draws Spotify's own off their items on the bar) and
+check circle that shows or hides it, its glyph (TabBar.x draws Spotify's own off their items on the bar, or with Apple symbols' symbol) and
 the drag handle, a tap on a tab of the mod's own opening the Add a Tab sheet as Edit Tab, with Save and Remove
 Tab; Add a tab and Use Spotify's tabs; and Split tabs. The redesign's split-list migration
 (`SGRMigrateNavbarSplit` in `Redesigned/Navbar/NavbarLayout.m`) is one-way: downgrading to a build before
 it loses split placement and custom split tabs. Spotify's own tabs keep their names and icons. Checked
 in the simulator against harness/addtab/ (`navbar`, `edit`, `remove`, `links`) and the bar's icon, off and
-hide switches against harness/tabbar/ (`navsettings`).
+hide switches against harness/tabbar/ (`navsettings`), Apple symbols against harness/tabbar/ (`symbols`).
 
 ## Localization
 

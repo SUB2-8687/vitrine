@@ -2572,6 +2572,8 @@
 "settings.tabbar.split_tabs.title" = "탭 분리";
 "settings.tabbar.status.hidden" = "숨김";
 "settings.tabbar.status.stock_tab" = "Spotify 기본 탭";
+"settings.tabbar.symbols.subtitle" = "Spotify 탭을 SF Symbols로 표시하며, 직접 추가한 탭은 지정한 아이콘을 유지합니다";
+"settings.tabbar.symbols.title" = "Apple 기호 아이콘";
 "settings.tabbar.tab.albums" = "앨범";
 "settings.tabbar.tab.artists" = "아티스트";
 "settings.tabbar.tab.audiobooks" = "오디오북";

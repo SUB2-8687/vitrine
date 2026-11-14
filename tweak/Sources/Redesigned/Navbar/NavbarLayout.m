@@ -84,6 +84,24 @@ void SGRSetNavbarStock(NSArray<NSString *> *stock) {
     [NSUserDefaults.standardUserDefaults setObject:stock ?: @[] forKey:kNavbarStock];
 }
 
+// Read again from Spotify every launch, so it is not stored. Read and written on the main thread only.
+static NSDictionary<NSString *, NSString *> *sg_stockURIs;
+
+NSDictionary<NSString *, NSString *> *SGRNavbarStockURIs(void) {
+    return sg_stockURIs ?: @{};
+}
+
+void SGRSetNavbarStockURIs(NSDictionary<NSString *, NSString *> *urisByTitle) {
+    NSDictionary<NSString *, NSString *> *uris = [urisByTitle copy] ?: @{};
+    if (!NSThread.isMainThread) {
+        dispatch_async(dispatch_get_main_queue(), ^{ SGRSetNavbarStockURIs(uris); });
+        return;
+    }
+    if ([uris isEqualToDictionary:SGRNavbarStockURIs()]) return;
+    sg_stockURIs = uris;
+    SGRRefreshTabBar();
+}
+
 NSURL *SGRNavbarTabURL(NSString *uri) {
     NSURL *url = SGSpotifyURIFromText(uri);
     if ([url.absoluteString isEqualToString:@"spotify:collection:playlists"]) return [NSURL URLWithString:@"spotify:playlists"];

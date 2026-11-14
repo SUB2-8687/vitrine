@@ -35,13 +35,21 @@ void SGRNavbarForgetTab(void) {
 void SGOpenModSettings(UIView *source) {}
 
 // Navbar.x's lays out the bar SGRComposeTabBar last composed, and the stub above composes none, so it lays out
-// nothing here: what the Tab bar page changes reaches the bar only through TabBar.x's own path (`navsettings`).
-void SGRRefreshTabBar(void) {}
+// nothing here: what the Tab bar page changes reaches the bar only through TabBar.x's own path (`navsettings`). It
+// counts its calls and notes one off the main thread, for `symbols`' list read off it.
+NSUInteger sgHarnessTabBarRefreshes = 0;
+BOOL sgHarnessTabBarRefreshedOffMain = NO;
+void SGRRefreshTabBar(void) {
+    if (!NSThread.isMainThread) sgHarnessTabBarRefreshedOffMain = YES;
+    sgHarnessTabBarRefreshes++;
+}
 
 #import "../shared/placeholder-artwork.m"
 // Shared/Player/PlayerState.x, which NowPlayingBar.x reads titles from: no player has reported a state here, so the
 // card's text is split by its line alone.
 @class SPTPlayerState;
 SPTPlayerState *SGPlayerState(void) { return nil; }
+// The player the card's next button skips on (NowPlayingBar.x): none here, so a tap on it does nothing.
+id SGPlayer(void) { return nil; }
 // Shared/Player/PlayerEvents.x, which TabBarMinimize.x listens to.
 NSString *const SGPlayerTransitionNotification = @"spotifyglass.playerTransition";

@@ -10,6 +10,10 @@
 // The redesign's black fade under the glass bar and the now playing bar (TabBar.x's SGRBarFade). On unless switched
 // off; applies as soon as the bar lays out again. Spotify's own fade under its bar stays off either way.
 #define SGRKeyNavbarFade @"spotifyglass.redesign.navbar.fade"
+// Apple symbols: the glass bar draws each of Spotify's own tabs with an SF Symbol for the page it opens (TabBar.x), on
+// the bar, the Tab bar page's preview and its list; a tab of the mod's own keeps the icon picked for it. Off unless
+// set; applies as soon as the bar lays out again.
+#define SGRKeyNavbarSymbols @"spotifyglass.redesign.navbar.symbols"
 
 extern NSString *const SGRNavbarID;      // NSString, the entry's identity
 extern NSString *const SGRNavbarTitle;   // NSString, the name in the settings list and under the icon
@@ -31,6 +35,12 @@ void SGRMigrateNavbarSplit(void);
 // Spotify's own tabs in Spotify's order, as Navbar.x last saw them on the bar.
 NSArray<NSString *> *SGRNavbarStock(void);
 void SGRSetNavbarStock(NSArray<NSString *> *stock);
+// What each of Spotify's own tabs opens (a spotify: URI), by the name under its icon, from the list of tabs Spotify
+// reads as Navbar.x last saw it this run: the name changes with the app's language, the page does not. Main thread only.
+// The setter takes them from any thread, as Spotify reads its list on a thread of its choosing: on the main queue it
+// keeps them and lays the bar out again (SGRRefreshTabBar) when they differ from those kept.
+NSDictionary<NSString *, NSString *> *SGRNavbarStockURIs(void);
+void SGRSetNavbarStockURIs(NSDictionary<NSString *, NSString *> *urisByTitle);
 // What a tab of the mod's own opens: its URI as typed or pasted, share links made spotify: URIs, and
 // the URIs of presets that never opened (spotify:collection:playlists, up to 0.20) moved to the ones
 // that replaced them, so a tab saved back then works without being added again.
@@ -64,7 +74,8 @@ CGRect SGRTabBarInlineSlot(UIView *host, CGFloat height);
 // bar is not the glass row. TabBar.x calls SGRNowPlayingBarFollowTabBar when it comes, goes or its edges move.
 CGRect SGRTabBarGlassRow(UIView *view);
 
-// A tab's glyph as the glass bar draws it, white, filled when `active` (TabBar.x), for the Tab bar page.
+// A tab's glyph as the glass bar draws it, white, filled when `active` (TabBar.x), Apple symbols' SF Symbol for one of
+// Spotify's while that is on, for the Tab bar page.
 UIImage *SGRNavbarGlyph(NSDictionary *entry, BOOL active);
 // Lets a laid out bar's titles shrink a little before UIKit cuts them short (TabBar.x), for the page's preview too.
 void SGRShrinkTabTitles(UIView *bar);
