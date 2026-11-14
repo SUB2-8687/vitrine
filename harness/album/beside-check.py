@@ -40,9 +40,8 @@ def scenario(device, bundle, args, reject=False, shots=None):
         timer.cancel()
         process.kill()
         process.wait()
-        # The failure reporter exits the GUI normally; a passing app remains for capture export.
-        if verdict is True and not reject:
-            run("xcrun", "simctl", "terminate", device, bundle)
+        # No terminate here: a passing app may already be gone (exit 3 on slow CI), and the next
+        # launch's --terminate-running-process and the device's shutdown stop a remaining one.
     if verdict is not True:
         raise RuntimeError("header scenario failed or produced no verdict: " + " ".join(args))
 
