@@ -7,27 +7,19 @@ on:
         description: "Decrypted Spotify IPA URL (Dropbox share links accepted)"
         required: true
         type: string
+      enable_wireguard:
+        description: "App-local WireGuard / proxy (Spotify 9.1.90, 9.1.94+; future versions checked at build, iOS 17+)"
+        type: boolean
+        default: false
+      remove_plugins:
+        description: "Remove every app extension (PlugIns/) from the IPA"
+        default: true
+        type: boolean
       upload_method:
         description: "Where to put the result"
         default: artifacts
         type: choice
         options: [artifacts, filebin, both]
-      remove_plugins:
-        description: "Remove every app extension (PlugIns/) from the IPA"
-        type: boolean
-        default: false
-      enable_wireguard:
-        description: "Include opt-in app-local WireGuard / proxy (inspected Spotify IPA only)"
-        type: boolean
-        default: false
-      bundle_id:
-        description: "Bundle ID must match the signing App ID; extension IDs follow it (empty keeps Spotify's ID)"
-        default: ""
-        required: false
-        type: string
-
-permissions:
-  contents: read
 
 env:
   THEOS: ${{ github.workspace }}/theos
@@ -36,125 +28,102 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@v5
 
-      - uses: levibostian/action-hide-sensitive-inputs@39cfbde19b3251728d2357dd0648172d1202c1ee # v1
+      - uses: levibostian/action-hide-sensitive-inputs@v1
 
-      - uses: ./.github/actions/setup-theos
-        with:
-          brew: aria2
-
-      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
-        if: inputs.enable_wireguard
-        with:
-          go-version-file: WireGuard/go.mod
-          cache-dependency-path: WireGuard/go.sum
-
-      - name: Verify pinned Go release
-        if: inputs.enable_wireguard
-        env:
-          GOTOOLCHAIN: local
-        run: test "$(go env GOVERSION)" = "go$(awk '$1 == "go" {print $2}' WireGuard/go.mod)"
-
-      - name: Install cyan
-        run: python3 -m pip install --break-system-packages git+https://github.com/asdfzxcvbn/pyzule-rw.git
+      - name: Install downloader
+        run: brew install aria2
 
       - name: Download IPA
+        id: spotify
         env:
           IPA_URL: ${{ inputs.ipa_url }}
         run: |
           mkdir -p ipa
-          IPA_URL="$(python3 -B - <<'PY'
-          import os
-          from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-          url = os.environ["IPA_URL"].strip().replace(r"\&", "&")
-          parts = urlsplit(url)
-          if parts.scheme == "https" and parts.hostname in {"dropbox.com", "www.dropbox.com", "dl.dropboxusercontent.com"}:
-              query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != "dl"]
-              query.append(("dl", "1"))
-              url = urlunsplit(parts._replace(netloc="dl.dropboxusercontent.com", query=urlencode(query)))
-          print(url)
-          PY
-          )"
-          # Mask the normalized URL too; it can contain a private share token.
-          echo "::add-mask::$IPA_URL"
-          # Many file hosts throttle each connection and drop long transfers, so fetch in
-          # parallel ranges and resume on failure (one connection when ranges aren't served).
-          aria2c --console-log-level=error --summary-interval=0 --download-result=hide \
-            --max-connection-per-server=8 --split=8 --min-split-size=1M \
-            --max-tries=20 --retry-wait=3 --continue=true --allow-overwrite=true \
-            --dir=ipa --out=spotify.ipa "$IPA_URL" || {
-            echo "::warning::the parallel download failed, fetching on one connection"
-            rm -f ipa/spotify.ipa ipa/spotify.ipa.aria2
-            curl -fsSL --retry 10 --retry-all-errors --retry-delay 3 -C - -o ipa/spotify.ipa "$IPA_URL"
-          }
+          IPA_URL="$(python3 -B scripts/normalize_ipa_url.py)"
+          # Dropbox answers parallel range requests with 403, so it is fetched on one connection.
+          # Other hosts keep parallel ranges/resume for large downloads.
+          case "$IPA_URL" in
+            *dropbox.com/*)
+              curl -fsSL --retry 10 --retry-all-errors --retry-delay 3 -C - -o ipa/spotify.ipa "$IPA_URL"
+              ;;
+            *)
+              aria2c --console-log-level=error --summary-interval=0 --download-result=hide \
+                --max-connection-per-server=8 --split=8 --min-split-size=1M \
+                --max-tries=20 --retry-wait=3 --continue=true --allow-overwrite=true \
+                --dir=ipa --out=spotify.ipa "$IPA_URL" || {
+                echo "::warning::the parallel download failed, fetching on one connection"
+                rm -f ipa/spotify.ipa ipa/spotify.ipa.aria2
+                curl -fsSL --retry 10 --retry-all-errors --retry-delay 3 -C - -o ipa/spotify.ipa "$IPA_URL"
+              }
+              ;;
+          esac
+          python3 -B scripts/validate-ipa.py ipa/spotify.ipa --github-output "$GITHUB_OUTPUT"
 
-      - name: Validate Spotify IPA
-        id: spotify
-        run: python3 -B scripts/validate-ipa.py ipa/spotify.ipa --github-output "$GITHUB_OUTPUT"
+      # Reject bad links before spending time on the Apple toolchain.
+      - uses: ./.github/actions/setup-theos
+        id: theos
+
+      - name: Install cyan
+        run: python3 -m pip install --break-system-packages git+https://github.com/asdfzxcvbn/pyzule-rw.git
 
       # pipeline.sh reads the flag table out of the IPA (over a minute) only when the one it finds is
       # for another Spotify version, and rebuilds the Live Activity extension only when its inputs changed.
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      - uses: actions/cache@v5
         with:
           path: tweak/Sources/Shared/Flags/SGFlagList.m
           key: flags-${{ steps.spotify.outputs.version }}-${{ hashFiles('scripts/extract-flags.py') }}
 
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      - uses: actions/cache@v5
         with:
           path: out/extension
           key: extension-${{ steps.spotify.outputs.version }}-${{ hashFiles('extension/LiveActivity/**', 'tweak/Sources/Shared/LiveActivity/**', 'scripts/build-extension.sh') }}
 
-      - name: Build IPA
-        env:
-          BUNDLE_ID: ${{ inputs.bundle_id }}
-          WIREGUARD: ${{ inputs.enable_wireguard && '1' || '0' }}
-          MAKEFLAGS: -k
-        run: |
-          set -o pipefail
-          if make release IPA=ipa/spotify.ipa NO_PLUGINS=${{ inputs.remove_plugins && '1' || '0' }} 2>&1 | tee "$RUNNER_TEMP/ipa-build.log"; then
-            exit 0
-          else
-            status=$?
-          fi
-          python3 -B - "$RUNNER_TEMP/ipa-build.log" <<'PY'
-          import pathlib
-          import re
-          import sys
-          def escape(text):
-              return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          with open(sys.argv[1], errors="replace") as log:
-              for line in log:
-                  line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", line).rstrip()
-                  match = re.match(r"^(.*?):(\d+):(?:(\d+):)?\s*(?:fatal )?error:\s*(.*)", line)
-                  if match:
-                      path, row, column, message = match.groups()
-                      if not pathlib.Path(path).is_absolute() and not pathlib.Path(path).is_file():
-                          path = str(pathlib.Path("tweak") / path)
-                      path = escape(path).replace(",", "%2C").replace(":", "%3A")
-                      print(f"::error file={path},line={row}::{escape(message)}")
-                  elif re.search(r"error:|Error \d+", line):
-                      print(f"::error::{escape(line)}")
-          PY
-          exit "$status"
+      # The tweak package depends on these exact sources, generated flags, build options,
+      # Theos and Xcode. Reuse it only for an exact key match.
+      - uses: actions/cache@v5
+        id: tweak_cache
+        with:
+          path: tweak/packages
+          key: tweak-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.theos.outputs.xcode_build }}-${{ steps.theos.outputs.theos_commit }}-wg${{ inputs.enable_wireguard }}-${{ steps.spotify.outputs.version }}-${{ hashFiles('tweak/Sources/**', 'tweak/layout/**', 'tweak/Makefile', 'tweak/control', 'tweak/spotifyglass.plist', 'vendor/audio/**', 'WireGuard/**/*.go', 'WireGuard/go.mod', 'WireGuard/go.sum', 'WireGuard/build-ios.sh', 'WireGuard/THIRD_PARTY_LICENSES.txt', 'version.txt', 'CHANGELOG.md', 'scripts/whats-new.sh', 'scripts/check-layers.sh') }}
 
-      - name: Verify app extensions removed
+      - uses: actions/cache@v5
+        id: wireguard_cache
+        if: inputs.enable_wireguard && steps.tweak_cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            WireGuard/build/libsgwg.a
+            WireGuard/build/libsgwg.h
+          key: wireguard-ios-${{ runner.os }}-${{ runner.arch }}-${{ steps.theos.outputs.xcode_build }}-${{ hashFiles('WireGuard/**/*.go', 'WireGuard/go.mod', 'WireGuard/go.sum', 'WireGuard/build-ios.sh') }}
+
+      - uses: actions/setup-go@v6
+        if: inputs.enable_wireguard && steps.tweak_cache.outputs.cache-hit != 'true' && steps.wireguard_cache.outputs.cache-hit != 'true'
+        with:
+          go-version-file: WireGuard/go.mod
+          cache-dependency-path: WireGuard/go.sum
+
+      - run: make release NO_PLUGINS=${{ inputs.remove_plugins && '1' || '0' }}
+        env:
+          WIREGUARD: ${{ inputs.enable_wireguard && '1' || '0' }}
+          SG_REUSE_TWEAK_DEB: ${{ steps.tweak_cache.outputs.cache-hit == 'true' && '1' || '0' }}
+          SG_WG_PREBUILT: ${{ steps.wireguard_cache.outputs.cache-hit == 'true' && '1' || '0' }}
+
+      # The pipeline already strips PlugIns/ with --no-plugins; this runs the same script once more over
+      # every finished IPA, so a build that still carries an app extension fails here instead of shipping.
+      - name: Remove and verify app extensions (PlugIns/)
         if: inputs.remove_plugins
         run: |
-          python3 -B - <<'PY'
-          from pathlib import Path
-          import zipfile
-          for ipa in Path("out").glob("*.ipa"):
-              with zipfile.ZipFile(ipa) as archive:
-                  if any(part == "PlugIns" or part.endswith(".appex")
-                         for name in archive.namelist() for part in name.split("/")):
-                      raise SystemExit(f"{ipa} still contains an app extension")
-              print(f"{ipa}: no app extensions")
-          PY
+          for f in out/*.ipa; do
+            bash ./scripts/remove-plugins.sh "$f"
+            if unzip -Z1 "$f" | grep -qE '/PlugIns/|\.appex(/|$)'; then
+              echo "::error::$f still contains an app extension"; exit 1
+            fi
+          done
 
       - run: ccache --show-stats
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@v6
         if: inputs.upload_method != 'filebin'
         with:
           name: vitrine.ipa
