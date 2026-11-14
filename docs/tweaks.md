@@ -2062,9 +2062,12 @@ Mod Settings and every page, sheet and alert it opens read their words from `Vit
 Theos puts the bundle in the .deb, so a jailbreak installs it under `/Library/Application Support` (or `/var/jb`), and
 cyan copies every `.bundle` of a .deb into the app, so the IPA has it beside Spotify's own.
 `Core/SGLocalize.h` has the one way in: `SGL(@"settings.player.title", @"Player")`, a key named for what the text means
-and the English it stands for. The language is Spotify's own (the iPhone's, or the one set for Spotify in Settings);
+and the English it stands for. Mod › Language chooses System (default), English or 한국어, independently of Spotify's
+own text, and applies after Spotify restarts. `spotifyglass.language` stores an integer: absent or 0 means System,
+1 means English, 2 means Korean; other values behave as System. The choice is read once per launch.
+System keeps Spotify's language (the iPhone's, or the one set for Spotify in Settings);
 one without a table, a missing bundle or key, and a translation whose format specifiers read differently from the
-English all give the English, so an English iPhone sees exactly the text in the sources. `NSBundle` is left alone.
+English all give the English, so System on an English iPhone sees exactly the text in the sources. `NSBundle` is left alone.
 Pixie's companion uses `SAPL(@"settings.pixie.<what>", @"English")` in `NativeDownloads/src/`.
 It resolves Vitrine's `SGL` export at runtime and uses these same resources, falling back to
 English when Vitrine is not loaded. `scripts/check-strings.py` includes both source trees.

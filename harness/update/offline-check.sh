@@ -13,3 +13,15 @@ xcrun clang -target arm64-apple-ios17.0-macabi -fobjc-arc -isysroot "$SDK" \
     "$HERE/offline-check.m" \
     -framework UIKit -framework Foundation -o "$OUT/check"
 "$OUT/check"
+APP="$OUT/Language.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp -R "$SRC/../layout/Library/Application Support/Vitrine.bundle" "$APP/Contents/Resources/"
+xcrun clang -fobjc-arc -fblocks -I"$SRC" \
+    "$SRC/Core/SGLocalize.m" "$HERE/language-check.m" \
+    -framework Foundation -o "$APP/Contents/MacOS/Language"
+for choice in absent 0 2 9; do
+    "$APP/Contents/MacOS/Language" "$choice" "취소" ko
+done
+"$APP/Contents/MacOS/Language" 1 "Cancel" ko
+"$APP/Contents/MacOS/Language" 2 "취소" en
+"$APP/Contents/MacOS/Language" absent "Cancel" en

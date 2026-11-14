@@ -1656,6 +1656,11 @@
 "settings.mod.import_settings.title" = "설정 가져오기";
 "settings.mod.include_betas.subtitle" = "정식 릴리스 전에 테스트 빌드 제공";
 "settings.mod.include_betas.title" = "베타 포함";
+"settings.mod.language.title" = "Vitrine 언어";
+"settings.mod.language.system" = "시스템";
+"settings.mod.language.english" = "English";
+"settings.mod.language.korean" = "한국어";
+"settings.mod.language.footer" = "Spotify를 다시 시작하면 적용됩니다.";
 "settings.mod.keychain.action.clear" = "키체인 비우기";
 "settings.mod.keychain.alert.message" = "Gemini, Claude, OpenAI 호환, DeepL API 키와 Spicy Lyrics 키, Deezer ARL이 이 iPhone에서 삭제됩니다. 설정은 그대로 남습니다.";
 "settings.mod.keychain.alert.title" = "키체인을 비울까요?";

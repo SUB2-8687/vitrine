@@ -75,6 +75,11 @@ static void confirmClearKeychain(void) {
 // rows a build that is already installed has no way of telling its user that anything moved on.
 UIViewController *SGAboutPage(void) {
     __block __weak SGModPage *owner = nil;
+    SGModRow *language = SGChoiceRow(SGL(@"settings.mod.language.title", @"Language"), nil, SGKeyLanguage,
+        @[SGL(@"settings.mod.language.system", @"System"),
+          SGL(@"settings.mod.language.english", @"English"),
+          SGL(@"settings.mod.language.korean", @"한국어")], 0);
+    language.choiceFooter = SGL(@"settings.mod.language.footer", @"Applies after you restart Spotify.");
     SGModRow *reset = SGWithSymbol(SGActionRow(SGL(@"settings.mod.reset.title", @"Reset all settings"), nil, ^{ confirmReset(); }), @"trash");
     reset.color = SGRed();
     // Reset all removes the settings; the keys live in the Keychain, which it leaves alone, so this takes them.
@@ -106,6 +111,7 @@ UIViewController *SGAboutPage(void) {
     SGModPage *page = [[SGModPage alloc] initWithTitle:SGL(@"settings.mod.title", @"Mod") intro:nil sections:@[
         SGSection(nil, build),
         SGSection(nil, links),
+        SGNotedSection(nil, @[language], language.choiceFooter),
         SGSection(nil, @[
             SGWithSymbol(SGActionRow(SGL(@"settings.mod.export_settings.title", @"Export settings"), nil, ^{ SGExportSettings(); }), @"square.and.arrow.up"),
             SGWithSymbol(SGActionRow(SGL(@"settings.mod.import_settings.title", @"Import settings"), nil, ^{ SGImportSettings(owner); }), @"square.and.arrow.down"),

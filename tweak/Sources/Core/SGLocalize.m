@@ -98,7 +98,9 @@ static void load(void) {
     dispatch_once(&once, ^{
         NSBundle *bundle = resourceBundle();
         if (!bundle) return;
-        NSString *language = matchLanguage(appLanguage(), bundle.localizations);
+        NSInteger choice = [NSUserDefaults.standardUserDefaults integerForKey:SGKeyLanguage];
+        NSString *wanted = choice == 1 ? @"en" : choice == 2 ? @"ko" : appLanguage();
+        NSString *language = matchLanguage(wanted, bundle.localizations);
         if ([language isEqualToString:@"en"]) return;
         NSString *path = [bundle pathForResource:@"Localizable" ofType:@"strings" inDirectory:nil forLocalization:language];
         NSDictionary *table = path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil;
