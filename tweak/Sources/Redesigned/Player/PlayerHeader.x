@@ -34,7 +34,30 @@
 #import "Player.h"
 
 static char kGlassKey, kCloseKey, kMoreKey, kPressKey, kGrabberKey;
+static char kContextKey, kContextStateKey;
 static const CGFloat kPressScale = 0.92;
+
+static void contextVisibility(UIView *header) {
+    // The recorded title container carries the accessibility label as well as the nested marquee.
+    // Alpha preserves its stack slot; hidden would change Spotify's stack layout.
+    UIView *context = SGRFindByIdentifier(header, @"now-playing-navigation-unit-title-label", &kContextKey);
+    if (!context) return;
+    NSArray<NSNumber *> *saved = objc_getAssociatedObject(context, &kContextStateKey);
+    if (SGHidden(SGRKeyPlayerHideContext)) {
+        if (!saved) {
+            saved = @[@(context.alpha), @(context.isAccessibilityElement), @(context.accessibilityElementsHidden)];
+            objc_setAssociatedObject(context, &kContextStateKey, saved, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        context.alpha = 0;
+        context.isAccessibilityElement = NO;
+        context.accessibilityElementsHidden = YES;
+    } else if (saved) {
+        context.alpha = saved[0].doubleValue;
+        context.isAccessibilityElement = saved[1].boolValue;
+        context.accessibilityElementsHidden = saved[2].boolValue;
+        objc_setAssociatedObject(context, &kContextStateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
 
 @interface SGRHeaderPress : NSObject
 @end
@@ -182,6 +205,7 @@ static void glassHeader(UIViewController *unit, BOOL watchMenu) {
     glassInside(unit, @[@[@"now-playing-minimize-button", @"mobile-nowplaying-close-button"], @[@"Context menu"]], keys, watchMenu);
     UIView *header = unit.viewIfLoaded;
     if (!header) return;
+    contextVisibility(header);
     placeGrabber(header);
     SGRPlayerWatchLook(header);
 }

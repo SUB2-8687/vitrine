@@ -2042,6 +2042,8 @@
 "settings.player.glass_lyrics.title" = "글래스 가사";
 "settings.player.header_glass.subtitle" = "플레이어 상단의 닫기 및 ⋯ 버튼 뒤에 글래스 원형 배경을 표시합니다.";
 "settings.player.header_glass.title" = "헤더 글래스";
+"settings.player.hide_context.title" = "재생 출처 숨기기";
+"settings.player.hide_context.subtitle" = "플레이어 상단의 아티스트, 앨범 또는 플레이리스트 이름을 숨깁니다.";
 "settings.player.hide.about_artist.title" = "아티스트 정보";
 "settings.player.hide.add_to_playlist.title" = "플레이리스트에 추가";
 "settings.player.hide.connect.title" = "기기에 연결";

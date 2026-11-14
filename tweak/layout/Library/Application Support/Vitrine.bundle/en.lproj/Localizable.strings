@@ -2028,6 +2028,8 @@
 "settings.player.glass_lyrics.title" = "Glass lyrics";
 "settings.player.header_glass.subtitle" = "Glass circles behind the close and ⋯ buttons at the top of the player.";
 "settings.player.header_glass.title" = "Header glass";
+"settings.player.hide_context.title" = "Hide where it plays from";
+"settings.player.hide_context.subtitle" = "Hide the artist, album or playlist name at the top of the player.";
 "settings.player.hide.about_artist.title" = "About the artist";
 "settings.player.hide.add_to_playlist.title" = "Add to playlist";
 "settings.player.hide.connect.title" = "Connect to a device";

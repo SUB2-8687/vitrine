@@ -183,6 +183,7 @@ void SGRPlayerPaintCover(UIView *stack);
 // switched off; off, the buttons are Spotify's as drawn, with their actions, touches and accessibility, and the grabber
 // stays. Followed at once (SGRPlayerLookChanged).
 #define SGRKeyPlayerHeaderGlass @"spotifyglass.redesign.player.headerGlass"
+#define SGRKeyPlayerHideContext @"spotifyglass.redesign.player.hideContext"
 // The Music app's glyphs in the footer row (PlayerFooter.x) and the AI DJ's (DJPlayer.x): AirPlay audio for Connect and a
 // bulleted list for the queue over Spotify's own, a quote bubble for Lyrics, and the DJ button as a waveform. On until
 // switched off; off, Spotify's Connect and queue glyphs show again in the colors and state Spotify gives them, Lyrics and

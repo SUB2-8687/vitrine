@@ -1317,7 +1317,10 @@ Redesigned:
                   account). Header glass (spotifyglass.redesign.player.headerGlass, on until switched off) keeps the glass circles
                   behind the header's down arrow and ⋯, in the ordinary player and the AI DJ's (PlayerHeader.x); off, only
                   the circles go, and the buttons draw as Spotify's own with their actions, touches and accessibility, the
-                  grabber staying. Playing Next in the ⋯ menu (PlayerQueue.m) reads Spotify's whole queue:
+                  grabber staying. Hide where it plays from (spotifyglass.redesign.player.hideContext, off by default)
+                  hides the header's artist, album or playlist context and its VoiceOver announcement without moving
+                  the close or ⋯ buttons; switching it off restores the text live (PlayerHeader.x). Redesigned only:
+                  Native keeps its own header hooks. Playing Next in the ⋯ menu (PlayerQueue.m) reads Spotify's whole queue:
                   up to ten recently played songs, oldest first, as read-only History above Now Playing,
                   then fifty Up Next songs with the existing skip-ahead action. Empty History is omitted.
                   The list follows Spotify's queue reports, falling back to the state's shorter lists when

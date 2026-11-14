@@ -77,6 +77,7 @@
 #import "Shared/Player/PlayerState.h"
 #import "Shared/Player/SGLastTrack.h"
 #import "Redesigned/Kit/SGRRefinements.h"
+#import "Redesigned/Kit/SGRRestyle.h"
 
 @interface SGRPlayerMotionView : UIView
 - (void)playFile:(NSURL *)file poster:(UIImage *)poster;
@@ -656,6 +657,12 @@ static void loadLyrics(void) {
     UIView *header = box(host, UIStackView.class, CGRectMake(0, headerTop, W, headerHeight), nil);
     glyphButton(header, CGRectMake(12, 0, 48, 48), @"chevron.down", @"now-playing-minimize-button");
     glyphButton(header, CGRectMake(W - 60, 0, 48, 48), @"ellipsis", @"Context menu");
+    UIView *context = box(header, UIView.class, CGRectMake(72, 0, W - 144, 48), @"now-playing-navigation-unit-title-label");
+    context.isAccessibilityElement = YES;
+    context.accessibilityLabel = @"TECHNO BUNKER";
+    UILabel *contextLabel = [[UILabel alloc] initWithFrame:context.bounds];
+    contextLabel.text = @"TECHNO BUNKER";
+    [context addSubview:contextLabel];
 
     // the bottom stack: information, duration, controls, volume, footer
     UIView *bottom = box(host, UIStackView.class, CGRectMake(0, bottomTop, W, bottomHeight), @"npv.bottomStackView");
@@ -1815,6 +1822,30 @@ static void installSettingsWorkProbes(void) {
 // and the largest text.
 - (void)runSettingsChecks {
     installSettingsWorkProbes();
+    UIViewController *headerUnit = _units.firstObject;
+    static char contextKey, closeKey, moreKey;
+    UIView *context = SGRFindByIdentifier(headerUnit.view, @"now-playing-navigation-unit-title-label", &contextKey);
+    UIView *close = SGRFindByIdentifier(headerUnit.view, @"now-playing-minimize-button", &closeKey);
+    UIView *more = SGRFindByIdentifier(headerUnit.view, @"Context menu", &moreKey);
+    CGRect closeFrame = close.frame, moreFrame = more.frame, contextFrame = context.frame;
+    BOOL defaultShown = context.alpha == 1 && context.isAccessibilityElement && !context.accessibilityElementsHidden;
+    SGModRow *contextRow = nil;
+    for (SGModSection *section in ((SGModPage *)SGRPlayerSettingsPage(@[])).sections)
+        for (SGModRow *row in section.rows)
+            if ([row.title isEqualToString:@"Hide where it plays from"]) contextRow = row;
+    SGSetEnabled(SGRKeyPlayerHideContext, YES);
+    if (contextRow.changed) contextRow.changed(YES);
+    [headerUnit.view layoutIfNeeded];
+    BOOL concealed = context.alpha == 0 && !context.isAccessibilityElement && context.accessibilityElementsHidden
+        && !context.hidden && CGRectEqualToRect(context.frame, contextFrame);
+    SGSetEnabled(SGRKeyPlayerHideContext, NO);
+    if (contextRow.changed) contextRow.changed(NO);
+    [headerUnit.view layoutIfNeeded];
+    [self expect:contextRow && defaultShown && concealed && context.alpha == 1
+                 && context.isAccessibilityElement && !context.accessibilityElementsHidden
+                 && CGRectEqualToRect(close.frame, closeFrame) && CGRectEqualToRect(more.frame, moreFrame)
+            step:@"context switch hides and restores text and VoiceOver live, keeping header slots"
+          detail:NSStringFromCGRect(context.frame)];
     __block UINavigationController *nav;
     __block __weak UIView *closedCard;
     __block __weak UIView *closedDecoder;
