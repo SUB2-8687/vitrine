@@ -2057,6 +2057,11 @@
 "settings.player.hide_on_player.header" = "Hide on the player";
 "settings.player.hide_video_switch.subtitle" = "The chip over the title of a song with a music video";
 "settings.player.hide_video_switch.title" = "Switch to video";
+"settings.player.ipad.queue" = "Queue";
+"settings.player.ipad.repeat" = "Repeat";
+"settings.player.ipad.repeat.all" = "All";
+"settings.player.ipad.repeat.one" = "One";
+"settings.player.ipad.shuffle" = "Shuffle";
 "settings.player.landscape.pause" = "Pause";
 "settings.player.landscape.play" = "Play";
 "settings.player.landscape.subtitle" = "Turn your iPhone while the player is open, even with the lyrics closed.";

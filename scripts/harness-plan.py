@@ -154,7 +154,7 @@ HARNESSES = [
      "run": "sh harness/player/title-notification-check.sh"},
     {"name": "Player repeat transitions", "dir": "player",
      "run": "sh harness/player/repeat-check.sh"},
-    {"name": "Player lyrics layout", "dir": "player",
+    {"name": "Player lyrics layout", "dir": "player", "theos": True,
      "run": "sh harness/player/lyrics-layout-check.sh"},
     {"name": "Player Connect volume", "dir": "player",
      "run": "sh harness/player/volume-check.sh"},

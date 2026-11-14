@@ -1,4 +1,5 @@
-// The redesign's now playing bar: the glass card it becomes (NowPlayingBar.x), Spotify's device button
+// The redesign's now playing bar: the glass card it becomes (NowPlayingBar.x), on an iPad of regular width a capsule
+// with shuffle, repeat, lyrics and queue buttons (no switch; Redesigned/Player/Player.h's SGRPlayerIPadRegular), Spotify's device button
 // on that card hidden on request (BarConnect.x), glass behind the bar's and the tab bar's stand-ins while
 // the player opens and closes (BarTransition.x), and the bar's rows in Mod Settings
 // (NowPlayingBarSettings.m). The redesign keeps its own copy of the hide switch and its own key; the

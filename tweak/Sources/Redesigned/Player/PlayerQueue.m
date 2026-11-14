@@ -131,6 +131,8 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
 }
 
 @interface SGRPlayerQueueController : UITableViewController <SGPlayerStateObserver>
+// In the two column player's side column rather than a sheet: nothing to close.
+@property (nonatomic) BOOL embedded;
 @end
 
 @implementation SGRPlayerQueueController {
@@ -154,10 +156,14 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
-                                                                                         target:self action:@selector(close)];
-    // From iOS 26 a sheet short of full height is Liquid Glass the system draws; a fill here would cover it.
-    if (@available(iOS 26.0, *)) self.tableView.backgroundColor = UIColor.clearColor;
+    if (!self.embedded) {
+        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
+                                                                                             target:self action:@selector(close)];
+    }
+    // From iOS 26 a sheet short of full height is Liquid Glass the system draws; a fill here would cover it. In the
+    // player's column the player's background shows through.
+    if (self.embedded) self.tableView.backgroundColor = UIColor.clearColor;
+    else if (@available(iOS 26.0, *)) self.tableView.backgroundColor = UIColor.clearColor;
     _empty = [UILabel new];
     _empty.text = SGL(@"settings.player.queue.empty", @"Nothing is playing next.");
     _empty.font = SGCategoryCappedFont(UIFontTextStyleBody, UIFontWeightRegular, UIContentSizeCategoryAccessibilityMedium);
@@ -339,7 +345,7 @@ static NSArray<NSString *> *signatureOf(NSArray<SPTPlayerTrack *> *tracks) {
     id<SPTPlayer> player = SGPlayerInstance();
     if (![player respondsToSelector:@selector(skipToNextTrackWithOptions:track:)]) return;
     [player skipToNextTrackWithOptions:nil track:_tracks[(NSUInteger)path.row]];
-    [self close];
+    if (!self.embedded) [self close];
 }
 
 @end
@@ -352,6 +358,12 @@ static UIViewController *topIn(UIView *from) {
     if (!top) return SGTopController();
     while (top.presentedViewController && !top.presentedViewController.isBeingDismissed) top = top.presentedViewController;
     return top;
+}
+
+UIViewController *SGRPlayerQueueList(void) {
+    SGRPlayerQueueController *list = [SGRPlayerQueueController new];
+    list.embedded = YES;
+    return list;
 }
 
 void SGRPlayerShowQueue(UIView *from) {

@@ -125,7 +125,37 @@ NSString *SGRShownTitle(NSString *trackID, NSString *title, NSString *artist, NS
 // Finds Spotify's title and artist labels in the information unit's view and has them show the title above.
 void SGRShownTitleWatch(UIView *unit);
 
+#pragma mark - iPad (PlayerLyrics.x, Redesigned/NowPlayingBar/NowPlayingBar.x)
+
+// The iPad layouts, the two column player and the capsule mini player, run in an iPad window of regular width; an
+// iPhone and an iPad window of compact width (a narrow Split View or Slide Over) keep the ordinary ones. No switch.
+static inline BOOL SGRPlayerIPadRegular(UIView *view) {
+    UITraitCollection *traits = view.window.traitCollection;
+    return traits.userInterfaceIdiom == UIUserInterfaceIdiomPad && traits.horizontalSizeClass == UIUserInterfaceSizeClassRegular;
+}
+
+// A player can extend beyond its window while Spotify's scroll container is inset or translated.
+// Both columns use the visible safe rectangle, in the player's coordinates, not just its own bounds.
+static inline CGRect SGRPlayerVisibleSafeArea(UIView *view) {
+    UIWindow *window = view.window;
+    CGRect windowSafe = [view convertRect:window.safeAreaLayoutGuide.layoutFrame fromView:window];
+    return CGRectIntersection(UIEdgeInsetsInsetRect(view.bounds, view.safeAreaInsets), windowSafe);
+}
+
 #pragma mark - the lyrics in the player (PlayerLyrics.x)
+
+// The two column player: on an iPad of regular width a player wide enough for both columns (Spotify's expanded player,
+// not its side panel) keeps the cover and Spotify's bottom stack in a column on the leading side and shows the lyrics,
+// or the queue (PlayerQueue.m's list), in a column beside it. Whether the open player is laid out so.
+BOOL SGRPlayerTwoColumns(void);
+// Which the side column shows: the lyrics while SGRPlayerLyricsOpen, else the queue. The lyrics show by default when
+// the track has them; the footer's lyrics and queue glyphs pick one, for as long as the player stays open.
+BOOL SGRPlayerQueueSideShown(void);
+// The footer's queue glyph selects the queue in the side column.
+void SGRPlayerToggleQueueSide(void);
+// The mini player's lyrics button: the player, opened next, shows the lyrics once it is up (both layouts; nothing for
+// a track without lyrics). Called before the player is asked to open.
+void SGRPlayerShowLyricsOnOpen(void);
 
 // Whether the playing track has lyrics the player can show.
 BOOL SGRPlayerLyricsAvailable(void);

@@ -1,6 +1,7 @@
 // The redesign's now playing bar: the album-colored card becomes a glass card with round (or rounded square)
-// artwork and the progress line under the text, and a Next button after play on request. Spotify's own labels,
-// buttons and gestures stay in place.
+// artwork and the progress line under the text, and a Next button after play on request; on an iPad of regular width
+// a capsule with shuffle, repeat, lyrics and queue too ("the iPad capsule"). Spotify's own labels, buttons and
+// gestures stay in place.
 //
 // The full screen player morphs the bar's own card and artwork into the cover art. The bar was
 // written to hand itself back to Spotify for that animation, from NowPlaying_ViewPageImpl's
@@ -12,6 +13,9 @@
 // Tree (trees/home.txt): NowPlayingBarContainerViewController.view 402x56 > NowPlayingBarViewController.view
 //   at {8,0} 386x56 > UIView 386x56 (the painted card) > artwork 40x40 r=4, title stack,
 //   progress line 370x2 at the bottom. The glass pane goes on the container's view.
+// On an iPad of regular width (9.1.90) the bar stands beside the tab bar at the window's trailing foot:
+//   CompactNowPlayingViewController's TouchPassthroughView 368x92 > the container's view 368x76 > the bar's view at
+//   {8,0} 352x76, a 60x60 cover, the row {68,16} 276x44 of the information and the buttons (device, add, play).
 //
 // In a Jam Spotify puts a "Jam by ..." strip on the bar, a SwiftUI _UIHostingView of
 // Jam_AttachmentsImpl.JamHatElement as wide as the card and 44pt high, and grows the bar by its height
@@ -26,6 +30,12 @@
 #import "Settings/SGMarquee.h"
 #import "NowPlayingBar.h"
 #import "Redesigned/Navbar/Navbar.h"
+#import "Redesigned/Kit/SGRAccent.h"
+#import "Redesigned/Kit/SGRRestyle.h"
+#import "Redesigned/Player/Player.h"
+#import "Redesigned/Player/PlayerQueue.h"
+#import "Settings/SGModPage.h"
+#import "Shared/Navigation/Links.h"
 #import "Shared/Player/PlayerState.h"
 
 static const CGFloat kCardRadius = 24;
@@ -36,6 +46,8 @@ static const CGFloat kCardPressScale = 0.97, kCardPressDim = 0.22;
 // Rounded square's corners on the 40pt cover. The cover stands 8pt in from the card's 24pt corner, so a corner of
 // any radius stays inside the card's curve; 8pt is the Music app's mini player's.
 static const CGFloat kArtworkSquareRadius = 8;
+// The cover's largest side: the phone's card's is 40 pt, the iPad's 60 pt.
+static const CGFloat kCardArtworkMax = 48, kCapsuleArtworkMax = 64;
 // kRoundedKey marks the cover's views this file rounded, so a change of shape rounds them again.
 static char kGlassKey, kStripGlassKey, kDimKey, kRoundedKey;
 static __weak UIView *sg_card;
@@ -46,6 +58,8 @@ static __weak UIView *sg_progress;
 static __weak UIViewController *sg_container;
 // The container's view while it stands in the minimized tab bar's row, below the page that holds it.
 static __weak UIView *sg_inline;
+// The card is the iPad capsule (SGRPlayerIPadRegular; "the iPad capsule" below).
+static BOOL sg_capsule;
 
 #pragma mark - the press
 
@@ -120,7 +134,7 @@ CGRect SGRNowPlayingCardFrameIn(UIView *host, CGFloat *radius) {
     settleCard();
     UIVisualEffectView *glass = sg_cardGlass;
     if (!glass.superview || !glass.window || !host) return CGRectNull;
-    if (radius) *radius = MIN(kCardRadius, glass.bounds.size.height / 2);
+    if (radius) *radius = sg_capsule ? glass.bounds.size.height / 2 : MIN(kCardRadius, glass.bounds.size.height / 2);
     return [host convertRect:glass.bounds fromView:glass];
 }
 
@@ -206,19 +220,28 @@ static void roundView(UIView *view, CGFloat radius) {
     view.layer.cornerCurve = kCACornerCurveContinuous;
 }
 
-// The cover's corners for the Player page's Artwork shape (SGRKeyBarArtworkShape).
-static CGFloat artworkRadius(CGFloat width) {
-    return SGInt(SGRKeyBarArtworkShape, SGRBarArtworkShapeCircle) == SGRBarArtworkShapeRoundedSquare ? kArtworkSquareRadius : width / 2;
+// A rounded square cover's corners in the iPad capsule: standing `inset` in from the capsule's ends of `radius`, a corner
+// of r stays inside their curve while √2·(radius − inset − r) + r ≤ radius. The iPad's 60 pt cover in its 76 pt capsule
+// needs 11 pt; the phone's card's corner leaves room for kArtworkSquareRadius.
+static CGFloat capsuleSquareRadius(CGFloat radius, CGFloat inset) {
+    return MAX(kArtworkSquareRadius, ceil((M_SQRT2 * (radius - inset) - radius) / (M_SQRT2 - 1)));
+}
+
+// The cover's corners for the Player page's Artwork shape (SGRKeyBarArtworkShape), on a card `cardHeight` high.
+static CGFloat artworkRadius(CGFloat width, CGFloat cardHeight) {
+    if (SGInt(SGRKeyBarArtworkShape, SGRBarArtworkShapeCircle) != SGRBarArtworkShapeRoundedSquare) return width / 2;
+    return sg_capsule ? capsuleSquareRadius(cardHeight / 2, (cardHeight - width) / 2) : kArtworkSquareRadius;
 }
 
 static void restyleCardContent(UIView *card) {
     SGForEachView(card, ^(UIView *v) {
         if (inStrip(v, card)) return;
         CGSize size = v.bounds.size;
-        BOOL square = size.width >= 36 && size.width <= 48 && fabs(size.width - size.height) < 1;
+        // 40 pt on the phone's card, 60 pt on the iPad's capsule (the iPad's bar, 9.1.90).
+        BOOL square = size.width >= 36 && size.width <= (sg_capsule ? kCapsuleArtworkMax : kCardArtworkMax) && fabs(size.width - size.height) < 1;
         if (!square || v.layer.cornerRadius <= 0) return;
         // The shape asked for is there already: nothing to change, as on every layout after the first.
-        CGFloat radius = artworkRadius(size.width);
+        CGFloat radius = artworkRadius(size.width, card.bounds.size.height);
         if (v.layer.cornerRadius == radius) {
             if (!sg_cardArtwork) sg_cardArtwork = v;
             return;
@@ -246,8 +269,11 @@ static void restyleCardContent(UIView *card) {
         });
         sg_progress = progress;
     }
-    // Under the text, 226pt on a full width card, shorter on the one in the minimized tab bar.
-    CGRect target = CGRectMake(52, card.bounds.size.height - 6, MAX(0, card.bounds.size.width - 160), 2);
+    // Under the text, 226pt on a full width card, shorter on the one in the minimized tab bar. On the capsule it keeps
+    // off the round ends, a capsule's height in from each side.
+    CGSize cardSize = card.bounds.size;
+    CGRect target = sg_capsule ? CGRectMake(cardSize.height, cardSize.height - 6, MAX(0, cardSize.width - 2 * cardSize.height), 2)
+                               : CGRectMake(52, cardSize.height - 6, MAX(0, cardSize.width - 160), 2);
     if (progress && !CGRectEqualToRect(progress.frame, target)) {
         progress.frame = target;
         [progress setNeedsLayout];
@@ -281,7 +307,8 @@ static void placeStripGlass(UIView *host, UIView *strip, CGRect card, BOOL above
 // The bar's left and right edges in its superview, set through the constants of the constraints that hold
 // them there (their constants as Spotify set them kept to go back to), or through its frame when it is laid
 // out by frame. A frame alone does not move a view laid out by constraints, nor what is constrained inside
-// it (harness/tabbar). NO, with nothing changed, when its edges are held some other way, or right to left.
+// it (harness/tabbar). NO, with nothing changed, when its edges are held some other way, or right to left
+// unless `mirrored` (the iPad capsule's), whose leading and trailing constants count from the right.
 static NSMapTable<NSLayoutConstraint *, NSNumber *> *sg_constants;
 static CGRect sg_fullFrame, sg_narrowFrame;
 
@@ -292,7 +319,26 @@ static void restoreEdges(UIView *bar) {
     sg_narrowFrame = CGRectNull;
 }
 
-static BOOL setEdges(UIView *bar, CGFloat left, CGFloat right) {
+// Each constraint of the superview's that holds one of the bar's sides to the same side of the superview: whether it is
+// the left side, whether the bar is its first item, the sign its constant has (-1 for leading and trailing right to left)
+// and that side's x in the superview. A constant is `sign` times the first item's side less the second's.
+static void eachEdgeConstraint(UIView *bar, void (^each)(NSLayoutConstraint *constraint, BOOL isLeft, BOOL barFirst, CGFloat sign, CGFloat edge)) {
+    UIView *superview = bar.superview;
+    BOOL rtl = superview.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+    for (NSLayoutConstraint *constraint in superview.constraints) {
+        NSLayoutAttribute attribute = constraint.firstAttribute;
+        BOOL barFirst = constraint.firstItem == bar && constraint.secondItem == superview;
+        if (!constraint.active || constraint.relation != NSLayoutRelationEqual || constraint.multiplier != 1 || attribute != constraint.secondAttribute
+            || (!barFirst && !(constraint.secondItem == bar && constraint.firstItem == superview))) continue;
+        BOOL directional = attribute == NSLayoutAttributeLeading || attribute == NSLayoutAttributeTrailing;
+        if (!directional && attribute != NSLayoutAttributeLeft && attribute != NSLayoutAttributeRight) continue;
+        BOOL isLeft = attribute == NSLayoutAttributeLeft || (attribute == NSLayoutAttributeLeading && !rtl)
+            || (attribute == NSLayoutAttributeTrailing && rtl);
+        each(constraint, isLeft, barFirst, directional && rtl ? -1 : 1, isLeft ? 0 : superview.bounds.size.width);
+    }
+}
+
+static BOOL setEdges(UIView *bar, CGFloat left, CGFloat right, BOOL mirrored) {
     UIView *superview = bar.superview;
     if (bar.translatesAutoresizingMaskIntoConstraints) {
         CGRect frame = CGRectMake(left, bar.frame.origin.y, right - left, bar.frame.size.height);
@@ -301,22 +347,16 @@ static BOOL setEdges(UIView *bar, CGFloat left, CGFloat right) {
         if (!CGRectEqualToRect(bar.frame, frame)) bar.frame = frame;
         return YES;
     }
-    if (superview.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft) return NO;
+    if (!mirrored && superview.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft) return NO;
     if (!sg_constants) sg_constants = [NSMapTable weakToStrongObjectsMapTable];
-    NSUInteger held = 0;
-    for (NSLayoutConstraint *constraint in superview.constraints) {
-        NSLayoutAttribute attribute = constraint.firstAttribute;
-        BOOL barFirst = constraint.firstItem == bar && constraint.secondItem == superview;
-        if (!constraint.active || constraint.relation != NSLayoutRelationEqual || constraint.multiplier != 1 || attribute != constraint.secondAttribute
-            || (!barFirst && !(constraint.secondItem == bar && constraint.firstItem == superview))) continue;
-        BOOL isLeft = attribute == NSLayoutAttributeLeading || attribute == NSLayoutAttributeLeft;
-        if (!isLeft && attribute != NSLayoutAttributeTrailing && attribute != NSLayoutAttributeRight) continue;
+    __block NSUInteger held = 0;
+    eachEdgeConstraint(bar, ^(NSLayoutConstraint *constraint, BOOL isLeft, BOOL barFirst, CGFloat sign, CGFloat edge) {
         if (![sg_constants objectForKey:constraint]) [sg_constants setObject:@(constraint.constant) forKey:constraint];
-        CGFloat edge = isLeft ? 0 : superview.bounds.size.width, value = isLeft ? left : right;
-        CGFloat constant = barFirst ? value - edge : edge - value;
+        CGFloat value = isLeft ? left : right;
+        CGFloat constant = sign * (barFirst ? value - edge : edge - value);
         if (constraint.constant != constant) constraint.constant = constant;
         held |= isLeft ? 1 : 2;
-    }
+    });
     if (held == 3) return YES;
     restoreEdges(bar);
     static dispatch_once_t once;
@@ -324,10 +364,31 @@ static BOOL setEdges(UIView *bar, CGFloat left, CGFloat right) {
     return NO;
 }
 
+// The bar's sides where Spotify puts them, whatever this file has set: its frame or the constants Spotify gave the
+// constraints that hold them. NO when its sides are held some other way.
+static BOOL spotifyEdges(UIView *bar, CGFloat *left, CGFloat *right) {
+    if (bar.translatesAutoresizingMaskIntoConstraints) {
+        CGRect frame = CGRectEqualToRect(bar.frame, sg_narrowFrame) ? sg_fullFrame : bar.frame;
+        *left = CGRectGetMinX(frame);
+        *right = CGRectGetMaxX(frame);
+        return YES;
+    }
+    __block NSUInteger held = 0;
+    eachEdgeConstraint(bar, ^(NSLayoutConstraint *constraint, BOOL isLeft, BOOL barFirst, CGFloat sign, CGFloat edge) {
+        NSNumber *kept = [sg_constants objectForKey:constraint];
+        CGFloat constant = kept ? kept.doubleValue : constraint.constant;
+        CGFloat x = barFirst ? edge + sign * constant : edge - sign * constant;
+        if (isLeft) *left = x;
+        else *right = x;
+        held |= isLeft ? 1 : 2;
+    });
+    return held == 3;
+}
+
 // The bar's edges set to `r`'s sides, `r` in the coordinates of the container's view's superview and the view standing
 // at `origin` in them. NO, with nothing changed, for a null `r`.
 static BOOL edgesTo(UIView *bar, CGRect r, CGPoint origin) {
-    return !CGRectIsNull(r) && setEdges(bar, CGRectGetMinX(r) - origin.x, CGRectGetMaxX(r) - origin.x);
+    return !CGRectIsNull(r) && setEdges(bar, CGRectGetMinX(r) - origin.x, CGRectGetMaxX(r) - origin.x, NO);
 }
 
 #pragma mark - the Next button
@@ -406,29 +467,41 @@ static SGRBarNextButton *makeNextButton(void) {
     return next;
 }
 
-// The button last in the row while the switch is on, out of it while it is off. In the minimized row tuckExtras hides
-// it with the device and add buttons.
-static void placeNextButton(UIView *bar) {
-    SGRBarNextButton *next = objc_getAssociatedObject(bar, &kNextKey);
-    if (!SGHidden(SGRKeyBarNextButton)) {
-        [next removeFromSuperview];
-        return;
-    }
+// Spotify's row: the stack of the track's information and the stack of the buttons, play's item among them; nil, and
+// `buttons` and `playItem` too, when the bar is not built that way.
+static UIStackView *buttonRow(UIView *bar, UIStackView **buttons, UIView **playItem) {
     __block UIView *play = nil;
     SGForEachView(bar, ^(UIView *v) {
         if (!play && [v.accessibilityIdentifier isEqualToString:kPlayId] && !inStrip(v, bar)) play = v;
     });
     UIView *item = play;
     while (item.superview && item.superview != bar && ![item.superview isKindOfClass:UIStackView.class]) item = item.superview;
-    UIStackView *buttons = (UIStackView *)item.superview;
-    UIStackView *row = (UIStackView *)buttons.superview;
-    BOOL found = [buttons isKindOfClass:UIStackView.class] && [buttons.arrangedSubviews containsObject:item]
-        && [row isKindOfClass:UIStackView.class] && [row.arrangedSubviews containsObject:buttons];
-    if (!found) {
+    UIStackView *stack = (UIStackView *)item.superview;
+    UIStackView *row = (UIStackView *)stack.superview;
+    BOOL found = [stack isKindOfClass:UIStackView.class] && [stack.arrangedSubviews containsObject:item]
+        && [row isKindOfClass:UIStackView.class] && [row.arrangedSubviews containsObject:stack];
+    if (buttons) *buttons = found ? stack : nil;
+    if (playItem) *playItem = found ? item : nil;
+    if (found) return row;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ SGLog(@"now playing bar: play's button stack is not in a row stack (%@)", play.class); });
+    return nil;
+}
+
+// The button right after Spotify's buttons, last in the row, while the switch is on, out of it while it is off; the iPad
+// capsule's buttons come after it. In the minimized row tuckExtras hides it with the device and add buttons.
+static void placeNextButton(UIView *bar) {
+    SGRBarNextButton *next = objc_getAssociatedObject(bar, &kNextKey);
+    if (!SGHidden(SGRKeyBarNextButton)) {
+        [next removeFromSuperview];
+        return;
+    }
+    UIStackView *buttons = nil;
+    UIView *item = nil;
+    UIStackView *row = buttonRow(bar, &buttons, &item);
+    if (!row) {
         // A Next placed before Spotify changed its bar goes with it, so no button is left where it no longer belongs.
         [next removeFromSuperview];
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{ SGLog(@"now playing bar: play's button stack is not in a row stack (%@), so no Next button", play.class); });
         return;
     }
     if (!next) {
@@ -437,11 +510,13 @@ static void placeNextButton(UIView *bar) {
     }
     sg_nextButton = next;
     if (item.bounds.size.width >= 1) next.itemSize = item.bounds.size;
-    if (row.arrangedSubviews.lastObject == next) return;
+    NSArray<UIView *> *arranged = row.arrangedSubviews;
+    NSUInteger at = [arranged indexOfObject:buttons] + 1;
+    if (at < arranged.count && arranged[at] == next) return;
     [UIView performWithoutAnimation:^{
         next.hidden = NO;
         next.alpha = 1;
-        [row addArrangedSubview:next];
+        [row insertArrangedSubview:next atIndex:at];
         [row setCustomSpacing:0 afterView:buttons];
     }];
     static dispatch_once_t once;
@@ -450,25 +525,30 @@ static void placeNextButton(UIView *bar) {
 
 // In the row the card keeps the cover, the title and play, as the Music app's does: the device, add and Next
 // buttons stand aside while it is there and come back with the full card, the device button staying when the
-// Player page's Device button asks for it (SGRKeyBarInlineConnect). Only what this hid is shown again.
+// Player page's Device button asks for it (SGRKeyBarInlineConnect). The iPad capsule keeps Next and its own buttons,
+// and the device and add buttons stand aside for them. Only what this hid is shown again.
+typedef NS_ENUM(NSInteger, SGRBarTuck) { SGRBarTuckNone, SGRBarTuckRow, SGRBarTuckCapsule };
 static NSHashTable<UIView *> *sg_tucked;
+static SGRBarTuck sg_tuck;
 
-static void tuckExtras(UIView *bar, BOOL tuck) {
+static void tuckExtras(UIView *bar, SGRBarTuck tuck) {
     if (!sg_tucked) sg_tucked = [NSHashTable weakObjectsHashTable];
     // A stack hides an item only once the animation it was hidden in ends, so the buttons also fade on
     // their own, out as the card heads for the row and back in after it leaves.
-    if (!tuck) {
+    if (tuck != sg_tuck) {
         NSArray<UIView *> *items = sg_tucked.allObjects;
         [sg_tucked removeAllObjects];
         for (UIView *item in items) item.hidden = NO;
         SGRAnimate(SGRMotionRespond, ^{ for (UIView *item in items) item.alpha = 1; }, nil);
-        return;
+        sg_tuck = tuck;
     }
-    BOOL keepConnect = SGHidden(SGRKeyBarInlineConnect);
+    if (tuck == SGRBarTuckNone) return;
+    BOOL keepConnect = tuck == SGRBarTuckRow && SGHidden(SGRKeyBarInlineConnect), keepNext = tuck == SGRBarTuckCapsule;
     SGForEachView(bar, ^(UIView *v) {
         NSString *name = v.accessibilityIdentifier;
         BOOL connect = [name isEqualToString:@"Components.ConnectButtonOutputSwitcher"];
-        if ((!connect || keepConnect) && ![name isEqualToString:@"Components.UI.AddToButton"] && ![name isEqualToString:kNextId]) return;
+        BOOL next = [name isEqualToString:kNextId];
+        if ((!connect || keepConnect) && ![name isEqualToString:@"Components.UI.AddToButton"] && (!next || keepNext)) return;
         // The stack's own item, so the stack closes the gap.
         UIView *item = v;
         while (item.superview && item.superview != bar && ![item.superview isKindOfClass:UIStackView.class]) item = item.superview;
@@ -477,6 +557,259 @@ static void tuckExtras(UIView *bar, BOOL tuck) {
         SGRAnimate(SGRMotionExit, ^{ item.alpha = 0; }, nil);
         [sg_tucked addObject:item];
     });
+}
+
+#pragma mark - the iPad capsule
+
+// On an iPad of regular width (SGRPlayerIPadRegular) the card is a capsule, as the Music app's mini player on iPad is,
+// and besides the cover, the title and play (and Next, when it is switched on) it holds shuffle, repeat, lyrics and
+// queue: buttons of the mod's in Spotify's row after its own, the way Next is, while the device and add buttons stand
+// aside (tuckExtras). Shuffle and repeat send the player's own commands, the ones the Live Activity's controls send
+// (setShufflingContext:, SGPlayerAdvanceRepeat), and show what the player reports, lit in the accent while on; lyrics
+// opens the player, through spotify:now-playing on Spotify's link dispatcher, on its lyrics (SGRPlayerShowLyricsOnOpen);
+// queue opens Playing Next over the app (PlayerQueue.m). For their room the capsule grows from Spotify's card toward
+// the glass tab bar beside it, keeping its other side where Spotify put it, and stops short of the tab bar's glass.
+static NSString *const kShuffleId = @"vitrine.nowplayingbar.shuffle", *const kRepeatId = @"vitrine.nowplayingbar.repeat";
+static NSString *const kLyricsId = @"vitrine.nowplayingbar.lyrics", *const kQueueId = @"vitrine.nowplayingbar.queue";
+static NSString *const kRepeatSymbol = @"repeat", *const kRepeatOneSymbol = @"repeat.1";
+// The four glyphs' point size, drawn as heavy as play's and Next's glyphs read beside them.
+static const CGFloat kCapsuleGlyphSize = 17;
+// The room the capsule grows to give the title, and how far it keeps from the tab bar's glass.
+static const CGFloat kCapsuleTextWidth = 200, kCapsuleTabGap = 16;
+static char kCapsuleKey, kTabsKey;
+
+// A system button, as Next is: Spotify's tap on the card, which opens the player, lets a button's own tap through, where
+// it takes one from a control of another kind. Laid out a touch target square in the row, the large content viewer
+// showing its title at accessibility text sizes.
+@interface SGRBarCapsuleButton : UIButton
+@property (nonatomic, copy) NSString *symbol;
+@property (nonatomic, copy) void (^onTap)(UIView *button);
+@end
+
+@implementation SGRBarCapsuleButton
+- (CGSize)intrinsicContentSize {
+    return CGSizeMake(kMinTouchTarget, kMinTouchTarget);
+}
+
+- (void)setSymbol:(NSString *)symbol {
+    if ([symbol isEqualToString:_symbol]) return;
+    _symbol = [symbol copy];
+    UIImageSymbolConfiguration *glyph = [UIImageSymbolConfiguration configurationWithPointSize:kCapsuleGlyphSize weight:UIImageSymbolWeightRegular];
+    UIImage *image = [UIImage systemImageNamed:symbol withConfiguration:glyph];
+    [self setImage:image forState:UIControlStateNormal];
+    self.largeContentImage = image;
+}
+
+- (void)tapped {
+    if (self.onTap) self.onTap(self);
+}
+@end
+
+static __weak SGRBarCapsuleButton *sg_shuffle, *sg_repeat;
+
+static SGRBarCapsuleButton *capsuleButton(NSString *symbol, NSString *title, NSString *identifier, void (^tap)(UIView *button)) {
+    SGRBarCapsuleButton *button = [SGRBarCapsuleButton buttonWithType:UIButtonTypeSystem];
+    button.symbol = symbol;
+    button.tintColor = SGRPrimary();
+    button.accessibilityIdentifier = identifier;
+    button.accessibilityLabel = title;
+    button.showsLargeContentViewer = YES;
+    button.largeContentTitle = title;
+    [button addInteraction:[UILargeContentViewerInteraction new]];
+    [button setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [button setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    button.onTap = tap;
+    [button addTarget:button action:@selector(tapped) forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
+
+static NSArray<SGRBarCapsuleButton *> *makeCapsuleButtons(void) {
+    SGRBarCapsuleButton *shuffle = capsuleButton(@"shuffle", SGL(@"settings.player.ipad.shuffle", @"Shuffle"), kShuffleId, ^(UIView *button) {
+        SPTPlayerState *state = SGPlayerState();
+        [(id<SPTPlayer>)SGPlayer() setShufflingContext:!state.options.shufflingContext];
+    });
+    SGRBarCapsuleButton *repeat = capsuleButton(kRepeatSymbol, SGL(@"settings.player.ipad.repeat", @"Repeat"), kRepeatId, ^(UIView *button) {
+        SGPlayerAdvanceRepeat((id<SPTPlayer>)SGPlayer(), SGPlayerState().options);
+    });
+    SGRBarCapsuleButton *lyrics = capsuleButton(@"quote.bubble", SGL(@"settings.main.lyrics.title", @"Lyrics"), kLyricsId, ^(UIView *button) {
+        SGRPlayerShowLyricsOnOpen();
+        if (!SGOpenSpotifyURI([NSURL URLWithString:@"spotify:now-playing"])) SGLog(@"now playing bar: the player could not be opened for its lyrics");
+    });
+    SGRBarCapsuleButton *queue = capsuleButton(@"list.bullet", SGL(@"settings.player.ipad.queue", @"Queue"), kQueueId, ^(UIView *button) {
+        SGRPlayerShowQueue(button);
+    });
+    sg_shuffle = shuffle;
+    sg_repeat = repeat;
+    return @[shuffle, repeat, lyrics, queue];
+}
+
+// Shuffle and repeat as the player reports them: lit in the accent while on, repeat's glyph with its 1 while it
+// repeats the track, and VoiceOver told which. Dimmed with nothing to play.
+static void showPlayerOptions(void) {
+    SGRBarCapsuleButton *shuffle = sg_shuffle, *repeat = sg_repeat;
+    if (!shuffle.window && !repeat.window) return;
+    SPTPlayerState *state = SGPlayerState();
+    SPTPlayerOptions *options = state.options;
+    BOOL shuffling = options.shufflingContext, track = options.repeatingTrack, context = options.repeatingContext;
+    UIColor *lit = SGRAccentColor() ?: SGColorRGB(SGRAccentRGB());
+    BOOL playable = state.track != nil;
+    NSString *on = SGL(@"common.on", @"On"), *off = SGL(@"common.off", @"Off");
+    UIColor *shuffleTint = shuffling ? lit : SGRPrimary(), *repeatTint = track || context ? lit : SGRPrimary();
+    if (![shuffle.tintColor isEqual:shuffleTint]) shuffle.tintColor = shuffleTint;
+    if (![repeat.tintColor isEqual:repeatTint]) repeat.tintColor = repeatTint;
+    repeat.symbol = track ? kRepeatOneSymbol : kRepeatSymbol;
+    shuffle.accessibilityValue = shuffling ? on : off;
+    repeat.accessibilityValue = track ? SGL(@"settings.player.ipad.repeat.one", @"One")
+        : context ? SGL(@"settings.player.ipad.repeat.all", @"All") : off;
+    if (shuffle.enabled != playable) shuffle.enabled = playable;
+    if (repeat.enabled != playable) repeat.enabled = playable;
+}
+
+@interface SGRBarOptionsWatcher : NSObject <SGPlayerStateObserver>
+@end
+
+@implementation SGRBarOptionsWatcher
+- (void)playerStateDidChange:(SPTPlayerState *)state {
+    showPlayerOptions();
+}
+// Repeat is not among what a change is reported for: every report is looked at.
+- (void)playerStateDidReport:(SPTPlayerState *)state {
+    showPlayerOptions();
+}
+@end
+
+// The four after Spotify's buttons and Next while the card is the capsule, out of the row while it is not.
+static void placeCapsuleButtons(UIView *bar, BOOL capsule) {
+    NSArray<SGRBarCapsuleButton *> *buttons = objc_getAssociatedObject(bar, &kCapsuleKey);
+    UIStackView *spotify = nil;
+    UIView *playItem = nil;
+    UIStackView *row = capsule ? buttonRow(bar, &spotify, &playItem) : nil;
+    if (!row) {
+        for (UIView *button in buttons) [button removeFromSuperview];
+        return;
+    }
+    SGForEachView(playItem, ^(UIView *view) {
+        if ([view.accessibilityIdentifier isEqualToString:kPlayId]) view.tintColor = SGRPrimary();
+    });
+    if (!buttons) {
+        buttons = makeCapsuleButtons();
+        objc_setAssociatedObject(bar, &kCapsuleKey, buttons, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    NSArray<UIView *> *arranged = row.arrangedSubviews;
+    UIView *next = sg_nextButton;
+    UIView *before = [arranged containsObject:next] ? next : spotify;
+    NSUInteger at = [arranged indexOfObject:before] + 1;
+    BOOL placed = NO;
+    for (SGRBarCapsuleButton *button in buttons) {
+        if (at >= row.arrangedSubviews.count || row.arrangedSubviews[at] != button) {
+            [UIView performWithoutAnimation:^{ [row insertArrangedSubview:button atIndex:at]; }];
+            placed = YES;
+        }
+        at++;
+    }
+    showPlayerOptions();
+    if (!placed) return;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ SGLog(@"now playing bar: the capsule's shuffle, repeat, lyrics and queue in %@", row.class); });
+}
+
+// UIKit moves the tab bar's platter as its bar settles (at launch it is laid out across a wider bar first), with no
+// pass of the now playing bar to follow, and the tab bar tells the card only of a compact width's row (TabBar.x). The
+// platter's frame setters are watched instead, and a move lays the capsule out again, once a turn of the run loop.
+@interface SGRTabGlassWatcher : NSObject
+@end
+
+@implementation SGRTabGlassWatcher {
+    BOOL _pending;
+}
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context {
+    if (_pending) return;
+    _pending = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        self->_pending = NO;
+        if (sg_capsule) SGRNowPlayingBarFollowTabBar();
+    });
+}
+@end
+
+static void watchTabGlass(UIView *platter) {
+    static SGRTabGlassWatcher *watcher;
+    static __weak UIView *watched;
+    UIView *previous = watched;
+    if (previous == platter) return;
+    if (!watcher) watcher = [SGRTabGlassWatcher new];
+    for (NSString *key in @[@"frame", @"center", @"bounds"]) {
+        [previous removeObserver:watcher forKeyPath:key];
+        [platter addObserver:watcher forKeyPath:key options:0 context:NULL];
+    }
+    watched = platter;
+}
+
+// The glass tab bar's platter on the bar's row, in the bar's superview's coordinates: UIKit's floating tab bar draws its
+// glass in a view of its own, narrower than the bar (Redesigned/Navbar/TabBar.x reads it the same way), inside Spotify's
+// tab bar view. CGRectNull when there is none beside the bar.
+static CGRect tabGlassBeside(UIView *bar) {
+    UIView *tabs = bar.window ? SGRFindByIdentifier(bar.window, @"elements-tabs-view-identifier", &kTabsKey) : nil;
+    __block UIView *platter = nil;
+    if (tabs) SGForEachView(tabs, ^(UIView *v) {
+        if (v.hidden || v.alpha < 0.01 || ![NSStringFromClass(v.class) hasSuffix:@"PlatterView"]) return;
+        if (!platter || v.bounds.size.width > platter.bounds.size.width) platter = v;
+    });
+    if (!platter) return CGRectNull;
+    watchTabGlass(platter);
+    CGRect glass = [platter convertRect:platter.bounds toView:bar.superview];
+    BOOL beside = CGRectGetMaxY(glass) > CGRectGetMinY(bar.frame) && CGRectGetMinY(glass) < CGRectGetMaxY(bar.frame);
+    return beside ? glass : CGRectNull;
+}
+
+// What the row's views after the title take, at their own widths, with the row's spacing before each.
+static CGFloat rowButtonsWidth(UIStackView *row) {
+    CGFloat width = 0;
+    for (UIView *view in row.arrangedSubviews) {
+        if (view == row.arrangedSubviews.firstObject || view.hidden) continue;
+        CGFloat own = view.intrinsicContentSize.width;
+        if (own == UIViewNoIntrinsicMetric) own = [view systemLayoutSizeFittingSize:UILayoutFittingCompressedSize].width;
+        width += own + row.spacing;
+    }
+    return width;
+}
+
+// The capsule's sides: Spotify's, the side toward the tab bar moved out until the title has kCapsuleTextWidth, but never
+// nearer the tab bar's glass than kCapsuleTabGap. Spotify's own when it has room, nothing beside it to grow toward, or its
+// sides cannot be read.
+static BOOL widenCapsule(UIView *bar) {
+    CGFloat left = 0, right = 0;
+    UIStackView *row = buttonRow(bar, NULL, NULL);
+    if (!row) return NO;
+    if (!spotifyEdges(bar, &left, &right)) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ SGLog(@"now playing bar: the capsule's sides are not held by its superview's constraints, so it keeps Spotify's"); });
+        return NO;
+    }
+    CGFloat wanted = bar.bounds.size.width - row.bounds.size.width + rowButtonsWidth(row) + kCapsuleTextWidth;
+    if (wanted <= right - left) return NO;
+    CGRect glass = tabGlassBeside(bar);
+    if (CGRectIsNull(glass)) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ SGLog(@"now playing bar: no tab bar glass beside the capsule, so it keeps Spotify's width"); });
+        return NO;
+    }
+    BOOL rtl = bar.superview.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
+    CGFloat grown = rtl ? MIN(left + wanted, CGRectGetMinX(glass) - kCapsuleTabGap) : MAX(right - wanted, CGRectGetMaxX(glass) + kCapsuleTabGap);
+    BOOL set = rtl ? grown > right && setEdges(bar, left, grown, YES) : grown < left && setEdges(bar, grown, right, YES);
+    static dispatch_once_t once;
+    if (set) dispatch_once(&once, ^{
+        SGLog(@"now playing bar: the capsule grows from %.0f-%.0f to %.0f for a %.0f pt card", left, right, grown, wanted);
+    });
+    return set;
+}
+
+// Grown past its page's bounds, the capsule takes the touches there through the page's hit test: the glass's frame in
+// `page`, or CGRectNull when the card is not a capsule.
+static CGRect capsuleIn(UIView *page) {
+    UIVisualEffectView *glass = sg_cardGlass;
+    if (!sg_capsule || !glass.window || ![glass isDescendantOfView:page]) return CGRectNull;
+    return [page convertRect:glass.bounds fromView:glass];
 }
 
 // The Music app's two lines, the title over the artists, in place of Spotify's "title • artists" and the
@@ -693,17 +1026,17 @@ static void placeInline(UIViewController *container) {
     // Where the view stands untransformed, in the slot's coordinates.
     CGPoint origin = CGPointMake(view.center.x - view.bounds.size.width / 2, view.center.y - view.bounds.size.height / 2);
     if (!edgesTo(bar, slot, origin)) {
-        if (sg_inline) tuckExtras(bar, NO);
         sg_inline = nil;
+        if (bar) tuckExtras(bar, sg_capsule ? SGRBarTuckCapsule : SGRBarTuckNone);
         if (!CGAffineTransformIsIdentity(view.transform)) view.transform = CGAffineTransformIdentity;
         CGRect row = bar && bar.superview == view ? SGRTabBarGlassRow(view.superview) : CGRectNull;
-        if (!edgesTo(bar, row, origin)) restoreEdges(bar);
+        if (!edgesTo(bar, row, origin) && !(sg_capsule && bar.superview == view && widenCapsule(bar))) restoreEdges(bar);
         if (bar) placeTexts(bar);
         return;
     }
     CGAffineTransform move = CGAffineTransformMakeTranslation(0, CGRectGetMidY(slot) - origin.y - CGRectGetMidY(bar.frame));
     if (!CGAffineTransformEqualToTransform(view.transform, move)) view.transform = move;
-    tuckExtras(bar, YES);
+    tuckExtras(bar, SGRBarTuckRow);
     sg_inline = view;
     placeTexts(bar);
     static dispatch_once_t once;
@@ -770,7 +1103,13 @@ static void styleNowPlayingBar(UIViewController *container) {
         dispatch_async(dispatch_get_main_queue(), ^{ [host setNeedsLayout]; });
     }
     if (strip.bounds.size.height < 1) strip = nil;
+    BOOL capsule = SGRPlayerIPadRegular(container.view);
+    if (capsule != sg_capsule) {
+        sg_capsule = capsule;
+        SGLog(@"now playing bar: %@", capsule ? @"the iPad capsule" : @"the card");
+    }
     placeNextButton(bar);
+    placeCapsuleButtons(bar, capsule);
     placeInline(container);
 
     CGRect frame = card ? SGFrameIn(card, container.view) : contentBounds(bar, container.view);
@@ -787,7 +1126,7 @@ static void styleNowPlayingBar(UIViewController *container) {
     frame.size.height = MIN(frame.size.height, 80);
     if (frame.size.height < 30 || frame.size.width < 100) return;
 
-    CGFloat radius = MIN(kCardRadius, frame.size.height / 2);
+    CGFloat radius = capsule ? frame.size.height / 2 : MIN(kCardRadius, frame.size.height / 2);
     if (card) {
         roundView(card, radius);
         restyleCardContent(card);
@@ -799,7 +1138,7 @@ static void styleNowPlayingBar(UIViewController *container) {
     if (glass.overrideUserInterfaceStyle != UIUserInterfaceStyleDark) glass.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
     sg_cardGlass = glass;
     glass.frame = frame;
-    SGShapeGlass(glass, radius, NO);
+    SGShapeGlass(glass, radius, capsule);
     placeStripGlass(container.view, strip, frame, stripAbove);
     watchCard(container.view, frame, radius);
 
@@ -827,12 +1166,23 @@ static void styleNowPlayingBar(UIViewController *container) {
 // one: the container's view keeps the screen's width, and took the touches meant for the tab bar's circles.
 // Only the container's view moves to the row, by a transform; Spotify's layout view above it stays at the
 // bar's old place and took every touch there (#70), so a touch on nothing of the moved bar's goes through.
-// Next's whole touch target is reached here too (nextButtonHit).
+// Next's whole touch target is reached here too (nextButtonHit), and the iPad capsule where it has grown past the
+// page's bounds (capsuleIn), which UIKit asks the page about only once its pointInside: says the touch is its.
 %hook _TtC22NowPlaying_BarPageImplP33_CCC0D2EEA6D4725EECD8965E8C38C86D20TouchPassthroughView
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    return %orig || CGRectContainsPoint(capsuleIn((UIView *)self), point);
+}
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = %orig;
     UIView *next = nextButtonHit((UIView *)self, point, event);
     if (next) return next;
+    UIView *card = sg_container.viewIfLoaded;
+    UIView *bar = sg_container.childViewControllers.firstObject.viewIfLoaded;
+    if (bar && (!hit || ![hit isDescendantOfView:card]) && CGRectContainsPoint(capsuleIn((UIView *)self), point)) {
+        UIView *inside = [bar hitTest:[(UIView *)self convertPoint:point toView:bar] withEvent:event];
+        if (inside) return inside;
+    }
     UIView *moved = sg_inline;
     if (![moved isDescendantOfView:(UIView *)self] || (hit && [hit isDescendantOfView:moved])) return hit;
     UIView *inside = [moved hitTest:[(UIView *)self convertPoint:point toView:moved] withEvent:event];
@@ -878,9 +1228,16 @@ static void styleNowPlayingBar(UIViewController *container) {
 }
 %end
 
+static SGRBarOptionsWatcher *sg_optionsWatcher;
+
 %ctor {
     if (!SGRedesignedUI()) return;
     %init;
+    sg_optionsWatcher = [SGRBarOptionsWatcher new];
+    SGAddPlayerStateObserver(sg_optionsWatcher);
+    // Posted on the main thread.
+    [NSNotificationCenter.defaultCenter addObserverForName:SGRAccentDidChangeNotification object:nil queue:nil
+                                                usingBlock:^(NSNotification *note) { showPlayerOptions(); }];
     SGRequireClasses(@[
         @"_TtC18NowPlaying_BarImpl36NowPlayingBarContainerViewController",
         @"_TtC18NowPlaying_BarImpl27NowPlayingBarViewController",

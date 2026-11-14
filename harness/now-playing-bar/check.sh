@@ -12,13 +12,26 @@ if [ -n "${OUT:-}" ]; then mkdir -p "$OUT"; else OUT=$(mktemp -d /tmp/now-playin
 APP=$OUT/NowPlayingBarCheck.app
 mkdir -p "$APP/Contents/MacOS"
 "$LOGOS" -c generator=internal "$SRC/Redesigned/NowPlayingBar/NowPlayingBar.x" > "$OUT/NowPlayingBar.gen.m"
-SDK=$(xcrun --sdk macosx --show-sdk-path)
-xcrun clang -target arm64-apple-ios17.0-macabi -fobjc-arc -g -O0 -isysroot "$SDK" \
-    -iframework "$SDK/System/iOSSupport/System/Library/Frameworks" \
+python3 - "$SRC/Shared/Player/PlayerState.x" "$OUT/repeat.inc" <<'PY'
+import pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+start = text.index("id SGPlayerAdvanceRepeat(")
+pathlib.Path(sys.argv[2]).write_text(text[start:text.index("\nstatic NSHashTable", start)])
+PY
+if [ "${SIMULATOR:-0}" = 1 ]; then
+    SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+    TARGET=arm64-apple-ios17.0-simulator
+    FRAMEWORKS=
+else
+    SDK=$(xcrun --sdk macosx --show-sdk-path)
+    TARGET=arm64-apple-ios17.0-macabi
+    FRAMEWORKS="-iframework $SDK/System/iOSSupport/System/Library/Frameworks"
+fi
+xcrun clang -target "$TARGET" -fobjc-arc -g -O0 -isysroot "$SDK" $FRAMEWORKS \
     -I"$SRC" -I"$SRC/Redesigned/NowPlayingBar" -I"$OUT" -Wall -Werror -Wno-unused-parameter -Wno-unused-function -Wno-deprecated-declarations \
     "$HERE/check.m" "$HERE/../scene.m" "$HERE/stubs.m" \
     "$SRC/Settings/SGMarquee.m" "$SRC/Redesigned/Kit/SGRTokens.m" \
-    "$SRC/Core/SGLog.m" "$SRC/Core/SGViewTree.m" "$SRC/Core/SGPrefs.m" \
+    "$SRC/Core/SGLog.m" "$SRC/Core/SGViewTree.m" "$SRC/Core/SGPrefs.m" "$SRC/Core/SGGlass.m" \
     -framework UIKit -framework QuartzCore -framework CoreGraphics -framework CoreText -framework Foundation \
     -o "$APP/Contents/MacOS/now-playing-bar-check"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -28,6 +41,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>now-playing-bar-check</string>
 <key>CFBundleIdentifier</key><string>com.vitrine.nowplayingbar.check</string>
 <key>CFBundleVersion</key><string>1</string>
+<key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+<key>UILaunchScreen</key><dict/>
+<key>UIUserInterfaceStyle</key><string>Dark</string>
 <key>UIApplicationSceneManifest</key><dict>
 <key>UIApplicationSupportsMultipleScenes</key><false/>
 <key>UISceneConfigurations</key><dict>
@@ -38,5 +54,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></dict>
 </dict></plist>
 PLIST
+if [ "${SIMULATOR:-0}" = 1 ]; then
+    cp "$APP/Contents/Info.plist" "$APP/Info.plist"
+    mv "$APP/Contents/MacOS/now-playing-bar-check" "$APP/now-playing-bar-check"
+    exit 0
+fi
 codesign -f -s - "$APP" >/dev/null 2>&1
 "$APP/Contents/MacOS/now-playing-bar-check"

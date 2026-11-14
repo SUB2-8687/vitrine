@@ -5,6 +5,7 @@ static char kReachKey;
 static NSString *const SGRKeyPlayerVolume = @"harness.volume";
 static BOOL SGEnabled(NSString *key) { return YES; }
 static void SGRPlayerPaintCover(UIView *stack) {}
+static BOOL SGRPlayerTwoColumns(void) { return NO; }
 #define SGLog(...) ((void)0)
 void SGRPlayerLowerRow(UIView *row);
 

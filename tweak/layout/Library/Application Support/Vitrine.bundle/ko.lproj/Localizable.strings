@@ -2071,6 +2071,11 @@
 "settings.player.hide_on_player.header" = "플레이어에서 숨기기";
 "settings.player.hide_video_switch.subtitle" = "뮤직비디오가 있는 노래 제목 위의 칩";
 "settings.player.hide_video_switch.title" = "비디오로 전환";
+"settings.player.ipad.queue" = "대기열";
+"settings.player.ipad.repeat" = "반복";
+"settings.player.ipad.repeat.all" = "전체";
+"settings.player.ipad.repeat.one" = "한 곡";
+"settings.player.ipad.shuffle" = "셔플";
 "settings.player.landscape.subtitle" = "가사를 닫은 상태에서도 플레이어를 연 채 iPhone을 돌립니다.";
 "settings.player.landscape.title" = "가로 모드 플레이어";
 "settings.player.like_dislike.subtitle" = "'별로 전환'이 켜져 있으면 끔으로 고정되며 별이 이 자리를 대신합니다";

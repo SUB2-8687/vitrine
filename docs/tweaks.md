@@ -1249,7 +1249,14 @@ Redesigned:
                   the Mac against harness/tabbar/ (`mini`; a tap on the leading circle `tap`, real flings that turn
                   the bar half way `turns`, a minimize from inside Spotify's own animations `nested`, every frame of
                   the move sampled `motion`), the scroll's steps checked by harness/tabbar/minimize-check.c
-    NowPlayingBar/ the glass now playing bar (NowPlayingBar.x), with Spotify's device button on it hidden on request
+    NowPlayingBar/ the glass now playing bar (NowPlayingBar.x). A regular-width iPad automatically gets a capsule
+                  with shuffle, repeat, lyrics and queue alongside artwork, title and play. Shuffle and repeat use
+                  Spotify's player commands; lyrics opens the player on its embedded lyrics, and queue opens the
+                  existing Playing Next sheet. The capsule grows toward, but never over, the adjacent tab platter.
+                  Device and add step aside; optional Next remains. Compact-width iPad and iPhone keep the card.
+                  Capsule commands mirror with the window's direction. Play and inactive commands are white;
+                  shuffle and repeat use the accent only while Spotify reports them active.
+                  Spotify's device button on it is hidden on request
                   (BarConnect.x, its own key and its own row on the Player page, apart from the native look's). On
                   request a Next button of the mod's stands after Spotify's button stack, last in the row that holds
                   the track's information and that stack, as large as play's item (its touch target at least 44x44 pt,
@@ -1262,7 +1269,7 @@ Redesigned:
                   SGRNowPlayingArtworkFrameIn hands the morph the radius shown (harness/now-playing-bar/). Above the
                   tab bar the card is exactly as wide as the glass tab row, split tabs included, like the Music app's mini
                   player (SGRTabBarGlassRow in Navbar.h, posted at most once a run loop turn when the row's edges change);
-                  in a regular width or right-to-left layout it keeps Spotify's edges, and a Jam never puts it inline. The card's text is the Music
+                  outside the iPad capsule, a regular width or right-to-left layout keeps Spotify's edges, and a Jam never puts it inline. The card's text is the Music
                   app's, the title over the artists with no device line, drawn inside Spotify's own text on each swipe page
                   so it slides and fades with it; Spotify lays a page out as "title • artists" over the device line or as
                   title over artists, and both are read. In the minimized row
@@ -1295,7 +1302,18 @@ Redesigned:
                   remain documented ambiguities. A sheet arriving after the window is not adopted or suppressed
                   by that request. Checked in the simulator against
                   harness/system-menu/
-    Player/       the redesigned full screen player (Player.h lists its files); its more button opens the system
+    Player/       the redesigned full screen player (Player.h lists its files). In a regular-width iPad's expanded
+                  player, artwork and Spotify's control units occupy the leading column; the existing embedded
+                  lyrics view or PlayerQueue.m's list occupies the trailing column. Lyrics is the default when
+                  available, queue otherwise; the footer buttons select the column's content. No new switch.
+                  Both orientations use these columns, mirrored for RTL, with leading-column-first VoiceOver order.
+                  The leading footer sits above the window's bottom safe area; the lyrics options button stays
+                  inside the trailing column's safe area, rather than following the single-column footer.
+                  PlayerLandscape.x already limits its separate landscape window to iPhone; it is not used on iPad.
+                  Compact windows and Spotify's narrow side panel retain the existing single-column layout.
+                  `harness/player/ipad-check.py --screenshots <directory>` checks disposable iPad/iPhone clones,
+                  including compact width, RTL and accessibility text size, and captures the layouts.
+                  Its more button opens the system
                   menu (ContextMenu/), Spotify's rows and then Speed, Pitch & Reverb, which opens the sliders, Pitch
                   follows speed and Keep for This Song in a popover from the ⋯ (SpeedPitchMenu.x, Shared/Player), and the backgrounds it can switch
                   to (PlayerMenu.m), and a hold on either side of the

@@ -24,8 +24,13 @@
 // The geometry is re-applied on every layout pass of the units, since a new track rebuilds the
 // elements inside them, and it is undone before the player closes: the bar morphs back into a full
 // size cover, which a thumbnail would not match.
-// At 700pt and up on iPad or a regular-width window, the same screen keeps a large cover and Spotify's
-// controls in the leading 40%, with the lyrics alongside. Narrow windows retain the thumbnail layout.
+//
+// The two column player (SGRPlayerTwoColumns): on an iPad of regular width, in a player wide enough for both columns
+// (Spotify's expanded player; its side panel, 352 pt in 9.1.90, keeps the narrow layout), Spotify's bottom stack is
+// narrowed into a column on the leading side, with the cover over it drawn by the same overlay, and the side column
+// beside it shows the lyrics or the queue (PlayerQueue.m's list) for as long as the player is that wide, whatever the
+// lyrics glyph says: the glyph and the footer's queue glyph only pick which. It holds in either orientation: on iPad
+// the landscape screen of PlayerLandscape.x never goes up (iPhone only), so a turn only lays the columns out again.
 #import <UIKit/UIGestureRecognizerSubclass.h>
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
@@ -35,7 +40,9 @@
 #import "Shared/Sing/Sing.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import "Shared/LocalFiles/LocalFiles.h"
+#import "Shared/Player/PlayerEvents.h"
 #import "Player.h"
+#import "PlayerQueue.h"
 
 static const CGFloat kThumbSide = 72;          // the cover once the lyrics are up
 static const CGFloat kThumbGap = 16;           // between the thumbnail and the title beside it
@@ -56,8 +63,17 @@ static const NSTimeInterval kLyricsGrace = 3;
 static const CGFloat kLivingHeight = 200;
 // The lines on their own: the controls under them fade after this long without a touch.
 static const NSTimeInterval kRest = 4;
+// The two columns: the leading one never narrower than the narrowest iPhone Spotify lays its controls out for, the
+// side one never narrower than this, this far apart, so a player is wide enough for both from their sum on. The
+// leading column takes this share of the safe width: half on a window taller than wide, less on its side, where the
+// height rather than the width limits the cover. The cover stands this far in from each side of its column.
+static const CGFloat kColumnMinWidth = 320, kSideMinWidth = 300, kColumnGap = 24;
+static const CGFloat kColumnSharePortrait = 0.5, kColumnShareLandscape = 0.42;
+static const CGFloat kColumnCoverInset = 16;
+// The mini player's lyrics button asks for the lyrics of a player that is about to open: the ask holds this long.
+static const NSTimeInterval kLyricsOnOpenWindow = 3;
 
-static char kOverlayKey, kPlateKey, kTitleKey, kStackKey;
+static char kOverlayKey, kPlateKey, kTitleKey, kStackKey, kQueueKey;
 static BOOL sg_open;
 static BOOL sg_moving;                      // the transition is in flight, so no layout pass may re-place it
 static NSUInteger sg_openGeneration;        // only the latest accepted transition may settle
@@ -69,18 +85,27 @@ static BOOL sg_alone;                       // the lines have the player to them
 static BOOL sg_touching;                    // a finger is on the player, which holds the clock (SGRPlayerTouchWatcher)
 static NSTimer *sg_rest;
 static __weak UIGestureRecognizer *sg_wake; // on the player, on while alone: the tap that brings the controls back
+// The two column player: up, the footer's last pick of its side column (kept while the player stays open), and the
+// mini player's ask for the lyrics, until when it holds.
+typedef NS_ENUM(NSInteger, SGRSidePick) { SGRSidePickNone, SGRSidePickLyrics, SGRSidePickQueue };
+static BOOL sg_wide;
+static SGRSidePick sg_sidePick;
+static CFTimeInterval sg_lyricsOnOpenUntil;
+static BOOL sg_orderedForVoiceOver;         // the player's accessibilityElements are this file's
 
 #pragma mark - the wide player's control column
 
 static BOOL wideIn(UIView *host) {
-    CGFloat width = MIN(host.bounds.size.width, host.window.bounds.size.width);
-    return width >= 700 && (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad
-        || host.traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassRegular);
+    if (!host || !SGRPlayerIPadRegular(host)) return NO;
+    CGFloat width = SGRPlayerVisibleSafeArea(host).size.width;
+    return width >= kColumnMinWidth + kColumnGap + kSideMinWidth;
 }
 
 static CGRect wideColumn(UIView *host) {
-    CGRect safe = UIEdgeInsetsInsetRect(host.bounds, host.safeAreaInsets);
-    CGFloat gap = 24, width = (safe.size.width - gap) * 0.4;
+    CGRect safe = SGRPlayerVisibleSafeArea(host);
+    CGFloat room = safe.size.width - kColumnGap;
+    CGFloat share = safe.size.height > safe.size.width ? kColumnSharePortrait : kColumnShareLandscape;
+    CGFloat width = round(MIN(MAX(room * share, kColumnMinWidth), room - kSideMinWidth));
     BOOL rtl = host.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
     return CGRectMake(rtl ? CGRectGetMaxX(safe) - width : CGRectGetMinX(safe),
                       CGRectGetMinY(safe), width, safe.size.height);
@@ -94,6 +119,8 @@ static CGRect wideColumn(UIView *host) {
 @property (nonatomic, copy) NSArray<NSLayoutConstraint *> *original;
 @property (nonatomic, strong) NSLayoutConstraint *left, *width;
 @property (nonatomic) BOOL autoresizing;
+@property (nonatomic) CGRect originalFrame;
+@property (nonatomic) CGRect placedFrame;
 @end
 @implementation SGRLyricsColumn
 @end
@@ -108,6 +135,10 @@ static BOOL horizontalAttribute(NSLayoutAttribute attribute) {
 }
 
 static void restoreColumn(SGRLyricsColumn *column) {
+    if (column.autoresizing) {
+        if (CGRectEqualToRect(column.stack.frame, column.placedFrame)) column.stack.frame = column.originalFrame;
+        return;
+    }
     [NSLayoutConstraint deactivateConstraints:@[column.left, column.width]];
     column.stack.translatesAutoresizingMaskIntoConstraints = column.autoresizing;
     [NSLayoutConstraint activateConstraints:column.original];
@@ -132,6 +163,7 @@ static void placeColumn(UIView *host, BOOL open) {
         column = [SGRLyricsColumn new];
         column.stack = stack;
         column.autoresizing = stack.translatesAutoresizingMaskIntoConstraints;
+        column.originalFrame = stack.frame;
         NSMutableArray *original = [NSMutableArray array];
         for (UIView *owner = stack; owner; owner = owner.superview) {
             for (NSLayoutConstraint *constraint in owner.constraints) {
@@ -146,16 +178,27 @@ static void placeColumn(UIView *host, BOOL open) {
         }
         column.original = original;
         [NSLayoutConstraint deactivateConstraints:original];
-        stack.translatesAutoresizingMaskIntoConstraints = NO;
-        column.left = [stack.leftAnchor constraintEqualToAnchor:host.leftAnchor];
-        column.width = [stack.widthAnchor constraintEqualToConstant:wideColumn(host).size.width];
+        if (!column.autoresizing) {
+            column.left = [stack.leftAnchor constraintEqualToAnchor:host.leftAnchor];
+            column.width = [stack.widthAnchor constraintEqualToConstant:wideColumn(host).size.width];
+        }
         objc_setAssociatedObject(host, &kColumnKey, column, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     if (column) {
         CGRect frame = wideColumn(host);
-        column.left.constant = CGRectGetMinX(frame) - CGRectGetMinX(host.bounds);
-        column.width.constant = frame.size.width;
-        [NSLayoutConstraint activateConstraints:@[column.left, column.width]];
+        if (column.autoresizing) {
+            if (!CGRectEqualToRect(stack.frame, column.placedFrame)) column.originalFrame = stack.frame;
+            CGRect local = [host convertRect:frame toView:stack.superview];
+            CGRect placed = stack.frame;
+            placed.origin.x = local.origin.x;
+            placed.size.width = local.size.width;
+            stack.frame = placed;
+            column.placedFrame = placed;
+        } else {
+            column.left.constant = CGRectGetMinX(frame) - CGRectGetMinX(host.bounds);
+            column.width.constant = frame.size.width;
+            [NSLayoutConstraint activateConstraints:@[column.left, column.width]];
+        }
     }
     [host layoutIfNeeded];
     sg_placingColumn = NO;
@@ -179,8 +222,10 @@ static BOOL keepsTitle(void) {
 @interface SGRPlayerLyricsOverlay : UIView
 @property (nonatomic, readonly) UIView *thumb;       // the cover, at full size, moved by its transform
 @property (nonatomic, readonly) UIImageView *cover;
-@property (nonatomic, readonly) UIView *stage;       // holds the lines' view alone
+@property (nonatomic, readonly) UIView *stage;       // holds the lines' view alone, or the two columns' queue
 @property (nonatomic, readonly) SGRKaraokeView *lyrics;
+// The lines' view if it has been made, wherever it is, without putting it in the stage.
+@property (nonatomic, readonly) SGRKaraokeView *madeLyrics;
 @end
 
 @implementation SGRPlayerLyricsOverlay {
@@ -210,13 +255,15 @@ static BOOL keepsTitle(void) {
 }
 
 - (void)sgr_thumbTapped {
-    // Left on screen while the lines are alone (keepsTitle), a tap on it only wakes the controls (SGRPlayerWake).
-    if (SGRPlayerLyricsOpen() && !sg_moving && !sg_alone) SGRPlayerToggleLyrics();
+    // Left on screen while the lines are alone (keepsTitle), a tap on it only wakes the controls (SGRPlayerWake). In the
+    // two columns it is the player's cover, and the player is already all there.
+    if (SGRPlayerLyricsOpen() && !sg_moving && !sg_alone && !sg_wide) SGRPlayerToggleLyrics();
 }
 
 - (UIView *)thumb { return _thumb; }
 - (UIImageView *)cover { return _cover; }
 - (UIView *)stage { return _stage; }
+- (SGRKaraokeView *)madeLyrics { return _lyrics; }
 
 // The lines seek when they are tapped and the thumbnail brings the player back, so everywhere else the
 // overlay would only swallow touches: a view that takes them does, even with nothing on it.
@@ -294,16 +341,24 @@ static SGRLyricsLayout layoutIn(UIView *host) {
     if (CGRectIsNull(area) || CGRectIsNull(cover)) return l;
     CGRect row = untransformed(info, host), bar = untransformed(duration, host);
     if (wideIn(host) && objc_getAssociatedObject(host, &kColumnKey)) {
-        CGRect safe = UIEdgeInsetsInsetRect(host.bounds, host.safeAreaInsets), column = wideColumn(host);
+        CGRect safe = SGRPlayerVisibleSafeArea(host), column = wideColumn(host);
         CGFloat top = MAX(CGRectGetMinY(area), CGRectGetMinY(safe)) + kThumbTop;
-        CGFloat side = MIN(column.size.width - 32, CGRectGetMinY(row) - kLyricsTop - top);
+        // The cover ends over the chips (Switch to video), which stay over the title in the column.
+        CGFloat bottom = CGRectGetMinY(row);
+        UIView *floating = sg_floating.viewIfLoaded;
+        if (floating.window && !floating.hidden && floating.alpha > 0.01 && floating.bounds.size.height >= 1) {
+            bottom = MIN(bottom, CGRectGetMinY(untransformed(floating, host)));
+        }
+        // As large as the column and the room over the stack allow, in the middle of that room as Spotify's own sits.
+        CGFloat band = bottom - kLyricsTop - top;
+        CGFloat side = floor(MIN(column.size.width - 2 * kColumnCoverInset, band));
         BOOL rtl = host.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft;
-        CGFloat lyricsWidth = safe.size.width - column.size.width - 24;
+        CGFloat sideWidth = safe.size.width - column.size.width - kColumnGap;
         l.wide = YES;
         l.cover = cover;
-        l.thumb = CGRectMake(CGRectGetMidX(column) - side / 2, top, side, side);
-        l.stage = CGRectMake(rtl ? CGRectGetMinX(safe) : CGRectGetMaxX(column) + 24,
-                             top, lyricsWidth, CGRectGetMaxY(safe) - kLyricsBottom - top);
+        l.thumb = CGRectMake(round(CGRectGetMidX(column) - side / 2), round(top + (band - side) / 2), side, side);
+        l.stage = CGRectMake(rtl ? CGRectGetMinX(safe) : CGRectGetMaxX(column) + kColumnGap,
+                             top, sideWidth, CGRectGetMaxY(safe) - kLyricsBottom - top);
         l.ok = side >= kThumbSide && l.stage.size.height > kLivingHeight / 2;
         return l;
     }
@@ -558,7 +613,7 @@ static BOOL coveredBySheet(void) {
 static BOOL mayCount(void) {
     SPTPlayerState *state = SGPlayerState();
     UIView *host = sg_host;
-    return !wideIn(host) && SGRLyricsHideMode() != SGRLyricsHideOff && sg_open && !sg_alone && !sg_touching && host.window && state && !state.isPaused
+    return !sg_wide && SGRLyricsHideMode() != SGRLyricsHideOff && sg_open && !sg_alone && !sg_touching && host.window && state && !state.isPaused
         && !UIAccessibilityIsVoiceOverRunning()
         && UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
 }
@@ -664,8 +719,8 @@ static void restartRest(void) {
 
 static void setAlone(BOOL alone, BOOL animated) {
     UIView *host = sg_host;
-    // The wide player deliberately keeps the cover and controls beside the lines, even while browsing.
-    if (alone && wideIn(host)) return;
+    // The two columns deliberately keep the cover and controls beside the lines, even while browsing.
+    if (alone && sg_wide) return;
     if (alone == sg_alone || !host || (alone && !sg_open)) return;
     SGRLyricsLayout l = layoutIn(host);
     // Going alone needs somewhere to put the lines. Coming back never waits for it: the controls and the
@@ -712,16 +767,8 @@ static void setOpen(BOOL open, BOOL animated) {
         SGLog(@"redesign player: the lyrics were asked for before the player laid out");
         return;
     }
-    SGRLyricsLayout previous = layoutIn(host);
-    placeColumn(host, open);
     SGRLyricsLayout l = layoutIn(host);
-    if (!open && previous.wide) {
-        // Fly from the large column cover, not the phone thumbnail calculated after restoration.
-        previous.cover = l.cover;
-        l = previous;
-    }
     if (open && !l.ok) {
-        placeColumn(host, NO);
         SGLog(@"redesign player: the lyrics have nowhere to go (stage %.0fx%.0f, lift %.0f)", l.stage.size.width, l.stage.size.height, l.lift);
         return;
     }
@@ -729,7 +776,6 @@ static void setOpen(BOOL open, BOOL animated) {
     // picture there would be a hole where the cover was, so the cover stays and the lyrics wait.
     UIImage *picture = SGRNowPlayingArtwork(NULL, NULL);
     if (open && !picture) {
-        placeColumn(host, NO);
         SGLog(@"redesign player: no artwork read yet, the lyrics stay down");
         return;
     }
@@ -816,9 +862,189 @@ static void setOpen(BOOL open, BOOL animated) {
           -l.lift, l.shift, l.stage.size.width, l.stage.size.height);
 }
 
+#pragma mark - the two columns
+
+BOOL SGRPlayerTwoColumns(void) {
+    return sg_wide;
+}
+
+BOOL SGRPlayerQueueSideShown(void) {
+    return sg_wide && !sg_open;
+}
+
+// The side column's lyrics unless the queue was picked or the track has none: lines still being looked for keep the
+// lyrics up through the grace a new track has (SGRPlayerLyricsNone), as the narrow player's lines stay up.
+static BOOL sideWantsLyrics(void) {
+    if (sg_sidePick == SGRSidePickQueue) return NO;
+    return SGRPlayerLyricsAvailable() || (sg_open && !SGRPlayerLyricsNone());
+}
+
+// The queue shares its sheet's controller, contained by the existing player so UIKit delivers traits and lifecycle.
+static UIViewController *queueListOf(SGRPlayerLyricsOverlay *overlay) {
+    UIViewController *list = objc_getAssociatedObject(overlay, &kQueueKey);
+    if (!list) {
+        list = SGRPlayerQueueList();
+        list.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+        [sg_player addChildViewController:list];
+        [list didMoveToParentViewController:sg_player];
+        objc_setAssociatedObject(overlay, &kQueueKey, list, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return list;
+}
+
+// The side column shows the lines or the queue, crossfading when animated; the one going leaves the column, so the
+// lines' display link stops while the queue shows.
+static void showSide(SGRPlayerLyricsOverlay *overlay, BOOL lyrics, BOOL animated) {
+    UIView *queue = queueListOf(overlay).view;
+    UIView *showing = lyrics ? overlay.lyrics : queue, *going = lyrics ? queue : overlay.madeLyrics;
+    if (showing.superview != overlay.stage) {
+        showing.alpha = animated ? 0 : 1;
+        [overlay.stage addSubview:showing];
+    }
+    showing.frame = overlay.stage.bounds;
+    showing.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    BOOL changed = sg_open != lyrics;
+    sg_open = lyrics;
+    void (^swap)(void) = ^{
+        showing.alpha = 1;
+        going.alpha = 0;
+    };
+    void (^gone)(BOOL) = ^(BOOL finished) {
+        // Shown again before the fade ended: it stays.
+        if (sg_wide && (going == queue ? !sg_open : sg_open)) return;
+        [going removeFromSuperview];
+        going.alpha = 1;
+    };
+    if (animated && going.superview) SGRAnimate(SGRMotionFade, swap, gone);
+    else {
+        swap();
+        gone(YES);
+    }
+    if (!changed) return;
+    SGRPlayerLyricsChanged();
+    SGLog(@"redesign player: the side column shows the %@", lyrics ? @"lyrics" : @"queue");
+}
+
+static void refreshSide(BOOL animated) {
+    SGRPlayerLyricsOverlay *overlay = objc_getAssociatedObject(sg_host, &kOverlayKey);
+    if (sg_wide && overlay.superview) showSide(overlay, sideWantsLyrics(), animated);
+}
+
+static void pickSide(SGRSidePick pick) {
+    sg_sidePick = pick;
+    refreshSide(YES);
+}
+
+// VoiceOver reads the leading column before the side column: it would otherwise go by position, row by row, and read
+// the lines at the top of the side column before the controls at the foot of the leading one. The player's own views
+// in the order they stand, then the overlay. Left alone when Spotify gives the player an order of its own.
+static void orderForVoiceOver(UIView *host, UIView *overlay) {
+    if (host.accessibilityElements && !sg_orderedForVoiceOver) {
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{ SGLog(@"redesign player: the player has an accessibility order of Spotify's, kept"); });
+        return;
+    }
+    NSMutableArray<UIView *> *views = [NSMutableArray array];
+    for (UIView *view in host.subviews) if (view != overlay) [views addObject:view];
+    [views sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(UIView *a, UIView *b) {
+        CGFloat ya = CGRectGetMinY(a.frame), yb = CGRectGetMinY(b.frame);
+        return ya < yb ? NSOrderedAscending : ya > yb ? NSOrderedDescending : NSOrderedSame;
+    }];
+    [views addObject:overlay];
+    if (![host.accessibilityElements isEqualToArray:views]) host.accessibilityElements = views;
+    sg_orderedForVoiceOver = YES;
+}
+
+static void leaveWide(UIView *host) {
+    if (!sg_wide) return;
+    sg_wide = NO;
+    sg_open = NO;
+    SGRPlayerLyricsOverlay *overlay = objc_getAssociatedObject(host, &kOverlayKey);
+    UIView *queue = queueListOf(overlay).view, *lines = overlay.madeLyrics;
+    [queue removeFromSuperview];
+    [lines removeFromSuperview];
+    queue.alpha = lines.alpha = 1;
+    [overlay removeFromSuperview];
+    overlay.thumb.isAccessibilityElement = YES;
+    placeColumn(host, NO);
+    placeTitleRow((SGRLyricsLayout){0});
+    if (sg_orderedForVoiceOver) host.accessibilityElements = nil;
+    sg_orderedForVoiceOver = NO;
+    SGRPlayerCoverList().alpha = 1;
+    sg_floating.viewIfLoaded.alpha = 1;
+    SGRPlayerLyricsChanged();
+    SGRPlayerLookChanged();
+    SGLog(@"redesign player: one column again (%.0f pt wide)", host.bounds.size.width);
+}
+
+// The columns put in place without animating: Spotify's stack in the leading one, the cover over it, the side column
+// beside them. Nothing until the player can be measured and the cover's picture has been read.
+static void placeWide(UIView *host) {
+    placeColumn(host, YES);
+    SGRLyricsLayout l = layoutIn(host);
+    UIImage *picture = SGRNowPlayingArtwork(NULL, NULL);
+    if (!l.ok || !picture) {
+        if (!l.ok) leaveWide(host);
+        if (!sg_wide) placeColumn(host, NO);
+        return;
+    }
+    BOOL entering = !sg_wide;
+    sg_wide = YES;
+    SGRPlayerLyricsOverlay *overlay = overlayIn(host);
+    // The cover stands where the column wants it, untransformed, with the player's own corners.
+    l.cover = l.thumb;
+    place(overlay, host, l);
+    overlay.thumb.transform = CGAffineTransformIdentity;
+    overlay.thumb.alpha = 1;
+    overlay.thumb.isAccessibilityElement = NO;
+    overlay.cover.layer.cornerRadius = thumbRadius(l, NO);
+    if (overlay.cover.image != picture) overlay.cover.image = picture;
+    overlay.stage.alpha = 1;
+    overlay.stage.transform = CGAffineTransformIdentity;
+    placeTitleRow(l);
+    sg_floating.viewIfLoaded.alpha = 1;
+    SGRPlayerCoverList().alpha = 0;
+    showSide(overlay, sideWantsLyrics(), NO);
+    orderForVoiceOver(host, overlay);
+    if (!entering) return;
+    // The footer lays out again for its queue glyph.
+    SGRPlayerLookChanged();
+    SGLog(@"redesign player: two columns, the stack %@, the cover %@, the side %@", NSStringFromCGRect(wideColumn(host)),
+          NSStringFromCGRect(l.thumb), NSStringFromCGRect(l.stage));
+}
+
 void SGRPlayerToggleLyrics(void) {
+    if (sg_wide) {
+        pickSide(SGRSidePickLyrics);
+        return;
+    }
     if (!sg_open && !SGRPlayerLyricsAvailable()) return;
     setOpen(!sg_open, YES);
+}
+
+void SGRPlayerToggleQueueSide(void) {
+    if (sg_wide) pickSide(SGRSidePickQueue);
+}
+
+void SGRPlayerShowLyricsOnOpen(void) {
+    sg_lyricsOnOpenUntil = CACurrentMediaTime() + kLyricsOnOpenWindow;
+}
+
+// The mini player's ask, once the player it opened is up and settled: the lyrics in the side column, or opened as the
+// narrow player opens them.
+static void answerLyricsOnOpen(UIView *host) {
+    if (!sg_lyricsOnOpenUntil || !host.window || SGRPlayerIsTransitioning()) return;
+    BOOL current = CACurrentMediaTime() < sg_lyricsOnOpenUntil;
+    sg_lyricsOnOpenUntil = 0;
+    if (!current) return;
+    if (sg_wide) {
+        pickSide(SGRSidePickLyrics);
+        return;
+    }
+    // After this pass: the lines open with an animation of their own.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!sg_open && !sg_wide && SGRPlayerLyricsAvailable()) setOpen(YES, YES);
+    });
 }
 
 // A layout pass, a new track or a turn of the phone: the state is put back where it belongs without
@@ -826,8 +1052,15 @@ void SGRPlayerToggleLyrics(void) {
 static void replace(void) {
     UIView *host = sg_host;
     if (!host || sg_moving || sg_placingColumn) return;   // a pass in the middle of the transition would cut it short
-    placeColumn(host, sg_open);
-    if (sg_alone && wideIn(host)) setAlone(NO, NO);
+    if (wideIn(host)) {
+        // The narrow player's lines, if they were up, give their place to the side column's.
+        if (!sg_wide && sg_open) setOpen(NO, NO);
+        placeWide(host);
+        answerLyricsOnOpen(host);
+        return;
+    }
+    leaveWide(host);
+    answerLyricsOnOpen(host);
     SGRLyricsLayout l = layoutIn(host);
     if (sg_open && !l.ok) return;
     placeTitleRow(l);
@@ -856,7 +1089,7 @@ static void replace(void) {
     if (!host || host.bounds.size.height < kLivingHeight) return;
     sg_player = (UIViewController *)self;
     if (sg_host != host) {
-        placeColumn(sg_host, NO);
+        leaveWide(sg_host);
         sg_host = host;
         [host addGestureRecognizer:[SGRPlayerTouchWatcher new]];
         SGRPlayerWake *wake = [SGRPlayerWake new];
@@ -867,9 +1100,12 @@ static void replace(void) {
     replace();
 }
 
-// The bar morphs back out of a full size cover as the player closes, so the thumbnail is put away first.
+// The bar morphs back out of a full size cover as the player closes, so the thumbnail is put away first. The two
+// columns have no morph (a regular width has none, PlayerMorph.x) and close as they are; only the side column's pick
+// is forgotten, so the next player opens on its default.
 - (void)viewWillDisappear:(BOOL)animated {
-    if (sg_open) setOpen(NO, NO);
+    if (sg_open && !sg_wide) setOpen(NO, NO);
+    sg_sidePick = SGRSidePickNone;
     // The landscape screen outlives the lines for a track without lyrics, but not the player.
     SGRPlayerShowLandscape(NO);
     %orig;
@@ -998,8 +1234,13 @@ static void durationUnitLaidOut(UIViewController *unit) {
 - (void)linesKept:(NSNotification *)note {
     if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
     if (![note.object isEqual:SGKaraokePlayingTrack()]) return;
-    if (SGRPlayerLyricsAvailable()) SGRPlayerLyricsChanged();
-    else [self closeIfNone];
+    if (SGRPlayerLyricsAvailable()) {
+        SGRPlayerLyricsChanged();
+        // The two columns' side shows the lines that came, unless the queue was picked.
+        refreshSide(YES);
+    } else {
+        [self closeIfNone];
+    }
     SGRPlayerLandscapeLinesChanged();
 }
 
@@ -1011,6 +1252,11 @@ static void durationUnitLaidOut(UIViewController *unit) {
 // The lines go once the grace is over and nothing is looking for the track's own any more.
 - (void)closeIfNone {
     if (!sg_open || ![self none]) return;
+    if (sg_wide) {
+        SGLog(@"redesign player: no lyrics for the track that came on, the queue is beside it");
+        refreshSide(YES);
+        return;
+    }
     SGLog(@"redesign player: no lyrics for the track that came on, the cover is back");
     setOpen(NO, YES);
 }
@@ -1070,6 +1316,11 @@ BOOL SGRPlayerLyricsNone(void) {
     if (djHeader) { %init(SGRDJHeaderFadeHooks, SGRDJHeaderFadeUnit = djHeader); }
     sg_watcher = [SGRPlayerLyricsWatcher new];
     SGAddPlayerStateObserver(sg_watcher);
+    // The mini player's ask for the lyrics is answered once the player it opened has settled, which may come after the
+    // player's last layout pass.
+    [NSNotificationCenter.defaultCenter addObserverForName:SGPlayerTransitionEndedNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        dispatch_async(dispatch_get_main_queue(), ^{ answerLyricsOnOpen(sg_host); });
+    }];
     // In the background the controls stay up; back in front the clock starts again.
     [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
         setAlone(NO, NO);
@@ -1093,7 +1344,7 @@ BOOL SGRPlayerLyricsNone(void) {
         restartRest();
     }];
     [NSNotificationCenter.defaultCenter addObserverForName:SGRNowPlayingArtworkDidChangeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        if (!sg_open) return;
+        if (!sg_open && !sg_wide) return;
         SGRPlayerLyricsOverlay *overlay = objc_getAssociatedObject(sg_host, &kOverlayKey);
         overlay.cover.image = SGRNowPlayingArtwork(NULL, NULL);
     }];

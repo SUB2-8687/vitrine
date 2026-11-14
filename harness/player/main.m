@@ -58,6 +58,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
 #import <UIKit/UIKit.h>
+#import "../harness-fail.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <stdlib.h>
@@ -71,6 +72,7 @@
 #import "Redesigned/Lyrics/MeaningSheet.h"
 #import "Redesigned/Lyrics/SGRKaraokeView.h"
 #import "Core/SGPrefs.h"
+#import "Core/SGViewTree.h"
 #import "Redesigned/Kit/SGRFluid.h"
 #import "Settings/SGModPage.h"
 #import "Shared/Player/PlayerSettings.h"
@@ -567,6 +569,36 @@ static void loadLyrics(void) {
 @property (nonatomic, strong) UIWindow *window;
 @end
 
+@interface NSObject (SGRAdaptiveBuild)
+- (BOOL)buildPlayer;
+@end
+@interface SGRHarnessAdaptiveRoot : UIViewController
+@property (nonatomic) BOOL built;
+@end
+@implementation SGRHarnessAdaptiveRoot
+- (void)buildWhenVisible {
+    if (self.built) return;
+    self.built = YES;
+    [(id)UIApplication.sharedApplication.delegate buildPlayer];
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (getenv("HARNESS_LANDSCAPE")) {
+        [self.view.window.windowScene requestGeometryUpdateWithPreferences:
+            [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscapeLeft]
+            errorHandler:^(NSError *error) { HARNESS_FAIL(@"adaptive rotation: %@", error); }];
+    } else {
+        [self buildWhenVisible];
+    }
+}
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        if (getenv("HARNESS_LANDSCAPE") && self.view.bounds.size.width > self.view.bounds.size.height) [self buildWhenVisible];
+    }];
+}
+@end
+
 @implementation SGRHarnessDelegate {
     NSArray<UIViewController *> *_units;
     NSUInteger _headerDowns;
@@ -589,13 +621,29 @@ static void loadLyrics(void) {
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
     loadLyrics();
+    if (getenv("HARNESS_NO_LYRICS")) SGKaraokeKeepLines(SGKaraokePlayingTrack(), nil);
     SGRHarnessPlayFrom(2400);
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    UIViewController *root = [UIViewController new];
+    UIViewController *root = [scenario() isEqualToString:@"adaptive"] ? [SGRHarnessAdaptiveRoot new] : [UIViewController new];
     root.view.backgroundColor = [UIColor colorWithRed:0.09 green:0.07 blue:0.17 alpha:1];
     self.window.rootViewController = root;
+    if ([scenario() isEqualToString:@"adaptive"]) {
+        [self.window makeKeyAndVisible];
+        return YES;
+    }
+    return [self buildPlayer];
+}
 
+- (BOOL)buildPlayer {
+    UIViewController *root = self.window.rootViewController;
     CGFloat W = root.view.bounds.size.width, H = root.view.bounds.size.height;
+    if ([scenario() isEqualToString:@"adaptive"]) {
+        if (getenv("HARNESS_COMPACT")) {
+            W = 500;
+            self.window.traitOverrides.horizontalSizeClass = UIUserInterfaceSizeClassCompact;
+        }
+        if (getenv("HARNESS_RTL")) root.view.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
+    }
     // The player's own numbers are the tree's 402x874; the simulator's screen is whatever it is, so the
     // rows are placed as shares of it, the way Spotify's layout puts them.
     CGFloat headerTop = 62, headerHeight = 48;
@@ -610,6 +658,7 @@ static void loadLyrics(void) {
     // NPVScrollViewController: the list the player is the header of.
     UIView *page = box(root.view, UIView.class, root.view.bounds, nil);
     UIScrollView *list = [[UIScrollView alloc] initWithFrame:page.bounds];
+    if ([scenario() isEqualToString:@"adaptive"]) list.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     list.accessibilityIdentifier = @"scrolling_npv_collection_view_accessibility_identifier";
     list.contentSize = CGSizeMake(W, H + 326);       // the player and a card's worth of cards under it
     [page addSubview:list];
@@ -625,6 +674,7 @@ static void loadLyrics(void) {
     background.view = plane;
 
     UIView *host = box(list, UIView.class, CGRectMake(0, 0, W, H), @"SPTNowPlayingView");
+    if (getenv("HARNESS_RTL")) host.semanticContentAttribute = UISemanticContentAttributeForceRightToLeft;
 
     // the content layers: the sideways list of covers
     UIView *layers = box(host, UIView.class, host.bounds, nil);
@@ -725,6 +775,16 @@ static void loadLyrics(void) {
     // The queue control holds Spotify's 18x18 glyph view (out/rep/ptree.txt:1228-1279).
     UIView *queueButton = box(footerRow, MockEncoreButton.class, CGRectMake(323, 6, 47, 32), @"QueueButtonNowPlaying");
     _queueIcon = (SPTEncoreIconView *)box(queueButton, SPTEncoreIconView.class, CGRectMake(14.5, 7, 18, 18), @"Encore.IconView");
+    if ([scenario() isEqualToString:@"adaptive"]) {
+        for (UIView *row in bottom.subviews) row.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        for (UIView *view in @[infoRow, infoInner, titleElement, titleContainer, durationView.subviews.firstObject, footerRow])
+            view.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        for (UIView *view in controls.subviews)
+            view.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+        infoInner.subviews.lastObject.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
+        for (UIView *view in titleContainer.subviews) view.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+        if (hasVolume) bottom.subviews[4].subviews.firstObject.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    }
 
     // The options scenario's AI DJ: its header unit's two buttons over the status bar, and its footer (DJMFooterUnitView:
     // share, the DJ button and Connect, not in a stack) just under the player's header row.
@@ -825,7 +885,8 @@ static void loadLyrics(void) {
         NSLog(@"[harness] hit on the title: %@", NSStringFromClass([self.window hitTest:onTitle withEvent:nil].class));
         NSLog(@"[harness] hit on the lines: %@", NSStringFromClass([self.window hitTest:onLines withEvent:nil].class));
     });
-    if ([scenario() isEqualToString:@"artwork"]) [self runArtworkChecks];
+    if ([scenario() isEqualToString:@"adaptive"]) [self runAdaptiveChecks];
+    else if ([scenario() isEqualToString:@"artwork"]) [self runArtworkChecks];
     else if ([scenario() isEqualToString:@"look"]) [self runLook];
     else if ([scenario() isEqualToString:@"scroll"]) [self runScrollChecks];
     else if ([scenario() isEqualToString:@"controls"]) [self runControlsChecks];
@@ -861,6 +922,10 @@ static void loadLyrics(void) {
 - (void)layOut {
     for (UIViewController *unit in _units) [unit viewDidLayoutSubviews];
 }
+
+static void runScript(NSArray<NSArray *> *script, NSUInteger index);
+static UIView *firstOfClass(UIView *root, NSString *name);
+#include "adaptive-check.inc"
 
 #pragma mark - tracks
 

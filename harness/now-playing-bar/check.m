@@ -6,6 +6,7 @@
 #import <UIKit/UIKit.h>
 #import "../harness-fail.h"
 #import "Shared/Player/PlayerState.h"
+#include "repeat.inc"
 
 #pragma mark - the player's state, a double
 
@@ -32,8 +33,14 @@ static NSUInteger sg_titleReads;
 @property (nonatomic, readwrite) SPTPlayerTrack *track;
 @property (nonatomic, readwrite) NSArray *future;
 @property (nonatomic, readwrite) NSArray *reverse;
+@property (nonatomic, readwrite) SPTPlayerOptions *options;
 @end
 @implementation SPTPlayerState
+@end
+@interface SPTPlayerOptions ()
+@property (nonatomic, readwrite) BOOL shufflingContext, repeatingContext, repeatingTrack;
+@end
+@implementation SPTPlayerOptions
 @end
 
 static SPTPlayerState *sg_state;
@@ -44,6 +51,9 @@ SPTPlayerState *SGPlayerState(void) { return sg_state; }
 @property (nonatomic) NSUInteger skips;
 @end
 @implementation SGHarnessPlayer
+- (id)setShufflingContext:(BOOL)value { sg_state.options.shufflingContext = value; return nil; }
+- (id)setRepeatingContext:(BOOL)value { sg_state.options.repeatingContext = value; return nil; }
+- (id)setRepeatingTrack:(BOOL)value { sg_state.options.repeatingTrack = value; return nil; }
 - (id)skipToNextTrackWithOptions:(id)options {
     self.skips++;
     return nil;
@@ -90,6 +100,8 @@ static UIView *makePage(NSString *line, NSString *hiddenArtists, BOOL device, NS
 }
 
 static NSUInteger sg_checks;
+
+#include "capsule-check.inc"
 
 static void expect(NSString *name, UIView *page, NSString *title, NSString *artists) {
     placeText(page);
@@ -386,6 +398,7 @@ static void checkArtworkShape(void) {
 }
 
 static void run(void) {
+    if (getenv("HARNESS_CAPSULE")) { checkCapsule(); return; }
     SPTPlayerTrack *plain = makeTrack(@"Stay High", @"Juice WRLD"), *dotted = makeTrack(@"Rock • Roll", @"The Band");
     SPTPlayerTrack *shorter = makeTrack(@"Rock", @"Roll Crew");
     sg_state = [SPTPlayerState new];
@@ -460,7 +473,7 @@ static void run(void) {
 @end
 @implementation NowPlayingBarApp
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
-    self.window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 390, 844)];
+    self.window = [[UIWindow alloc] initWithFrame:getenv("HARNESS_CAPSULE") ? UIScreen.mainScreen.bounds : CGRectMake(0, 0, 390, 844)];
     self.window.rootViewController = [UIViewController new];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ run(); });
     return YES;
